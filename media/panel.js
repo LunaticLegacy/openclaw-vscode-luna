@@ -82,10 +82,16 @@
         // Send message
         elements.btnSend?.addEventListener('click', sendMessage);
         elements.messageInput?.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
+            if (e.key !== 'Enter' || e.isComposing) {
+                return;
             }
+
+            if (e.shiftKey) {
+                return;
+            }
+
+            e.preventDefault();
+            sendMessage();
         });
 
         // Clear chat
@@ -200,8 +206,8 @@
 
     // Send message
     function sendMessage() {
-        const content = elements.messageInput.value.trim();
-        if (!content || state.isStreaming) return;
+        const content = normalizeOutgoingMessage(elements.messageInput?.value || '');
+        if (!content.trim() || state.isStreaming) return;
         
         if (!state.currentAgentId) {
             showError(window.OpenClawI18n ? window.OpenClawI18n.t('panel.selectAgentFirst') : 'Please select an agent first');
@@ -229,6 +235,10 @@
             agentId: state.currentAgentId,
             optimistic: true
         });
+    }
+
+    function normalizeOutgoingMessage(content) {
+        return String(content || '').replace(/\r\n?/g, '\n');
     }
 
     // Show thinking indicator

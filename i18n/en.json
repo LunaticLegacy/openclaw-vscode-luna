@@ -38,7 +38,7 @@
   "agentSettings.saveFailed": "Failed to save settings: {error}",
   "agentSettings.openFolderFailed": "Failed to open folder: {error}",
   "agentSettings.noWorkspace": "No workspace configured for this agent",
-  "chat.placeholder": "Type your message... (Shift+Enter to send)",
+  "chat.placeholder": "Type your message... (Enter to send, Shift+Enter for newline)",
   "chat.send": "Send",
   "chat.thinking": "Thinking",
   "chat.clear": "Clear Chat",

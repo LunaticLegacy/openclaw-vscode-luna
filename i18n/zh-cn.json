@@ -38,7 +38,7 @@
   "agentSettings.saveFailed": "保存设置失败：{error}",
   "agentSettings.openFolderFailed": "打开文件夹失败：{error}",
   "agentSettings.noWorkspace": "此 Agent 未配置工作区",
-  "chat.placeholder": "输入你的消息... (Shift+Enter 发送)",
+  "chat.placeholder": "输入你的消息...（Enter 发送，Shift+Enter 换行）",
   "chat.send": "发送",
   "chat.thinking": "思考中",
   "chat.clear": "清空聊天",

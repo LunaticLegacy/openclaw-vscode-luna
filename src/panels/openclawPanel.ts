@@ -205,6 +205,7 @@ export class OpenClawPanel {
         agentId?: string,
         options: { optimisticEcho?: boolean } = {}
     ) {
+        const normalizedContent = normalizeOutgoingMessageContent(content);
         const targetAgentId = agentId || this._currentAgentId;
         
         if (!targetAgentId) {
@@ -228,7 +229,7 @@ export class OpenClawPanel {
                 type: 'addMessage',
                 message: {
                     role: 'user',
-                    content,
+                    content: normalizedContent,
                     timestamp: new Date().toISOString()
                 }
             });
@@ -242,7 +243,7 @@ export class OpenClawPanel {
                 // 流式响应
                 let fullContent = '';
                 
-                for await (const chunk of this._sessionManager.streamMessage(content)) {
+                for await (const chunk of this._sessionManager.streamMessage(normalizedContent)) {
                     fullContent += chunk.content;
                     
                     this._postMessage({
@@ -253,7 +254,7 @@ export class OpenClawPanel {
                 }
             } else {
                 // 非流式响应
-                const response = await this._sessionManager.sendMessage(content);
+                const response = await this._sessionManager.sendMessage(normalizedContent);
 
                 this._postMessage({
                     type: 'addMessage',
@@ -635,5 +636,9 @@ export class OpenClawPanel {
             }
         }
     }
+}
+
+function normalizeOutgoingMessageContent(content: string): string {
+    return String(content ?? '').replace(/\r\n?/g, '\n');
 }
 
