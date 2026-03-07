@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en" data-locale="{{locale}}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src {{cspSource}}; connect-src {{cspSource}};">
+    <title>OpenClaw Luna</title>
+    <link rel="stylesheet" href="{{styleUri}}">
+</head>
+<body>
+    <div id="app">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>OpenClaw Luna</h2>
+                <span id="connection-status" class="status-indicator offline">●</span>
+            </div>
+            
+            <nav class="nav-tabs">
+                <button class="nav-tab active" data-view="chat">
+                    <span class="icon">💬</span> <span data-i18n="sidebar.chat">Chat</span>
+                </button>
+                <button class="nav-tab" data-view="clusters">
+                    <span class="icon">🖥️</span> <span data-i18n="sidebar.clusters">Clusters</span>
+                </button>
+                <button class="nav-tab" data-view="usage">
+                    <span class="icon">📊</span> <span data-i18n="sidebar.usage">Usage</span>
+                </button>
+            </nav>
+
+            <div class="agent-section">
+                <h3 data-i18n="sidebar.agents">Agents</h3>
+                <div id="agent-list" class="agent-list">
+                    <div class="loading" data-i18n="common.loading">Loading...</div>
+                </div>
+                <button id="btn-new-agent" class="btn btn-secondary">
+                    <span class="icon">+</span> <span data-i18n="sidebar.newAgent">New Agent</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Chat View -->
+            <div id="view-chat" class="view active">
+                <div class="chat-container">
+                    <div id="chat-messages" class="chat-messages">
+                        <div class="welcome-message">
+                            <h3 data-i18n="welcome.title">Welcome to OpenClaw Luna</h3>
+                            <p data-i18n="welcome.subtitle">Select an agent from the sidebar and start chatting!</p>
+                        </div>
+                    </div>
+                    
+                    <div class="chat-input-container">
+                        <div class="input-wrapper">
+                            <textarea 
+                                id="message-input" 
+                                data-i18n-placeholder="chat.placeholder"
+                                placeholder="Type your message... (Shift+Enter to send)"
+                                rows="3"
+                            ></textarea>
+                            <div class="input-actions">
+                                <button id="btn-clear" class="btn-icon" title="Clear chat">🗑️</button>
+                                <button id="btn-send" class="btn btn-primary" data-i18n="chat.send">Send</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Clusters View -->
+            <div id="view-clusters" class="view">
+                <div class="clusters-header">
+                    <h2 data-i18n="sidebar.clusters">Clusters</h2>
+                    <button id="btn-create-cluster" class="btn btn-primary" data-i18n="clusters.create">Create Cluster</button>
+                </div>
+                <div id="clusters-list" class="clusters-list">
+                    <div class="loading" data-i18n="common.loading">Loading...</div>
+                </div>
+            </div>
+
+            <!-- Usage View -->
+            <div id="view-usage" class="view">
+                <div class="usage-header">
+                    <h2 data-i18n="usage.title">API Usage Dashboard</h2>
+                    <button id="btn-refresh-usage" class="btn btn-secondary" data-i18n="usage.refresh">Refresh</button>
+                </div>
+                <div id="usage-content" class="usage-content">
+                    <div class="usage-cards">
+                        <div class="usage-card">
+                            <h4 data-i18n="usage.totalRequests">Total Requests</h4>
+                            <div class="usage-value" id="usage-requests">-</div>
+                        </div>
+                        <div class="usage-card">
+                            <h4 data-i18n="usage.totalTokens">Total Tokens</h4>
+                            <div class="usage-value" id="usage-tokens">-</div>
+                        </div>
+                        <div class="usage-card">
+                            <h4 data-i18n="usage.estimatedCost">Estimated Cost</h4>
+                            <div class="usage-value" id="usage-cost">-</div>
+                        </div>
+                    </div>
+                    <div class="usage-charts">
+                        <div class="chart-container">
+                            <h4>7-Day Usage</h4>
+                            <div id="usage-chart" class="chart"></div>
+                        </div>
+                        <div class="chart-container">
+                            <h4>By Model</h4>
+                            <div id="model-chart" class="chart"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- New Agent Modal -->
+        <div id="modal-new-agent" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 data-i18n="sidebar.newAgent">Create New Agent</h3>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <form id="form-new-agent">
+                    <div class="form-group">
+                        <label for="agent-name" data-i18n="agentSettings.name">Name</label>
+                        <input type="text" id="agent-name" required placeholder="My Agent">
+                    </div>
+                    <div class="form-group">
+                        <label for="agent-model" data-i18n="agentSettings.model">Model</label>
+                        <select id="agent-model" required>
+                            <option value="moonshot/kimi-k2.5">Kimi K2.5</option>
+                            <option value="gpt-4">GPT-4</option>
+                            <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                            <option value="claude-3-opus">Claude 3 Opus</option>
+                            <option value="claude-3-sonnet">Claude 3 Sonnet</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="agent-prompt" data-i18n="common.systemPrompt">System Prompt</label>
+                        <textarea id="agent-prompt" rows="4" placeholder="You are a helpful assistant."></textarea>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary modal-cancel" data-i18n="common.cancel">Cancel</button>
+                        <button type="submit" class="btn btn-primary" data-i18n="common.create">Create</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Agent Settings Modal -->
+        <div id="modal-agent-settings" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 data-i18n="agentSettings.title">Agent Settings</h3>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <form id="form-agent-settings">
+                    <input type="hidden" id="settings-agent-id">
+                    
+                    <div class="settings-section">
+                        <div class="settings-section-title" data-i18n="agentSettings.basic">Basic Settings</div>
+                        
+                        <div class="form-group">
+                            <label for="settings-agent-name" data-i18n="agentSettings.name">Name</label>
+                            <input type="text" id="settings-agent-name" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="settings-agent-model" data-i18n="agentSettings.model">Model</label>
+                            <input type="text" id="settings-agent-model">
+                            <div class="form-hint">Model identifier used by OpenClaw</div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="settings-agent-prompt" data-i18n="common.systemPrompt">System Prompt</label>
+                            <textarea id="settings-agent-prompt" rows="4"></textarea>
+                        </div>
+                    </div>
+                    
+                    <div class="settings-section">
+                        <div class="settings-section-title" data-i18n="agentSettings.advanced">Advanced Settings</div>
+                        
+                        <div class="form-group">
+                            <label for="settings-agent-temperature" data-i18n="common.temperature">Temperature</label>
+                            <div class="range-input-wrapper">
+                                <input type="range" id="settings-agent-temperature" min="0" max="2" step="0.1" value="0.7">
+                                <span class="range-value">0.7</span>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="settings-agent-max-tokens" data-i18n="common.maxTokens">Max Tokens</label>
+                            <input type="number" id="settings-agent-max-tokens" min="100" max="8000" value="2000">
+                        </div>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary modal-cancel" data-i18n="common.cancel">Cancel</button>
+                        <button type="submit" class="btn btn-primary" data-i18n="common.save">Save</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{i18nScriptUri}}"></script>
+    <script src="{{panelScriptUri}}"></script>
+</body>
+</html>

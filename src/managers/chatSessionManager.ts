@@ -1,0 +1,168 @@
+import { OpenClawService, ChatSession, ChatMessage } from '../services/openclawService';
+import { EventEmitter } from 'events';
+import { t } from '../i18n';
+
+export class ChatSessionManager extends EventEmitter {
+    private service: OpenClawService;
+    private sessions: Map<string, ChatSession> = new Map();
+    private currentSessionId: string | null = null;
+
+    constructor(service: OpenClawService) {
+        super();
+        this.service = service;
+    }
+
+    public async createSession(agentId: string): Promise<ChatSession> {
+        const session = await this.service.createChatSession(agentId);
+        this.sessions.set(session.id, session);
+        this.currentSessionId = session.id;
+        this.emit('sessionCreated', session);
+        return session;
+    }
+
+    public async getOrCreateSession(
+        agentId: string,
+        options: { refreshHistory?: boolean } = {}
+    ): Promise<ChatSession> {
+        // 查找是否已有该 agent 的 session
+        for (const session of this.sessions.values()) {
+            if (session.agentId === agentId) {
+                if (options.refreshHistory) {
+                    session.messages = await this.service.getChatHistory(session.id);
+                    session.updatedAt = session.messages[session.messages.length - 1]?.timestamp || session.updatedAt;
+                }
+                this.currentSessionId = session.id;
+                return session;
+            }
+        }
+        
+        return this.createSession(agentId);
+    }
+
+    public getSession(sessionId: string): ChatSession | null {
+        return this.sessions.get(sessionId) || null;
+    }
+
+    public getCurrentSession(): ChatSession | null {
+        if (!this.currentSessionId) return null;
+        return this.sessions.get(this.currentSessionId) || null;
+    }
+
+    public getCurrentSessionId(): string | null {
+        return this.currentSessionId;
+    }
+
+    public setCurrentSession(sessionId: string): boolean {
+        if (this.sessions.has(sessionId)) {
+            this.currentSessionId = sessionId;
+            this.emit('sessionChanged', sessionId);
+            return true;
+        }
+        return false;
+    }
+
+    public async sendMessage(content: string): Promise<ChatMessage> {
+        const session = this.getCurrentSession();
+        if (!session) {
+            throw new Error(t('session.noActive'));
+        }
+
+        const response = await this.service.sendMessage(session.id, content);
+        
+        // 更新本地 session 消息
+        session.messages.push({
+            id: Date.now().toString(),
+            role: 'user',
+            content,
+            timestamp: new Date().toISOString()
+        });
+        session.messages.push(response);
+        session.updatedAt = new Date().toISOString();
+
+        this.emit('messageReceived', response);
+        return response;
+    }
+
+    public async *streamMessage(content: string): AsyncGenerator<{ content: string; done: boolean }, void, unknown> {
+        const session = this.getCurrentSession();
+        if (!session) {
+            throw new Error(t('session.noActive'));
+        }
+
+        // 添加用户消息
+        session.messages.push({
+            id: Date.now().toString(),
+            role: 'user',
+            content,
+            timestamp: new Date().toISOString()
+        });
+
+        let fullContent = '';
+        
+        for await (const chunk of this.service.streamMessage(session.id, content)) {
+            fullContent += chunk.content;
+            yield chunk;
+        }
+
+        // 添加助手消息到历史
+        session.messages.push({
+            id: (Date.now() + 1).toString(),
+            role: 'assistant',
+            content: fullContent,
+            timestamp: new Date().toISOString()
+        });
+        
+        session.updatedAt = new Date().toISOString();
+    }
+
+    public async getHistory(): Promise<ChatMessage[]> {
+        const session = this.getCurrentSession();
+        if (!session) {
+            return [];
+        }
+
+        // 如果本地没有消息，从服务器获取
+        if (session.messages.length === 0) {
+            const messages = await this.service.getChatHistory(session.id);
+            session.messages = messages;
+        }
+
+        return session.messages;
+    }
+
+    public async clearHistory(): Promise<void> {
+        const session = this.getCurrentSession();
+        if (!session) return;
+
+        await this.service.clearChatHistory(session.id);
+        session.messages = [];
+        this.emit('historyCleared', session.id);
+    }
+
+    public closeSession(sessionId?: string): void {
+        const id = sessionId || this.currentSessionId;
+        if (!id) return;
+
+        this.sessions.delete(id);
+        
+        if (this.currentSessionId === id) {
+            this.currentSessionId = null;
+        }
+
+        this.emit('sessionClosed', id);
+    }
+
+    public getAllSessions(): ChatSession[] {
+        return Array.from(this.sessions.values());
+    }
+
+    public getSessionCount(): number {
+        return this.sessions.size;
+    }
+
+    public dispose() {
+        this.removeAllListeners();
+        this.sessions.clear();
+        this.currentSessionId = null;
+    }
+}

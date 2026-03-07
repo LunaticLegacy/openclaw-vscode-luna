@@ -1,0 +1,29 @@
+{
+  "displayName": "OpenClaw Luna",
+  "description": "🚀 OpenClaw Luna - 在 VSCode 中使用 OpenClaw AI Agent。支持 Agent 管理、集群、API 用量监控。一键打开，即刻使用！",
+  
+  "command.category": "OpenClaw",
+  "command.openPanel.title": "🚀 打开 OpenClaw Luna",
+  "command.quickChat.title": "💬 快速聊天",
+  "command.chat.title": "与 Agent 对话",
+  "command.newAgent.title": "➕ 创建新 Agent",
+  "command.manageAgents.title": "🤖 管理 Agents",
+  "command.viewClusters.title": "🖥️ 查看 Agent 集群",
+  "command.apiUsage.title": "📊 API 用量仪表板",
+  "command.settings.title": "⚙️ OpenClaw 设置",
+  "command.sendMessage.title": "发送消息",
+  "command.clearChat.title": "🗑️ 清空聊天记录",
+  "command.refreshAgents.title": "🔄 刷新 Agents",
+  "command.deleteAgent.title": "🗑️ 删除 Agent",
+  "command.editAgent.title": "✏️ 编辑 Agent",
+  "command.openAgentFolder.title": "📁 打开 Agent 文件夹",
+  "command.openAgentSettings.title": "⚙️ Agent 设置",
+  "command.saveAgentSettings.title": "保存 Agent 设置",
+  "command.createCluster.title": "➕ 创建集群",
+  "command.statusBarClick.title": "🚀 打开 OpenClaw Luna",
+  
+  "viewsContainer.openclaw.title": "OpenClaw",
+  "view.openclawSidebar.name": "Agents",
+  "view.openclawClusters.name": "集群",
+  "view.openclawUsage.name": "用量"
+}

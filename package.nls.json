@@ -1,0 +1,29 @@
+{
+  "displayName": "OpenClaw Luna",
+  "description": "🚀 OpenClaw Luna - Use OpenClaw AI Agent in VSCode. Supports Agent management, clusters, API usage monitoring. Open and use instantly!",
+  
+  "command.category": "OpenClaw",
+  "command.openPanel.title": "🚀 Open OpenClaw Luna",
+  "command.quickChat.title": "💬 Quick Chat",
+  "command.chat.title": "Chat with Agent",
+  "command.newAgent.title": "➕ Create New Agent",
+  "command.manageAgents.title": "🤖 Manage Agents",
+  "command.viewClusters.title": "🖥️ View Agent Clusters",
+  "command.apiUsage.title": "📊 API Usage Dashboard",
+  "command.settings.title": "⚙️ OpenClaw Settings",
+  "command.sendMessage.title": "Send Message",
+  "command.clearChat.title": "🗑️ Clear Chat History",
+  "command.refreshAgents.title": "🔄 Refresh Agents",
+  "command.deleteAgent.title": "🗑️ Delete Agent",
+  "command.editAgent.title": "✏️ Edit Agent",
+  "command.openAgentFolder.title": "📁 Open Agent Folder",
+  "command.openAgentSettings.title": "⚙️ Agent Settings",
+  "command.saveAgentSettings.title": "Save Agent Settings",
+  "command.createCluster.title": "➕ Create Cluster",
+  "command.statusBarClick.title": "🚀 Open OpenClaw Luna",
+  
+  "viewsContainer.openclaw.title": "OpenClaw",
+  "view.openclawSidebar.name": "Agents",
+  "view.openclawClusters.name": "Clusters",
+  "view.openclawUsage.name": "Usage"
+}

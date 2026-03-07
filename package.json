@@ -1,0 +1,406 @@
+{
+  "name": "openclaw-vscode-luna",
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "version": "0.1.0",
+  "publisher": "openclaw",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/openclaw/openclaw-vscode"
+  },
+  "icon": "resources/icon.png",
+  
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  
+  "categories": [
+    "Machine Learning",
+    "Snippets",
+    "Other"
+  ],
+  
+  "keywords": [
+    "openclaw",
+    "ai",
+    "llm",
+    "agent",
+    "chat",
+    "assistant"
+  ],
+  
+  "activationEvents": [
+    "onView:openclawSidebar",
+    "onCommand:openclaw.openPanel",
+    "onCommand:openclaw.chat",
+    "onStartupFinished"
+  ],
+  
+  "main": "./out/extension.js",
+  
+  "contributes": {
+    "commands": [
+      {
+        "command": "openclaw.openPanel",
+        "title": "%command.openPanel.title%",
+        "category": "%command.category%",
+        "icon": "$(rocket)"
+      },
+      {
+        "command": "openclaw.quickChat",
+        "title": "%command.quickChat.title%",
+        "category": "%command.category%",
+        "icon": "$(send)"
+      },
+      {
+        "command": "openclaw.chat",
+        "title": "%command.chat.title%",
+        "category": "%command.category%",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "openclaw.newAgent",
+        "title": "%command.newAgent.title%",
+        "category": "%command.category%",
+        "icon": "$(add)"
+      },
+      {
+        "command": "openclaw.manageAgents",
+        "title": "%command.manageAgents.title%",
+        "category": "%command.category%",
+        "icon": "$(list-unordered)"
+      },
+      {
+        "command": "openclaw.viewClusters",
+        "title": "%command.viewClusters.title%",
+        "category": "%command.category%",
+        "icon": "$(server)"
+      },
+      {
+        "command": "openclaw.apiUsage",
+        "title": "%command.apiUsage.title%",
+        "category": "%command.category%",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "openclaw.settings",
+        "title": "%command.settings.title%",
+        "category": "%command.category%",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "openclaw.sendMessage",
+        "title": "%command.sendMessage.title%",
+        "category": "%command.category%"
+      },
+      {
+        "command": "openclaw.clearChat",
+        "title": "%command.clearChat.title%",
+        "category": "%command.category%",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "openclaw.refreshAgents",
+        "title": "%command.refreshAgents.title%",
+        "category": "%command.category%",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "openclaw.deleteAgent",
+        "title": "%command.deleteAgent.title%",
+        "category": "%command.category%",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "openclaw.editAgent",
+        "title": "%command.editAgent.title%",
+        "category": "%command.category%",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "openclaw.openAgentFolder",
+        "title": "%command.openAgentFolder.title%",
+        "category": "%command.category%",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "openclaw.openAgentSettings",
+        "title": "%command.openAgentSettings.title%",
+        "category": "%command.category%",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "openclaw.saveAgentSettings",
+        "title": "%command.saveAgentSettings.title%",
+        "category": "%command.category%"
+      },
+      {
+        "command": "openclaw.createCluster",
+        "title": "%command.createCluster.title%",
+        "category": "%command.category%",
+        "icon": "$(add)"
+      },
+      {
+        "command": "openclaw.statusBarClick",
+        "title": "%command.statusBarClick.title%",
+        "category": "%command.category%",
+        "icon": "$(rocket)"
+      }
+    ],
+    
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "openclaw",
+          "title": "%viewsContainer.openclaw.title%",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    
+    "views": {
+      "openclaw": [
+        {
+          "id": "openclawSidebar",
+          "name": "%view.openclawSidebar.name%",
+          "when": "openclaw.enabled"
+        },
+        {
+          "id": "openclawClusters",
+          "name": "%view.openclawClusters.name%",
+          "when": "openclaw.enabled"
+        },
+        {
+          "id": "openclawUsage",
+          "name": "%view.openclawUsage.name%",
+          "when": "openclaw.enabled"
+        }
+      ]
+    },
+    
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "openclaw.openPanel"
+        },
+        {
+          "command": "openclaw.quickChat"
+        },
+        {
+          "command": "openclaw.chat"
+        },
+        {
+          "command": "openclaw.newAgent"
+        },
+        {
+          "command": "openclaw.manageAgents"
+        },
+        {
+          "command": "openclaw.viewClusters"
+        },
+        {
+          "command": "openclaw.apiUsage"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "openclaw.openPanel",
+          "group": "navigation",
+          "when": "true"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "openclaw.quickChat",
+          "group": "1_openclaw@1"
+        },
+        {
+          "command": "openclaw.chat",
+          "when": "editorHasSelection",
+          "group": "1_openclaw@2"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "openclaw.openPanel",
+          "group": "2_openclaw@1"
+        },
+        {
+          "command": "openclaw.quickChat",
+          "group": "2_openclaw@2"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "openclaw.newAgent",
+          "when": "view == openclawSidebar",
+          "group": "navigation@1"
+        },
+        {
+          "command": "openclaw.refreshAgents",
+          "when": "view == openclawSidebar",
+          "group": "navigation@2"
+        },
+        {
+          "command": "openclaw.openPanel",
+          "when": "view == openclawSidebar",
+          "group": "navigation@3"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "openclaw.chat",
+          "when": "view == openclawSidebar && viewItem == agent",
+          "group": "inline@1"
+        },
+        {
+          "command": "openclaw.quickChat",
+          "when": "view == openclawSidebar && viewItem == agent",
+          "group": "inline@2"
+        },
+        {
+          "command": "openclaw.openAgentSettings",
+          "when": "view == openclawSidebar && viewItem == agent",
+          "group": "inline@3"
+        },
+        {
+          "command": "openclaw.openAgentFolder",
+          "when": "view == openclawSidebar && viewItem == agent",
+          "group": "inline@4"
+        },
+        {
+          "command": "openclaw.editAgent",
+          "when": "view == openclawSidebar && viewItem == agent",
+          "group": "inline@5"
+        },
+        {
+          "command": "openclaw.deleteAgent",
+          "when": "view == openclawSidebar && viewItem == agent",
+          "group": "inline@6"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "openclaw.quickChat",
+          "group": "openclaw@1"
+        },
+        {
+          "command": "openclaw.chat",
+          "when": "editorHasSelection",
+          "group": "openclaw@2"
+        }
+      ]
+    },
+    
+    "configuration": {
+      "title": "%configuration.title%",
+      "properties": {
+        "openclaw.gatewayUrl": {
+          "type": "string",
+          "default": "http://localhost:3344",
+          "description": "%configuration.gatewayUrl.description%"
+        },
+        "openclaw.gatewayToken": {
+          "type": "string",
+          "default": "",
+          "description": "%configuration.gatewayToken.description%"
+        },
+        "openclaw.configMode": {
+          "type": "string",
+          "default": "auto",
+          "enum": ["auto", "openclaw", "gateway", "local"],
+          "description": "%configuration.configMode.description%"
+        },
+        "openclaw.authProfilesPath": {
+          "type": "string",
+          "default": "",
+          "description": "%configuration.authProfilesPath.description%"
+        },
+        "openclaw.modelsPath": {
+          "type": "string",
+          "default": "",
+          "description": "%configuration.modelsPath.description%"
+        },
+        "openclaw.defaultAgent": {
+          "type": "string",
+          "default": "default",
+          "description": "%configuration.defaultAgent.description%"
+        },
+        "openclaw.timeout": {
+          "type": "number",
+          "default": 60000,
+          "minimum": 5000,
+          "maximum": 300000,
+          "description": "%configuration.timeout.description%"
+        },
+        "openclaw.streamResponse": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.streamResponse.description%"
+        },
+        "openclaw.showTokenCount": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.showTokenCount.description%"
+        },
+        "openclaw.codeTheme": {
+          "type": "string",
+          "default": "auto",
+          "enum": ["auto", "dark", "light"],
+          "description": "%configuration.codeTheme.description%"
+        },
+        "openclaw.enableMetrics": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.enableMetrics.description%"
+        }
+      }
+    },
+    
+    "keybindings": [
+      {
+        "command": "openclaw.openPanel",
+        "key": "ctrl+shift+o",
+        "mac": "cmd+shift+o",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "openclaw.chat",
+        "key": "ctrl+shift+c",
+        "mac": "cmd+shift+c",
+        "when": "editorHasSelection"
+      }
+    ],
+    
+    "viewsWelcome": [
+      {
+        "view": "openclawSidebar",
+        "contents": "%viewsWelcome.openclawSidebar.contents%"
+      }
+    ]
+  },
+  
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package"
+  },
+  
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/vscode": "^1.80.0",
+    "@typescript-eslint/eslint-plugin": "^6",
+    "@typescript-eslint/parser": "^6",
+    "eslint": "^8",
+    "typescript": "^5.2.0"
+  },
+  
+  "dependencies": {
+    "axios": "^1.6.0",
+    "ws": "^8.14.0"
+  }
+}
