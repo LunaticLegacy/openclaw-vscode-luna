@@ -1,279 +1,41 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fs from 'fs';
 
 type Locale = 'en' | 'zh-cn';
 type MessageValue = string | number;
 
-const EN_MESSAGES = {
-    // Common
-    'common.loading': 'Loading...',
-    'common.close': 'Close',
-    'common.save': 'Save',
-    'common.edit': 'Edit',
-    'common.delete': 'Delete',
-    'common.create': 'Create',
-    'common.cancel': 'Cancel',
-    'common.confirm': 'Confirm',
-    'common.copy': 'Copy',
-    'common.refresh': 'Refresh',
-    'common.search': 'Search',
-    'common.settings': 'Settings',
-    'common.openInExplorer': 'Open in Explorer',
-    'common.systemPrompt': 'System Prompt',
-    'common.temperature': 'Temperature',
-    'common.maxTokens': 'Max Tokens',
-    'common.topP': 'Top P',
-    'common.thinking': 'Thinking',
-    'common.thinkingLevel': 'Thinking Level',
-    'common.streaming': 'Streaming',
-    'common.enabled': 'Enabled',
-    'common.disabled': 'Disabled',
-    'common.showThinking': 'Show Thinking Process',
-    'common.hideThinking': 'Hide Thinking Process',
-    'common.yes': 'Yes',
-    'common.no': 'No',
-    
-    // Thinking stream
-    'thinking.started': 'Thinking...',
-    'thinking.processing': 'Processing...',
-    'thinking.completed': 'Thought process completed',
-    'thinking.step': 'Step {step}',
-    
-    // Agent settings
-    'agentSettings.title': 'Agent Settings',
-    'agentSettings.name': 'Name',
-    'agentSettings.model': 'Model',
-    'agentSettings.workspace': 'Workspace',
-    'agentSettings.advanced': 'Advanced Settings',
-    'agentSettings.saved': 'Settings saved',
-    'agentSettings.saveFailed': 'Failed to save settings: {error}',
-    'agentSettings.openFolderFailed': 'Failed to open folder: {error}',
-    'agentSettings.noWorkspace': 'No workspace configured for this agent',
-    
-    'statusBar.tooltip': 'Open OpenClaw Luna',
-    'quickChat.noAgents': 'No agents are available yet. Create one first.',
-    'quickChat.createAgent': 'Create Agent',
-    'quickChat.openPanel': 'Open Panel',
-    'quickChat.selectAgent': 'Select an agent to start chatting',
-    'quickChat.status': 'Status: {status}',
-    'quickChat.promptSendTo': 'Send a message to {name}',
-    'quickChat.inputPlaceholder': 'Type your message...',
-    'quickChat.sent': 'Message sent',
-    'quickChat.sendFailed': 'Failed to send message: {error}',
-    'newAgent.promptName': 'Enter agent name',
-    'newAgent.placeholderName': 'My Agent',
-    'newAgent.customModelOption': '$(edit) Enter custom model...',
-    'newAgent.customModelDescription': 'Use the exact OpenClaw model name',
-    'newAgent.selectModel': 'Select an OpenClaw model',
-    'newAgent.promptModel': 'Enter the OpenClaw model name',
-    'newAgent.placeholderModel': 'moonshot/kimi-k2.5',
-    'newAgent.defaultSystemPrompt': 'You are a helpful assistant.',
-    'newAgent.created': 'Agent "{name}" created successfully',
-    'newAgent.createFailed': 'Failed to create agent: {error}',
-    'manageAgents.selectAgent': 'Select an agent to manage',
-    'manageAgents.selectAction': 'Select an action',
-    'manageAgents.actionChat': '$(comment) Chat',
-    'manageAgents.actionEdit': '$(edit) Edit',
-    'manageAgents.actionDelete': '$(trash) Delete',
-    'manageAgents.actionDetails': '$(info) View Details',
-    'clusters.noneFound': 'No clusters found. Create one?',
-    'clusters.promptName': 'Enter cluster name',
-    'clusters.placeholderName': 'My Cluster',
-    'clusters.selectAgents': 'Select agents for this cluster',
-    'clusters.createAgentFirst': 'Create at least one agent first',
-    'clusters.created': 'Cluster "{name}" created',
-    'clusters.createFailed': 'Failed to create cluster: {error}',
-    'clearChat.cleared': 'Chat history cleared',
-    'agents.refreshed': 'Agents refreshed',
-    'agent.notFound': 'Agent not found',
-    'agent.deleteConfirm': 'Are you sure you want to delete agent "{agentId}"?',
-    'agent.deleted': 'Agent deleted',
-    'agent.deleteFailed': 'Failed to delete agent: {error}',
-    'agent.editName': 'Agent name',
-    'agent.editPrompt': 'System prompt',
-    'agent.updated': 'Agent updated',
-    'agent.editFailed': 'Failed to edit agent: {error}',
-    'agent.details': '**Name:** {name}\n**ID:** {id}\n**Model:** {model}\n**Status:** {status}\n**Created:** {created}',
-    'provider.chatWithAgent': 'Chat with Agent',
-    'clusterTree.agentsCount': '{count} agents',
-    'clusterTree.tooltip': '{name} - {count}',
-    'usage.totalRequests': 'Total Requests',
-    'usage.totalTokens': 'Total Tokens',
-    'usage.promptTokens': 'Prompt Tokens',
-    'usage.completionTokens': 'Completion Tokens',
-    'usage.estimatedCost': 'Estimated Cost',
-    'usage.todaysRequests': "Today's Requests",
-    'usage.todaysTokens': "Today's Tokens",
-    'usage.error': 'Error',
-    'usage.failedLoadData': 'Failed to load usage data',
-    'panel.selectAgentFirst': 'Please select an agent first',
-    'panel.failedLoadAgents': 'Failed to load agents: {error}',
-    'panel.failedSendMessage': 'Failed to send message: {error}',
-    'panel.failedCreateSession': 'Failed to create session: {error}',
-    'panel.failedLoadContext': 'Failed to load context: {error}',
-    'panel.failedLoadChatHistory': 'Failed to load chat history: {error}',
-    'panel.failedLoadClusters': 'Failed to load clusters: {error}',
-    'panel.failedLoadUsage': 'Failed to load usage: {error}',
-    'panel.failedDeleteAgent': 'Failed to delete agent: {error}',
-    'panel.failedBroadcast': 'Failed to broadcast: {error}',
-    'service.authFailed': 'Authentication failed. Please check your OpenClaw credentials.',
-    'service.accessDenied': 'Access denied. Please check the configured provider or gateway.',
-    'service.resourceNotFound': 'Resource not found.',
-    'service.rateLimit': 'Rate limit exceeded. Please try again later.',
-    'service.remoteError': 'Remote service error. Please check your OpenClaw endpoint.',
-    'service.httpError': 'HTTP {status}: {message}',
-    'service.requestFailed': 'request failed',
-    'service.connectFailed': 'Cannot connect to OpenClaw. Please check your local config or gateway URL.',
-    'service.noLocalProvider': 'No local OpenClaw provider was detected.',
-    'service.agentNotFound': 'Agent not found.',
-    'service.updateAgentNotSupported': 'Updating agents is not supported when using OpenClaw CLI mode yet.',
-    'service.localAgentNotFound': 'Local agent not found.',
-    'service.clustersUnavailable': 'Clusters are not available for the current connection mode.',
-    'service.clusterBroadcastUnavailable': 'Cluster broadcast is not available for the current connection mode.',
-    'service.cliNotConfigured': 'OpenClaw CLI is not configured.',
-    'service.chatSessionNotFound': 'Chat session not found.',
-    'service.providerApiUnsupported': 'Provider API "{api}" is not supported yet.',
-    'clusterManager.notFound': 'Cluster {clusterId} not found',
-    'session.noActive': 'No active session'
-} as const;
+// 缓存已加载的翻译
+const messageCache = new Map<Locale, Record<string, string>>();
 
-// Change the type definition to be more flexible
-const ZH_CN_MESSAGES: Record<string, string> = {
-    // Common
-    'common.loading': '加载中...',
-    'common.close': '关闭',
-    'common.save': '保存',
-    'common.edit': '编辑',
-    'common.delete': '删除',
-    'common.create': '创建',
-    'common.cancel': '取消',
-    'common.confirm': '确认',
-    'common.copy': '复制',
-    'common.refresh': '刷新',
-    'common.search': '搜索',
-    'common.settings': '设置',
-    'common.openInExplorer': '在文件管理器中打开',
-    'common.systemPrompt': '系统提示词',
-    'common.temperature': '温度',
-    'common.maxTokens': '最大 Token 数',
-    'common.topP': 'Top P',
-    'common.thinking': '思考',
-    'common.thinkingLevel': '思考级别',
-    'common.streaming': '流式响应',
-    'common.enabled': '已启用',
-    'common.disabled': '已禁用',
-    'common.showThinking': '显示思考过程',
-    'common.hideThinking': '隐藏思考过程',
-    'common.yes': '是',
-    'common.no': '否',
-    
-    // Thinking stream
-    'thinking.started': '正在思考...',
-    'thinking.processing': '处理中...',
-    'thinking.completed': '思考完成',
-    'thinking.step': '步骤 {step}',
-    
-    // Agent settings
-    'agentSettings.title': 'Agent 设置',
-    'agentSettings.name': '名称',
-    'agentSettings.model': '模型',
-    'agentSettings.workspace': '工作区',
-    'agentSettings.advanced': '高级设置',
-    'agentSettings.saved': '设置已保存',
-    'agentSettings.saveFailed': '保存设置失败：{error}',
-    'agentSettings.openFolderFailed': '打开文件夹失败：{error}',
-    'agentSettings.noWorkspace': '此 Agent 未配置工作区',
-    
-    'statusBar.tooltip': '打开 OpenClaw Luna',
-    'quickChat.noAgents': '当前没有可用的 Agent，请先创建一个。',
-    'quickChat.createAgent': '创建 Agent',
-    'quickChat.openPanel': '打开面板',
-    'quickChat.selectAgent': '选择一个 Agent 开始对话',
-    'quickChat.status': '状态：{status}',
-    'quickChat.promptSendTo': '发送消息给 {name}',
-    'quickChat.inputPlaceholder': '输入你的消息...',
-    'quickChat.sent': '消息已发送',
-    'quickChat.sendFailed': '发送失败：{error}',
-    'newAgent.promptName': '输入 Agent 名称',
-    'newAgent.placeholderName': '我的 Agent',
-    'newAgent.customModelOption': '$(edit) 输入自定义模型...',
-    'newAgent.customModelDescription': '使用 OpenClaw 的精确模型名',
-    'newAgent.selectModel': '选择 OpenClaw 模型',
-    'newAgent.promptModel': '输入 OpenClaw 模型名',
-    'newAgent.placeholderModel': 'moonshot/kimi-k2.5',
-    'newAgent.defaultSystemPrompt': 'You are a helpful assistant.',
-    'newAgent.created': 'Agent“{name}”已创建',
-    'newAgent.createFailed': '创建 Agent 失败：{error}',
-    'manageAgents.selectAgent': '选择要管理的 Agent',
-    'manageAgents.selectAction': '选择操作',
-    'manageAgents.actionChat': '$(comment) 对话',
-    'manageAgents.actionEdit': '$(edit) 编辑',
-    'manageAgents.actionDelete': '$(trash) 删除',
-    'manageAgents.actionDetails': '$(info) 查看详情',
-    'clusters.noneFound': '当前没有集群，要创建一个吗？',
-    'clusters.promptName': '输入集群名称',
-    'clusters.placeholderName': '我的集群',
-    'clusters.selectAgents': '为这个集群选择 Agent',
-    'clusters.createAgentFirst': '请至少先创建一个 Agent',
-    'clusters.created': '集群“{name}”已创建',
-    'clusters.createFailed': '创建集群失败：{error}',
-    'clearChat.cleared': '聊天记录已清空',
-    'agents.refreshed': 'Agent 列表已刷新',
-    'agent.notFound': '未找到 Agent',
-    'agent.deleteConfirm': '确定要删除 Agent“{agentId}”吗？',
-    'agent.deleted': 'Agent 已删除',
-    'agent.deleteFailed': '删除 Agent 失败：{error}',
-    'agent.editName': 'Agent 名称',
-    'agent.editPrompt': '系统提示词',
-    'agent.updated': 'Agent 已更新',
-    'agent.editFailed': '编辑 Agent 失败：{error}',
-    'agent.details': '**名称：** {name}\n**ID：** {id}\n**模型：** {model}\n**状态：** {status}\n**创建时间：** {created}',
-    'provider.chatWithAgent': '与 Agent 对话',
-    'clusterTree.agentsCount': '{count} 个 Agent',
-    'clusterTree.tooltip': '{name} - {count}',
-    'usage.totalRequests': '总请求数',
-    'usage.totalTokens': '总 Tokens',
-    'usage.promptTokens': '输入 Tokens',
-    'usage.completionTokens': '输出 Tokens',
-    'usage.estimatedCost': '预估费用',
-    'usage.todaysRequests': '今日请求数',
-    'usage.todaysTokens': '今日 Tokens',
-    'usage.error': '错误',
-    'usage.failedLoadData': '加载用量数据失败',
-    'panel.selectAgentFirst': '请先选择一个 Agent',
-    'panel.failedLoadAgents': '加载 Agent 失败：{error}',
-    'panel.failedSendMessage': '发送消息失败：{error}',
-    'panel.failedCreateSession': '创建会话失败：{error}',
-    'panel.failedLoadContext': '加载上下文失败：{error}',
-    'panel.failedLoadChatHistory': '加载聊天记录失败：{error}',
-    'panel.failedLoadClusters': '加载集群失败：{error}',
-    'panel.failedLoadUsage': '加载用量失败：{error}',
-    'panel.failedDeleteAgent': '删除 Agent 失败：{error}',
-    'panel.failedBroadcast': '广播失败：{error}',
-    'service.authFailed': '认证失败，请检查 OpenClaw 凭据。',
-    'service.accessDenied': '访问被拒绝，请检查配置的 provider 或 gateway。',
-    'service.resourceNotFound': '未找到资源。',
-    'service.rateLimit': '已触发速率限制，请稍后重试。',
-    'service.remoteError': '远端服务错误，请检查 OpenClaw 端点。',
-    'service.httpError': 'HTTP {status}: {message}',
-    'service.requestFailed': '请求失败',
-    'service.connectFailed': '无法连接到 OpenClaw，请检查本地配置或 gateway URL。',
-    'service.noLocalProvider': '未检测到本地 OpenClaw provider。',
-    'service.agentNotFound': '未找到 Agent。',
-    'service.updateAgentNotSupported': 'OpenClaw CLI 模式暂不支持更新 Agent。',
-    'service.localAgentNotFound': '未找到本地 Agent。',
-    'service.clustersUnavailable': '当前连接模式不支持集群功能。',
-    'service.clusterBroadcastUnavailable': '当前连接模式不支持集群广播。',
-    'service.cliNotConfigured': 'OpenClaw CLI 未正确配置。',
-    'service.chatSessionNotFound': '未找到聊天会话。',
-    'service.providerApiUnsupported': '暂不支持 Provider API“{api}”。',
-    'clusterManager.notFound': '未找到集群 {clusterId}',
-    'session.noActive': '当前没有活动会话'
-};
+/**
+ * 从JSON文件加载翻译
+ */
+function loadMessages(locale: Locale): Record<string, string> {
+    if (messageCache.has(locale)) {
+        return messageCache.get(locale)!;
+    }
 
-const MESSAGES: Record<Locale, typeof EN_MESSAGES> = {
-    en: EN_MESSAGES,
-    'zh-cn': ZH_CN_MESSAGES as typeof EN_MESSAGES
-};
+    try {
+        const i18nDir = path.join(vscode.extensions.getExtension('openclaw.openclaw-vscode')!.extensionPath, 'i18n');
+        const filePath = path.join(i18nDir, `${locale}.json`);
+        const content = fs.readFileSync(filePath, 'utf8');
+        const messages = JSON.parse(content);
+        messageCache.set(locale, messages);
+        return messages;
+    } catch (error) {
+        console.error(`Failed to load i18n file for locale ${locale}:`, error);
+        // 如果加载失败，返回空对象
+        return {};
+    }
+}
+
+/**
+ * 获取默认英文消息（作为后备）
+ */
+function getDefaultMessages(): Record<string, string> {
+    return loadMessages('en');
+}
 
 function normalizeLocale(language: string | undefined): Locale {
     const normalized = (language || '').toLowerCase();
@@ -289,10 +51,13 @@ export function getCurrentLocale(): Locale {
 }
 
 export function t(
-    key: keyof typeof EN_MESSAGES,
+    key: string,
     values: Record<string, MessageValue> = {}
 ): string {
     const locale = getCurrentLocale();
-    const message = MESSAGES[locale][key] || EN_MESSAGES[key];
+    const messages = loadMessages(locale);
+    const defaultMessages = getDefaultMessages();
+    
+    const message = messages[key] || defaultMessages[key] || key;
     return format(message, values);
 }

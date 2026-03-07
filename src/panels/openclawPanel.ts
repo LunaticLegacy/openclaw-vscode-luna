@@ -101,7 +101,7 @@ export class OpenClawPanel {
                 || null;
 
             if (preferredAgentId) {
-                await this._activateAgent(preferredAgentId);
+                await this. _activateAgent(preferredAgentId);
             }
         } catch (error) {
             this._panel.webview.postMessage({
@@ -515,13 +515,38 @@ export class OpenClawPanel {
             vscode.Uri.joinPath(this._extensionUri, 'media', 'panel.js')
         );
 
+        // Load translations for current locale
+        const locale = getCurrentLocale();
+        const translations = this._loadTranslations(locale);
+
         return this._applyTemplateVariables(template, {
             cspSource: webview.cspSource,
-            locale: getCurrentLocale(),
+            locale: locale,
             styleUri: styleUri.toString(),
             i18nScriptUri: i18nScriptUri.toString(),
-            panelScriptUri: panelScriptUri.toString()
+            panelScriptUri: panelScriptUri.toString(),
+            translationsJson: JSON.stringify(translations).replace(/'/g, "\\'").replace(/"/g, '\\"')
         });
+    }
+
+    private _loadTranslations(locale: string): Record<string, string> {
+        try {
+            const i18nDir = vscode.Uri.joinPath(this._extensionUri, 'i18n');
+            const translationFile = vscode.Uri.joinPath(i18nDir, `${locale}.json`);
+            const content = fs.readFileSync(translationFile.fsPath, 'utf8');
+            return JSON.parse(content);
+        } catch (error) {
+            console.error(`Failed to load translations for locale ${locale}:`, error);
+            // Fallback to English
+            try {
+                const enFile = vscode.Uri.joinPath(this._extensionUri, 'i18n', 'en.json');
+                const content = fs.readFileSync(enFile.fsPath, 'utf8');
+                return JSON.parse(content);
+            } catch (fallbackError) {
+                console.error('Failed to load fallback English translations:', fallbackError);
+                return {};
+            }
+        }
     }
 
     private _readMediaFile(fileName: string): string {

@@ -22,12 +22,12 @@
         cacheElements();
         bindEvents();
         
-        // Set locale from HTML
-        const html = document.documentElement;
-        const locale = html.getAttribute('data-locale') || 'en';
-        state.locale = locale;
-        if (window.OpenClawI18n) {
-            window.OpenClawI18n.setLocale(locale);
+        // Set locale and translations from global variables
+        if (typeof LOCALE !== 'undefined') {
+            state.locale = LOCALE;
+        }
+        if (typeof TRANSLATIONS !== 'undefined' && window.OpenClawI18n) {
+            window.OpenClawI18n.setTranslations(TRANSLATIONS, state.locale);
         }
         
         updateUIText();
@@ -144,6 +144,22 @@
         
         const sidebarUsage = document.querySelector('[data-i18n="sidebar.usage"]');
         if (sidebarUsage) sidebarUsage.textContent = t('sidebar.usage');
+        
+        // Update all data-i18n elements
+        document.querySelectorAll('[data-i18n]').forEach(el => {
+            const key = el.getAttribute('data-i18n');
+            if (key) {
+                el.textContent = t(key);
+            }
+        });
+        
+        // Update placeholder attributes
+        document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+            const key = el.getAttribute('data-i18n-placeholder');
+            if (key) {
+                el.placeholder = t(key);
+            }
+        });
     }
 
     // View switching
@@ -253,27 +269,8 @@
         const time = new Date(msg.timestamp).toLocaleTimeString();
         const tokenInfo = msg.tokenCount ? `<span class="token-count">${msg.tokenCount} tokens</span>` : '';
         
-        // Check for thinking blocks in content
-        let content = msg.content;
-        let thinkingHtml = '';
-        
-        // Parse <thinking>...</thinking> blocks
-        const thinkingMatch = content.match(/<thinking>([\s\S]*?)<\/thinking>/);
-        if (thinkingMatch) {
-            const thinkingContent = thinkingMatch[1].trim();
-            content = content.replace(/<thinking>[\s\S]*?<\/thinking>/, '').trim();
-            
-            thinkingHtml = `
-                <div class="thinking-block collapsed">
-                    <div class="thinking-header" onclick="toggleThinking(this)">
-                        <span class="thinking-icon">💭</span>
-                        <span class="thinking-label">${window.OpenClawI18n ? window.OpenClawI18n.t('common.thinking') : 'Thinking'}</span>
-                        <span class="thinking-toggle">▼</span>
-                    </div>
-                    <div class="thinking-body">${formatThinking(thinkingContent)}</div>
-                </div>
-            `;
-        }
+        // Process content: first handle thinking blocks, then format the rest
+        const { mainContent, thinkingHtml } = processMessageContent(msg.content);
         
         div.innerHTML = `
             <div class="message-header">
@@ -282,11 +279,50 @@
                 ${tokenInfo}
             </div>
             ${thinkingHtml}
-            <div class="message-content">${formatContent(content)}</div>
+            <div class="message-content">${formatContent(mainContent)}</div>
         `;
         
         elements.chatMessages.appendChild(div);
         scrollToBottom();
+    }
+    
+    // Process message content, extracting thinking blocks
+    function processMessageContent(content) {
+        if (!content) return { mainContent: '', thinkingHtml: '' };
+        
+        let mainContent = content;
+        let thinkingHtml = '';
+        
+        // Find all thinking blocks
+        const thinkingRegex = /<thinking>([\s\S]*?)<\/thinking>/g;
+        const thinkingBlocks = [];
+        let match;
+        
+        while ((match = thinkingRegex.exec(content)) !== null) {
+            thinkingBlocks.push(match[1].trim());
+        }
+        
+        // Remove thinking blocks from main content
+        mainContent = content.replace(thinkingRegex, '').trim();
+        
+        // Generate thinking HTML if there are thinking blocks
+        if (thinkingBlocks.length > 0) {
+            const t = window.OpenClawI18n ? window.OpenClawI18n.t : (k) => k;
+            const combinedThinking = thinkingBlocks.join('\n\n---\n\n');
+            
+            thinkingHtml = `
+                <div class="thinking-block collapsed">
+                    <div class="thinking-header" onclick="toggleThinking(this)">
+                        <span class="thinking-icon">💭</span>
+                        <span class="thinking-label">${t('common.thinking')}</span>
+                        <span class="thinking-toggle">▼</span>
+                    </div>
+                    <div class="thinking-body">${formatThinking(combinedThinking)}</div>
+                </div>
+            `;
+        }
+        
+        return { mainContent, thinkingHtml };
     }
 
     // Format thinking content
@@ -314,7 +350,9 @@
 
     // Update streaming message
     function updateStreamingMessage(content, done) {
-        // If we were showing thinking, finalize it first
+        if (!content) return;
+        
+        // If we were showing thinking indicator and we're done, finalize
         if (state.currentThinking && done) {
             finalizeThinking(content);
             state.isStreaming = false;
@@ -322,16 +360,19 @@
             return;
         }
         
-        // Check if content contains thinking markers
-        if (content.includes('<thinking>') && !content.includes('</thinking>')) {
-            // Still in thinking phase
+        // Check if we're still in thinking phase (opening tag but no closing tag)
+        const hasOpening = content.includes('<thinking>');
+        const hasClosing = content.includes('</thinking>');
+        
+        if (hasOpening && !hasClosing) {
+            // Still in thinking phase - update thinking indicator
             const thinkingStart = content.indexOf('<thinking>') + 10;
             const thinkingContent = content.substring(thinkingStart);
             updateThinking(thinkingContent);
             return;
         }
         
-        // Normal streaming
+        // Get or create streaming message element
         let streamingMsg = document.querySelector('.message-streaming');
         
         if (!streamingMsg) {
@@ -343,43 +384,30 @@
             
             streamingMsg = document.createElement('div');
             streamingMsg.className = 'message message-assistant message-streaming';
-            streamingMsg.innerHTML = `
-                <div class="message-header">
-                    <span class="message-role">Assistant</span>
-                    <span class="message-time">${new Date().toLocaleTimeString()}</span>
-                    <span class="streaming-indicator">●</span>
-                </div>
-                <div class="message-content"></div>
-            `;
             elements.chatMessages.appendChild(streamingMsg);
             scrollToBottom();
         }
         
-        // Check for complete thinking block in stream
-        if (content.includes('<thinking>') && content.includes('</thinking>')) {
-            const thinkingMatch = content.match(/<thinking>([\s\S]*?)<\/thinking>/);
-            if (thinkingMatch) {
-                const mainContent = content.replace(/<thinking>[\s\S]*?<\/thinking>/, '').trim();
-                
-                streamingMsg.innerHTML = `
-                    <div class="message-header">
-                        <span class="message-role">Assistant</span>
-                        <span class="message-time">${new Date().toLocaleTimeString()}</span>
-                        <span class="streaming-indicator">●</span>
-                    </div>
-                    <div class="thinking-block">
-                        <div class="thinking-header">
-                            <span class="thinking-icon">💭</span>
-                            <span class="thinking-label">${window.OpenClawI18n ? window.OpenClawI18n.t('common.thinking') : 'Thinking'}</span>
-                        </div>
-                        <div class="thinking-body">${formatThinking(thinkingMatch[1])}</div>
-                    </div>
-                    <div class="message-content">${formatContent(mainContent)}</div>
-                `;
-            }
-        } else {
-            streamingMsg.querySelector('.message-content').innerHTML = formatContent(content);
+        // Process content for display
+        const { mainContent, thinkingHtml } = processMessageContent(content);
+        const time = new Date().toLocaleTimeString();
+        
+        // Build message HTML
+        let messageHtml = `
+            <div class="message-header">
+                <span class="message-role">Assistant</span>
+                <span class="message-time">${time}</span>
+                <span class="streaming-indicator">●</span>
+            </div>
+        `;
+        
+        if (thinkingHtml) {
+            messageHtml += thinkingHtml;
         }
+        
+        messageHtml += `<div class="message-content">${formatContent(mainContent)}</div>`;
+        
+        streamingMsg.innerHTML = messageHtml;
         
         if (done) {
             streamingMsg.classList.remove('message-streaming');
@@ -392,12 +420,36 @@
 
     // Format content with markdown-like syntax
     function formatContent(content) {
-        return escapeHtml(content)
-            .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+        if (!content) return '';
+        
+        // First, handle code blocks (multi-line) - preserve them
+        const codeBlocks = [];
+        let processedContent = content.replace(/```(\w+)?\n?([\s\S]*?)```/g, (match, lang, code) => {
+            const placeholder = `\x00CODE_BLOCK_${codeBlocks.length}\x00`;
+            codeBlocks.push({ lang, code: escapeHtml(code.trim()) });
+            return placeholder;
+        });
+        
+        // Escape HTML in the rest of the content
+        processedContent = escapeHtml(processedContent);
+        
+        // Inline formatting (preserve placeholders)
+        processedContent = processedContent
             .replace(/`([^`]+)`/g, '<code>$1</code>')
             .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
             .replace(/\*([^*]+)\*/g, '<em>$1</em>')
             .replace(/\n/g, '<br>');
+        
+        // Restore code blocks
+        codeBlocks.forEach((block, index) => {
+            const placeholder = `\x00CODE_BLOCK_${index}\x00`;
+            const langClass = block.lang ? ` class="language-${block.lang}"` : '';
+            const langLabel = block.lang ? `<div class="md-code-header">${block.lang}</div>` : '';
+            const codeBlockHtml = `<div class="md-code-block">${langLabel}<pre><code${langClass}>${block.code}</code></pre></div>`;
+            processedContent = processedContent.replace(placeholder, codeBlockHtml);
+        });
+        
+        return processedContent;
     }
 
     function escapeHtml(text) {
@@ -423,14 +475,14 @@
     function renderAgents(agentData) {
         state.agents = agentData;
         
-        if (agents.length === 0) {
+        if (state.agents.length === 0) {
             elements.agentList.innerHTML = '<div class="empty">No agents yet. Create one!</div>';
             return;
         }
         
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (k) => k;
         
-        elements.agentList.innerHTML = agents.map(agent => `
+        elements.agentList.innerHTML = state.agents.map(agent => `
             <div class="agent-item ${agent.id === state.currentAgentId ? 'active' : ''}" data-id="${agent.id}">
                 <span class="agent-status status-${agent.status}"></span>
                 <div class="agent-info">

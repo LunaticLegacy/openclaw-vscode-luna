@@ -39,6 +39,15 @@
   
   "main": "./out/extension.js",
   
+  "files": [
+    "out/**/*.js",
+    "media/**/*",
+    "i18n/**/*",
+    "resources/**/*",
+    "package.nls.json",
+    "package.nls.zh-cn.json"
+  ],
+  
   "contributes": {
     "commands": [
       {

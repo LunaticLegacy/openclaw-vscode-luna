@@ -22,7 +22,7 @@
   "command.createCluster.title": "➕ 创建集群",
   "command.statusBarClick.title": "🚀 打开 OpenClaw Luna",
   
-  "viewsContainer.openclaw.title": "OpenClaw",
+  "viewsContainer.openclaw.title": "OpenClaw Luna",
   "view.openclawSidebar.name": "Agents",
   "view.openclawClusters.name": "集群",
   "view.openclawUsage.name": "用量"
