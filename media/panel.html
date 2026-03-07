@@ -3,19 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src {{cspSource}}; connect-src {{cspSource}};">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src {{cspSource}}; connect-src {{cspSource}}; img-src {{cspSource}} https: data:;">
     <title>OpenClaw Luna</title>
     <link rel="stylesheet" href="{{styleUri}}">
 </head>
-<body>
-    <!-- Initialize translations -->
-    <script>
-        const TRANSLATIONS = JSON.parse('{{translationsJson}}');
-        const LOCALE = "{{locale}}";
-    </script>
-    
-    <script src="{{i18nScriptUri}}"></script>
-    <script src="{{panelScriptUri}}"></script>
+<body data-locale="{{locale}}" data-translations="{{translationsBase64}}">
+    <script src="{{i18nScriptUri}}" defer></script>
+    <script src="{{markdownRendererScriptUri}}" defer></script>
+    <script src="{{panelScriptUri}}" defer></script>
 
     <div id="app">
         <!-- Sidebar -->
@@ -109,6 +104,16 @@
                             <div class="usage-value" id="usage-cost">-</div>
                         </div>
                     </div>
+                    <div class="usage-charts">
+                        <div class="chart-container">
+                            <h4>Daily Usage</h4>
+                            <div id="usage-chart" class="chart"></div>
+                        </div>
+                        <div class="chart-container">
+                            <h4>By Model</h4>
+                            <div id="model-chart"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </main>
@@ -127,6 +132,10 @@
                         <label for="new-agent-model" data-i18n="agentSettings.model">Model</label>
                         <select id="new-agent-model" required></select>
                     </div>
+                    <div class="form-group">
+                        <label for="new-agent-prompt" data-i18n="common.systemPrompt">System Prompt</label>
+                        <textarea id="new-agent-prompt" rows="3" placeholder="Optional system prompt..."></textarea>
+                    </div>
                     <div class="form-actions">
                         <button type="button" class="btn modal-cancel" data-i18n="common.cancel">Cancel</button>
                         <button type="submit" class="btn btn-primary" data-i18n="common.create">Create</button>
@@ -141,6 +150,7 @@
                 <span class="modal-close">&times;</span>
                 <h2 data-i18n="agentSettings.title">Agent Settings</h2>
                 <form id="form-agent-settings">
+                    <input type="hidden" id="settings-agent-id">
                     <div class="form-group">
                         <label for="settings-agent-name" data-i18n="agentSettings.name">Name</label>
                         <input type="text" id="settings-agent-name" required>

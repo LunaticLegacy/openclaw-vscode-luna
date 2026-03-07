@@ -1,6 +1,6 @@
-import * as fs from 'fs';
+﻿import * as fs from 'fs';
 import * as vscode from 'vscode';
-import { getCurrentLocale, t } from '../i18n';
+import { getCurrentLocale, t, MESSAGES } from '../i18n';
 import { OpenClawService, ChatMessage, ChatSession, AgentCluster, APIUsage } from '../services/openclawService';
 import { AgentManager } from '../managers/agentManager';
 import { ChatSessionManager } from '../managers/chatSessionManager';
@@ -19,6 +19,9 @@ export class OpenClawPanel {
     private _currentAgentId: string | null = null;
     private _viewMode: 'chat' | 'clusters' | 'usage' = 'chat';
     private _contextLoadToken: number = 0;
+    private _isWebviewReady = false;
+    private _initialDataLoaded = false;
+    private _pendingMessages: Array<Record<string, unknown>> = [];
 
     public static createOrShow(
         extensionUri: vscode.Uri,
@@ -79,16 +82,34 @@ export class OpenClawPanel {
             null,
             this._disposables
         );
+    }
 
-        // 加载初始数据
-        this._loadAgents();
+    private _postMessage(message: Record<string, unknown>) {
+        if (!this._isWebviewReady) {
+            this._pendingMessages.push(message);
+            return;
+        }
+
+        void this._panel.webview.postMessage(message);
+    }
+
+    private _flushPendingMessages() {
+        if (!this._isWebviewReady || this._pendingMessages.length === 0) {
+            return;
+        }
+
+        const pendingMessages = [...this._pendingMessages];
+        this._pendingMessages = [];
+        for (const message of pendingMessages) {
+            void this._panel.webview.postMessage(message);
+        }
     }
 
     private async _loadAgents() {
         try {
             const agents = await this._agentManager.getAgents();
             const models = await this._service.getAvailableModels(agents);
-            this._panel.webview.postMessage({
+            this._postMessage({
                 type: 'agentsLoaded',
                 agents: agents.map(a => ({ id: a.id, name: a.name, model: a.model, status: a.status })),
                 models
@@ -100,11 +121,11 @@ export class OpenClawPanel {
                 || agents[0]?.id
                 || null;
 
-            if (preferredAgentId) {
-                await this. _activateAgent(preferredAgentId);
+            if (preferredAgentId && (!this._currentAgentId || this._currentAgentId !== preferredAgentId || !this._currentSessionId)) {
+                await this._activateAgent(preferredAgentId);
             }
         } catch (error) {
-            this._panel.webview.postMessage({
+            this._postMessage({
                 type: 'agentsLoadFailed',
                 message: t('panel.failedLoadAgents', { error: String(error) })
             });
@@ -113,8 +134,19 @@ export class OpenClawPanel {
 
     private async _handleMessage(message: any) {
         switch (message.type) {
+            case 'webviewReady':
+                this._isWebviewReady = true;
+                this._flushPendingMessages();
+                if (!this._initialDataLoaded) {
+                    this._initialDataLoaded = true;
+                    await this._loadAgents();
+                }
+                break;
+
             case 'sendMessage':
-                await this._handleSendMessage(message.content, message.agentId);
+                await this._handleSendMessage(message.content, message.agentId, {
+                    optimisticEcho: Boolean(message.optimistic)
+                });
                 break;
 
             case 'selectAgent':
@@ -158,17 +190,25 @@ export class OpenClawPanel {
                 await this._handleSaveAgentSettings(message.agentId, message.settings);
                 break;
 
+            case 'openAgentSettings':
+                await this._handleOpenAgentSettings(message.agentId);
+                break;
+
             case 'openAgentFolder':
                 await this._handleOpenAgentFolder(message.agentId);
                 break;
         }
     }
 
-    private async _handleSendMessage(content: string, agentId?: string) {
+    private async _handleSendMessage(
+        content: string,
+        agentId?: string,
+        options: { optimisticEcho?: boolean } = {}
+    ) {
         const targetAgentId = agentId || this._currentAgentId;
         
         if (!targetAgentId) {
-            this._panel.webview.postMessage({
+            this._postMessage({
                 type: 'error',
                 message: t('panel.selectAgentFirst')
             });
@@ -183,14 +223,16 @@ export class OpenClawPanel {
         }
 
         // 添加用户消息到界面
-        this._panel.webview.postMessage({
-            type: 'addMessage',
-            message: {
-                role: 'user',
-                content,
-                timestamp: new Date().toISOString()
-            }
-        });
+        if (!options.optimisticEcho) {
+            this._postMessage({
+                type: 'addMessage',
+                message: {
+                    role: 'user',
+                    content,
+                    timestamp: new Date().toISOString()
+                }
+            });
+        }
 
         try {
             const config = vscode.workspace.getConfiguration('openclaw');
@@ -203,7 +245,7 @@ export class OpenClawPanel {
                 for await (const chunk of this._sessionManager.streamMessage(content)) {
                     fullContent += chunk.content;
                     
-                    this._panel.webview.postMessage({
+                    this._postMessage({
                         type: 'updateStreamingMessage',
                         content: fullContent,
                         done: chunk.done
@@ -213,7 +255,7 @@ export class OpenClawPanel {
                 // 非流式响应
                 const response = await this._sessionManager.sendMessage(content);
 
-                this._panel.webview.postMessage({
+                this._postMessage({
                     type: 'addMessage',
                     message: {
                         role: 'assistant',
@@ -224,7 +266,7 @@ export class OpenClawPanel {
                 });
             }
         } catch (error) {
-            this._panel.webview.postMessage({
+            this._postMessage({
                 type: 'error',
                 message: t('panel.failedSendMessage', { error: String(error) })
             });
@@ -241,7 +283,7 @@ export class OpenClawPanel {
             this._currentSessionId = session.id;
             return session;
         } catch (error) {
-            this._panel.webview.postMessage({
+            this._postMessage({
                 type: 'error',
                 message: t('panel.failedCreateSession', { error: String(error) })
             });
@@ -254,33 +296,33 @@ export class OpenClawPanel {
         this._currentAgentId = agentId;
         this._currentSessionId = null;
         this._agentManager.setActiveAgent(agentId);
-        this._panel.webview.postMessage({
+        this._postMessage({
             type: 'setActiveAgent',
             agentId
         });
-        this._panel.webview.postMessage({ type: 'clearChat' });
-        this._panel.webview.postMessage({
+        this._postMessage({ type: 'clearChat' });
+        this._postMessage({
             type: 'setContextLoading',
             loading: true
         });
 
         try {
             const session = await this._createSession();
-            if (loadToken !== this._contextLoadToken || !session) {
+            if (!session) {
                 return;
             }
 
             await this._loadSessionHistory(session);
         } catch (error) {
             if (loadToken === this._contextLoadToken) {
-                this._panel.webview.postMessage({
+                this._postMessage({
                     type: 'error',
                     message: t('panel.failedLoadContext', { error: String(error) })
                 });
             }
         } finally {
             if (loadToken === this._contextLoadToken) {
-                this._panel.webview.postMessage({
+                this._postMessage({
                     type: 'setContextLoading',
                     loading: false
                 });
@@ -295,20 +337,20 @@ export class OpenClawPanel {
 
         try {
             const messages = session?.messages || [];
-            this._panel.webview.postMessage({ type: 'clearChat' });
+            this._postMessage({ type: 'clearChat' });
 
             for (const message of messages) {
-                this._panel.webview.postMessage({
+                this._postMessage({
                     type: 'addMessage',
                     message
                 });
             }
         } catch (error) {
-            this._panel.webview.postMessage({
+            this._postMessage({
                 type: 'setContextLoading',
                 loading: false
             });
-            this._panel.webview.postMessage({
+            this._postMessage({
                 type: 'error',
                 message: t('panel.failedLoadChatHistory', { error: String(error) })
             });
@@ -317,18 +359,18 @@ export class OpenClawPanel {
 
     private _clearChat() {
         this._currentSessionId = null;
-        this._panel.webview.postMessage({ type: 'clearChat' });
+        this._postMessage({ type: 'clearChat' });
     }
 
     private async _loadClusters() {
         try {
             const clusters = await this._service.getClusters();
-            this._panel.webview.postMessage({
+            this._postMessage({
                 type: 'clustersLoaded',
                 clusters
             });
         } catch (error) {
-            this._panel.webview.postMessage({
+            this._postMessage({
                 type: 'error',
                 message: t('panel.failedLoadClusters', { error: String(error) })
             });
@@ -338,12 +380,12 @@ export class OpenClawPanel {
     private async _loadUsage() {
         try {
             const usage = await this._service.getUsage();
-            this._panel.webview.postMessage({
+            this._postMessage({
                 type: 'usageLoaded',
                 usage
             });
         } catch (error) {
-            this._panel.webview.postMessage({
+            this._postMessage({
                 type: 'error',
                 message: t('panel.failedLoadUsage', { error: String(error) })
             });
@@ -354,12 +396,12 @@ export class OpenClawPanel {
         try {
             await this._agentManager.createAgent(data);
             await this._loadAgents();
-            this._panel.webview.postMessage({
+            this._postMessage({
                 type: 'agentCreated',
                 success: true
             });
         } catch (error) {
-            this._panel.webview.postMessage({
+            this._postMessage({
                 type: 'agentCreated',
                 success: false,
                 error: String(error)
@@ -373,12 +415,12 @@ export class OpenClawPanel {
             if (this._currentAgentId === agentId) {
                 this._currentAgentId = null;
                 this._currentSessionId = null;
-                this._panel.webview.postMessage({ type: 'clearChat' });
-                this._panel.webview.postMessage({ type: 'setActiveAgent', agentId: null });
+                this._postMessage({ type: 'clearChat' });
+                this._postMessage({ type: 'setActiveAgent', agentId: null });
             }
             await this._loadAgents();
         } catch (error) {
-            this._panel.webview.postMessage({
+            this._postMessage({
                 type: 'error',
                 message: t('panel.failedDeleteAgent', { error: String(error) })
             });
@@ -388,12 +430,12 @@ export class OpenClawPanel {
     private async _handleBroadcast(clusterId: string, message: string) {
         try {
             const responses = await this._service.sendToCluster(clusterId, message);
-            this._panel.webview.postMessage({
+            this._postMessage({
                 type: 'broadcastResults',
                 responses
             });
         } catch (error) {
-            this._panel.webview.postMessage({
+            this._postMessage({
                 type: 'error',
                 message: t('panel.failedBroadcast', { error: String(error) })
             });
@@ -407,6 +449,29 @@ export class OpenClawPanel {
             vscode.window.showInformationMessage(t('agentSettings.saved'));
         } catch (error) {
             vscode.window.showErrorMessage(t('agentSettings.saveFailed', { error: String(error) }));
+        }
+    }
+
+    private async _handleOpenAgentSettings(agentId: string) {
+        try {
+            const agent = await this._agentManager.getAgent(agentId);
+            if (!agent) {
+                this._postMessage({
+                    type: 'error',
+                    message: t('agent.notFound')
+                });
+                return;
+            }
+
+            this._postMessage({
+                type: 'showAgentSettings',
+                agent
+            });
+        } catch (error) {
+            this._postMessage({
+                type: 'error',
+                message: t('agentSettings.saveFailed', { error: String(error) })
+            });
         }
     }
 
@@ -462,7 +527,7 @@ export class OpenClawPanel {
     }
 
     public setInputText(text: string) {
-        this._panel.webview.postMessage({
+        this._postMessage({
             type: 'setInputText',
             text
         });
@@ -478,7 +543,7 @@ export class OpenClawPanel {
 
     public showClusterView(clusters: AgentCluster[]) {
         this._viewMode = 'clusters';
-        this._panel.webview.postMessage({
+        this._postMessage({
             type: 'switchView',
             view: 'clusters',
             clusters
@@ -487,11 +552,15 @@ export class OpenClawPanel {
 
     public showUsageDashboard() {
         this._viewMode = 'usage';
+        this._postMessage({
+            type: 'switchView',
+            view: 'usage'
+        });
         this._loadUsage();
     }
 
     public showAgentSettings(agent: any) {
-        this._panel.webview.postMessage({
+        this._postMessage({
             type: 'showAgentSettings',
             agent
         });
@@ -500,6 +569,9 @@ export class OpenClawPanel {
     private _update() {
         const webview = this._panel.webview;
         this._panel.title = 'OpenClaw';
+        this._isWebviewReady = false;
+        this._initialDataLoaded = false;
+        this._pendingMessages = [];
         webview.html = this._getHtmlForWebview(webview);
     }
 
@@ -511,42 +583,30 @@ export class OpenClawPanel {
         const i18nScriptUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this._extensionUri, 'media', 'i18n.js')
         );
+        const markdownRendererScriptUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(this._extensionUri, 'media', 'markdownRenderer.js')
+        );
         const panelScriptUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this._extensionUri, 'media', 'panel.js')
         );
 
-        // Load translations for current locale
+        // Get translations for current locale
         const locale = getCurrentLocale();
-        const translations = this._loadTranslations(locale);
+        const translations = MESSAGES[locale] || MESSAGES.en;
+        const translationsBase64 = Buffer.from(
+            JSON.stringify(translations),
+            'utf8'
+        ).toString('base64');
 
         return this._applyTemplateVariables(template, {
             cspSource: webview.cspSource,
             locale: locale,
             styleUri: styleUri.toString(),
             i18nScriptUri: i18nScriptUri.toString(),
+            markdownRendererScriptUri: markdownRendererScriptUri.toString(),
             panelScriptUri: panelScriptUri.toString(),
-            translationsJson: JSON.stringify(translations).replace(/'/g, "\\'").replace(/"/g, '\\"')
+            translationsBase64
         });
-    }
-
-    private _loadTranslations(locale: string): Record<string, string> {
-        try {
-            const i18nDir = vscode.Uri.joinPath(this._extensionUri, 'i18n');
-            const translationFile = vscode.Uri.joinPath(i18nDir, `${locale}.json`);
-            const content = fs.readFileSync(translationFile.fsPath, 'utf8');
-            return JSON.parse(content);
-        } catch (error) {
-            console.error(`Failed to load translations for locale ${locale}:`, error);
-            // Fallback to English
-            try {
-                const enFile = vscode.Uri.joinPath(this._extensionUri, 'i18n', 'en.json');
-                const content = fs.readFileSync(enFile.fsPath, 'utf8');
-                return JSON.parse(content);
-            } catch (fallbackError) {
-                console.error('Failed to load fallback English translations:', fallbackError);
-                return {};
-            }
-        }
     }
 
     private _readMediaFile(fileName: string): string {
@@ -576,3 +636,4 @@ export class OpenClawPanel {
         }
     }
 }
+

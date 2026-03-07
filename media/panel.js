@@ -23,14 +23,15 @@
         bindEvents();
         
         // Set locale and translations from global variables
-        if (typeof LOCALE !== 'undefined') {
-            state.locale = LOCALE;
+        if (typeof window.LOCALE !== 'undefined') {
+            state.locale = window.LOCALE;
         }
-        if (typeof TRANSLATIONS !== 'undefined' && window.OpenClawI18n) {
-            window.OpenClawI18n.setTranslations(TRANSLATIONS, state.locale);
+        if (typeof window.TRANSLATIONS !== 'undefined' && window.OpenClawI18n) {
+            window.OpenClawI18n.setTranslations(window.TRANSLATIONS, state.locale);
         }
         
         updateUIText();
+        vscode.postMessage({ type: 'webviewReady' });
     }
 
     function cacheElements() {
@@ -57,8 +58,8 @@
         });
 
         // Send message
-        elements.btnSend.addEventListener('click', sendMessage);
-        elements.messageInput.addEventListener('keydown', (e) => {
+        elements.btnSend?.addEventListener('click', sendMessage);
+        elements.messageInput?.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && e.shiftKey) {
                 e.preventDefault();
                 sendMessage();
@@ -66,12 +67,12 @@
         });
 
         // Clear chat
-        elements.btnClear.addEventListener('click', () => {
+        elements.btnClear?.addEventListener('click', () => {
             vscode.postMessage({ type: 'clearChat' });
         });
 
         // New agent modal
-        elements.btnNewAgent.addEventListener('click', () => {
+        elements.btnNewAgent?.addEventListener('click', () => {
             openModal(elements.modalNewAgent);
         });
 
@@ -79,7 +80,7 @@
             btn.addEventListener('click', closeAllModals);
         });
 
-        elements.formNewAgent.addEventListener('submit', (e) => {
+        elements.formNewAgent?.addEventListener('submit', (e) => {
             e.preventDefault();
             createAgent();
         });
@@ -163,12 +164,15 @@
     }
 
     // View switching
-    function switchView(view) {
+    function applyView(view) {
         state.viewMode = view;
         
         elements.navTabs.forEach(t => t.classList.toggle('active', t.dataset.view === view));
         elements.views.forEach(v => v.classList.toggle('active', v.id === `view-${view}`));
-        
+    }
+
+    function switchView(view) {
+        applyView(view);
         vscode.postMessage({ type: 'switchView', view });
     }
 
@@ -200,7 +204,8 @@
         vscode.postMessage({
             type: 'sendMessage',
             content,
-            agentId: state.currentAgentId
+            agentId: state.currentAgentId,
+            optimistic: true
         });
     }
 
@@ -421,35 +426,12 @@
     // Format content with markdown-like syntax
     function formatContent(content) {
         if (!content) return '';
-        
-        // First, handle code blocks (multi-line) - preserve them
-        const codeBlocks = [];
-        let processedContent = content.replace(/```(\w+)?\n?([\s\S]*?)```/g, (match, lang, code) => {
-            const placeholder = `\x00CODE_BLOCK_${codeBlocks.length}\x00`;
-            codeBlocks.push({ lang, code: escapeHtml(code.trim()) });
-            return placeholder;
-        });
-        
-        // Escape HTML in the rest of the content
-        processedContent = escapeHtml(processedContent);
-        
-        // Inline formatting (preserve placeholders)
-        processedContent = processedContent
-            .replace(/`([^`]+)`/g, '<code>$1</code>')
-            .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-            .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-            .replace(/\n/g, '<br>');
-        
-        // Restore code blocks
-        codeBlocks.forEach((block, index) => {
-            const placeholder = `\x00CODE_BLOCK_${index}\x00`;
-            const langClass = block.lang ? ` class="language-${block.lang}"` : '';
-            const langLabel = block.lang ? `<div class="md-code-header">${block.lang}</div>` : '';
-            const codeBlockHtml = `<div class="md-code-block">${langLabel}<pre><code${langClass}>${block.code}</code></pre></div>`;
-            processedContent = processedContent.replace(placeholder, codeBlockHtml);
-        });
-        
-        return processedContent;
+
+        if (window.MarkdownRenderer && typeof window.MarkdownRenderer.render === 'function') {
+            return window.MarkdownRenderer.render(content);
+        }
+
+        return escapeHtml(content).replace(/\n/g, '<br>');
     }
 
     function escapeHtml(text) {
@@ -459,6 +441,7 @@
     }
 
     function scrollToBottom() {
+        if (!elements.chatMessages) return;
         elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight;
     }
 
@@ -530,12 +513,35 @@
         vscode.postMessage({ type: 'selectAgent', agentId });
     }
 
+    // Populate model select dropdown
+    function populateModelSelect(models) {
+        const modelSelect = document.getElementById('new-agent-model');
+        if (!modelSelect) return;
+        
+        modelSelect.innerHTML = '';
+        
+        if (models.length === 0) {
+            const option = document.createElement('option');
+            option.value = 'default';
+            option.textContent = 'default';
+            modelSelect.appendChild(option);
+            return;
+        }
+        
+        models.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model;
+            option.textContent = model;
+            modelSelect.appendChild(option);
+        });
+    }
+
     // Create agent
     function createAgent() {
         const data = {
-            name: document.getElementById('agent-name').value,
-            model: document.getElementById('agent-model').value,
-            systemPrompt: document.getElementById('agent-prompt').value
+            name: document.getElementById('new-agent-name').value,
+            model: document.getElementById('new-agent-model').value,
+            systemPrompt: document.getElementById('new-agent-prompt').value
         };
         
         vscode.postMessage({ type: 'createAgent', data });
@@ -548,25 +554,43 @@
         const modal = document.getElementById('modal-agent-settings');
         if (!modal) return;
         
-        document.getElementById('settings-agent-id').value = agent.id;
-        document.getElementById('settings-agent-name').value = agent.name;
-        document.getElementById('settings-agent-model').value = agent.model || '';
-        document.getElementById('settings-agent-prompt').value = agent.systemPrompt || '';
-        document.getElementById('settings-agent-temperature').value = agent.temperature || 0.7;
-        document.getElementById('settings-agent-max-tokens').value = agent.maxTokens || 2000;
+        const idField = document.getElementById('settings-agent-id');
+        const nameField = document.getElementById('settings-agent-name');
+        const promptField = document.getElementById('settings-agent-prompt');
+        const tempField = document.getElementById('settings-agent-temperature');
+        const maxTokensField = document.getElementById('settings-agent-max-tokens');
+        
+        if (idField) idField.value = agent.id;
+        if (nameField) nameField.value = agent.name;
+        if (promptField) promptField.value = agent.systemPrompt || '';
+        if (tempField) {
+            tempField.value = agent.temperature || 0.7;
+            // Update range value display
+            const parent = tempField.parentElement;
+            if (parent) {
+                const valueDisplay = parent.querySelector('.range-value');
+                if (valueDisplay) valueDisplay.textContent = tempField.value;
+            }
+        }
+        if (maxTokensField) maxTokensField.value = agent.maxTokens || 4096;
         
         openModal(modal);
     }
 
     // Save agent settings
     function saveAgentSettings() {
-        const agentId = document.getElementById('settings-agent-id').value;
+        const agentIdField = document.getElementById('settings-agent-id');
+        const nameField = document.getElementById('settings-agent-name');
+        const promptField = document.getElementById('settings-agent-prompt');
+        const tempField = document.getElementById('settings-agent-temperature');
+        const maxTokensField = document.getElementById('settings-agent-max-tokens');
+        
+        const agentId = agentIdField ? agentIdField.value : '';
         const settings = {
-            name: document.getElementById('settings-agent-name').value,
-            model: document.getElementById('settings-agent-model').value,
-            systemPrompt: document.getElementById('settings-agent-prompt').value,
-            temperature: parseFloat(document.getElementById('settings-agent-temperature').value),
-            maxTokens: parseInt(document.getElementById('settings-agent-max-tokens').value)
+            name: nameField ? nameField.value : '',
+            systemPrompt: promptField ? promptField.value : '',
+            temperature: tempField ? parseFloat(tempField.value) : 0.7,
+            maxTokens: maxTokensField ? parseInt(maxTokensField.value) : 4096
         };
         
         vscode.postMessage({ type: 'saveAgentSettings', agentId, settings });
@@ -621,33 +645,47 @@
     function renderUsage(usage) {
         const formatNum = (n) => n >= 1000000 ? (n/1000000).toFixed(1) + 'M' : n >= 1000 ? (n/1000).toFixed(1) + 'K' : n;
         
-        document.getElementById('usage-requests').textContent = usage.totalRequests.toLocaleString();
-        document.getElementById('usage-tokens').textContent = formatNum(usage.totalTokens);
-        document.getElementById('usage-cost').textContent = '$' + usage.cost.toFixed(4);
+        const requestsEl = document.getElementById('usage-requests');
+        const tokensEl = document.getElementById('usage-tokens');
+        const costEl = document.getElementById('usage-cost');
+        
+        if (requestsEl) requestsEl.textContent = usage.totalRequests.toLocaleString();
+        if (tokensEl) tokensEl.textContent = formatNum(usage.totalTokens);
+        if (costEl) costEl.textContent = '$' + (usage.cost || 0).toFixed(4);
         
         // Render charts
         const chartContainer = document.getElementById('usage-chart');
-        const days = Object.entries(usage.byDay).slice(-7);
-        
-        chartContainer.innerHTML = days.map(([date, data]) => `
-            <div class="bar-item">
-                <div class="bar" style="height: ${Math.min(data.tokens / 1000, 100)}px"></div>
-                <div class="bar-label">${date.slice(5)}</div>
-            </div>
-        `).join('');
+        if (chartContainer) {
+            const days = Object.entries(usage.byDay || {}).slice(-7);
+            if (days.length > 0) {
+                chartContainer.innerHTML = days.map(([date, data]) => `
+                    <div class="bar-item">
+                        <div class="bar" style="height: ${Math.min((data.tokens || 0) / 1000, 100)}px"></div>
+                        <div class="bar-label">${date.slice(5)}</div>
+                    </div>
+                `).join('');
+            } else {
+                chartContainer.innerHTML = '<div class="empty">No data available</div>';
+            }
+        }
         
         const modelChart = document.getElementById('model-chart');
-        const models = Object.entries(usage.byModel);
-        
-        modelChart.innerHTML = models.map(([model, data]) => `
-            <div class="model-item">
-                <div class="model-name">${model}</div>
-                <div class="model-bar-container">
-                    <div class="model-bar" style="width: ${Math.min(data.tokens / usage.totalTokens * 100, 100)}%"></div>
-                </div>
-                <div class="model-value">${formatNum(data.tokens)} tokens</div>
-            </div>
-        `).join('');
+        if (modelChart) {
+            const models = Object.entries(usage.byModel || {});
+            if (models.length > 0 && usage.totalTokens > 0) {
+                modelChart.innerHTML = models.map(([model, data]) => `
+                    <div class="model-item">
+                        <div class="model-name">${escapeHtml(model)}</div>
+                        <div class="model-bar-container">
+                            <div class="model-bar" style="width: ${Math.min((data.tokens || 0) / usage.totalTokens * 100, 100)}%"></div>
+                        </div>
+                        <div class="model-value">${formatNum(data.tokens || 0)} tokens</div>
+                    </div>
+                `).join('');
+            } else {
+                modelChart.innerHTML = '<div class="empty">No model data available</div>';
+            }
+        }
     }
 
     // Message handling from extension
@@ -657,6 +695,7 @@
         switch (message.type) {
             case 'agentsLoaded':
                 renderAgents(message.agents);
+                populateModelSelect(message.models || []);
                 break;
                 
             case 'addMessage':
@@ -689,6 +728,16 @@
             case 'usageLoaded':
                 renderUsage(message.usage);
                 break;
+
+            case 'switchView':
+                applyView(message.view);
+                if (message.view === 'clusters' && message.clusters) {
+                    renderClusters(message.clusters);
+                }
+                if (message.view === 'usage' && message.usage) {
+                    renderUsage(message.usage);
+                }
+                break;
                 
             case 'showAgentSettings':
                 showAgentSettings(message.agent);
@@ -696,6 +745,18 @@
                 
             case 'broadcastResults':
                 // Handle broadcast results
+                break;
+
+            case 'agentsLoadFailed':
+                elements.agentList.innerHTML = `<div class="empty">Failed to load agents: ${escapeHtml(message.message)}</div>`;
+                break;
+
+            case 'setContextLoading':
+                if (message.loading) {
+                    showContextLoading();
+                } else {
+                    hideContextLoading();
+                }
                 break;
                 
             case 'error':
@@ -708,6 +769,34 @@
         }
     });
 
+    // Show context loading indicator
+    function showContextLoading() {
+        // Remove any existing welcome message
+        document.querySelector('.welcome-message')?.remove();
+        
+        // Check if already showing
+        if (document.querySelector('.context-loading')) return;
+        
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (k) => k;
+        const loadingDiv = document.createElement('div');
+        loadingDiv.className = 'context-loading';
+        loadingDiv.innerHTML = `
+            <div class="context-loading-spinner"></div>
+            <span class="context-loading-text">${t('common.loading') || 'Loading...'}</span>
+        `;
+        elements.chatMessages.appendChild(loadingDiv);
+        scrollToBottom();
+    }
+
+    // Hide context loading indicator
+    function hideContextLoading() {
+        document.querySelector('.context-loading')?.remove();
+    }
+
     // Initialize
-    init();
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init, { once: true });
+    } else {
+        init();
+    }
 })();

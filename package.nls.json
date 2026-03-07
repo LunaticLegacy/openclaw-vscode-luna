@@ -25,5 +25,19 @@
   "viewsContainer.openclaw.title": "OpenClaw Luna",
   "view.openclawSidebar.name": "Agents",
   "view.openclawClusters.name": "Clusters",
-  "view.openclawUsage.name": "Usage"
+  "view.openclawUsage.name": "Usage",
+  
+  "configuration.title": "OpenClaw",
+  "configuration.gatewayUrl.description": "Gateway service URL used when connecting through the OpenClaw HTTP/WebSocket gateway.",
+  "configuration.gatewayToken.description": "Optional authentication token for the configured OpenClaw gateway.",
+  "configuration.configMode.description": "Choose how the extension resolves agents and chats: auto-detect, OpenClaw CLI, gateway, or local config files.",
+  "configuration.authProfilesPath.description": "Optional path to the OpenClaw auth profiles file used in local mode.",
+  "configuration.modelsPath.description": "Optional path to the models definition file used in local mode.",
+  "configuration.defaultAgent.description": "Preferred default agent ID to select when opening the panel.",
+  "configuration.timeout.description": "Request timeout in milliseconds for network or provider operations.",
+  "configuration.streamResponse.description": "Stream assistant responses in the chat panel when supported.",
+  "configuration.showTokenCount.description": "Show token counts for assistant responses when available.",
+  "configuration.codeTheme.description": "Preferred code block theme in the chat panel.",
+  "configuration.enableMetrics.description": "Collect and display usage metrics in the sidebar and panel.",
+  "viewsWelcome.openclawSidebar.contents": "No agents yet.\n[Open OpenClaw Luna](command:openclaw.openPanel) or [Create New Agent](command:openclaw.newAgent)"
 }
