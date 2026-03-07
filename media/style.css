@@ -699,6 +699,12 @@ body {
     margin-bottom: 12px;
 }
 
+.cluster-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
 .cluster-agent-tag {
     font-size: 11px;
     padding: 2px 8px;

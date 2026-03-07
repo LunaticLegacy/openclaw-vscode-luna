@@ -255,6 +255,11 @@
           "command": "openclaw.openPanel",
           "when": "view == openclawSidebar",
           "group": "navigation@3"
+        },
+        {
+          "command": "openclaw.createCluster",
+          "when": "view == openclawClusters",
+          "group": "navigation@1"
         }
       ],
       "view/item/context": [

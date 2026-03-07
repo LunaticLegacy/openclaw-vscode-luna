@@ -83,7 +83,7 @@ export class ChatSessionManager extends EventEmitter {
         return response;
     }
 
-    public async *streamMessage(content: string): AsyncGenerator<{ content: string; done: boolean }, void, unknown> {
+    public async *streamMessage(content: string): AsyncGenerator<{ content: string; done: boolean; message?: ChatMessage }, void, unknown> {
         const session = this.getCurrentSession();
         if (!session) {
             throw new Error(t('session.noActive'));
@@ -98,21 +98,33 @@ export class ChatSessionManager extends EventEmitter {
         });
 
         let fullContent = '';
+        let emittedStructuredMessage = false;
         
         for await (const chunk of this.service.streamMessage(session.id, content)) {
-            fullContent += chunk.content;
+            if (chunk.message) {
+                emittedStructuredMessage = true;
+                if (!session.messages.some(message => message.id === chunk.message!.id)) {
+                    session.messages.push(chunk.message);
+                    session.updatedAt = chunk.message.timestamp || new Date().toISOString();
+                }
+            } else {
+                fullContent += chunk.content;
+            }
+
             yield chunk;
         }
 
         // 添加助手消息到历史
-        session.messages.push({
-            id: (Date.now() + 1).toString(),
-            role: 'assistant',
-            content: fullContent,
-            timestamp: new Date().toISOString()
-        });
-        
-        session.updatedAt = new Date().toISOString();
+        if (!emittedStructuredMessage) {
+            session.messages.push({
+                id: (Date.now() + 1).toString(),
+                role: 'assistant',
+                content: fullContent,
+                timestamp: new Date().toISOString()
+            });
+            
+            session.updatedAt = new Date().toISOString();
+        }
     }
 
     public async getHistory(): Promise<ChatMessage[]> {

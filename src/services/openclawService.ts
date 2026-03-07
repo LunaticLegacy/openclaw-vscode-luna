@@ -1,5 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import { EventEmitter } from 'events';
+import * as fs from 'fs/promises';
 import * as path from 'path';
 import { t } from '../i18n';
 import {
@@ -46,12 +47,45 @@ export interface AgentCluster {
 
 export interface ChatMessage {
     id: string;
-    role: 'user' | 'assistant' | 'system';
+    role: 'user' | 'assistant' | 'system' | 'tool';
     content: string;
     timestamp: string;
     agentId?: string;
     tokenCount?: number;
+    parts?: ChatMessagePart[];
+    toolCallId?: string;
+    toolName?: string;
+    toolArguments?: unknown;
+    toolDetails?: unknown;
+    isError?: boolean;
+    metadata?: Record<string, unknown>;
 }
+
+export type ChatMessagePart =
+    | {
+        type: 'text';
+        text: string;
+    }
+    | {
+        type: 'thinking';
+        thinking: string;
+        thinkingSignature?: string;
+    }
+    | {
+        type: 'toolCall';
+        id?: string;
+        name: string;
+        arguments?: unknown;
+    }
+    | {
+        type: 'toolResult';
+        toolCallId?: string;
+        name: string;
+        arguments?: unknown;
+        result: string;
+        details?: unknown;
+        isError?: boolean;
+    };
 
 export interface ChatSession {
     id: string;
@@ -85,6 +119,7 @@ export interface StreamChunk {
     content: string;
     done: boolean;
     tokenCount?: number;
+    message?: ChatMessage;
 }
 
 interface LocalAgent extends Agent {
@@ -99,6 +134,18 @@ interface OpenClawAgentsSnapshot {
     defaultAgentId: string | null;
     mainKey: string | null;
     sessionKeysByAgent: Map<string, string>;
+}
+
+interface OpenClawToolCallInfo {
+    name: string;
+    arguments?: unknown;
+}
+
+interface OpenClawSessionLogEntry {
+    type?: string;
+    id?: string;
+    timestamp?: string | number;
+    message?: OpenClawChatHistoryMessage;
 }
 
 interface CachedOpenClawAgentsSnapshot {
@@ -122,6 +169,7 @@ export class OpenClawService extends EventEmitter {
     private openClawDefaultAgentId: string | null = null;
     private openClawMainKey: string | null = null;
     private openClawSessionKeysByAgent: Map<string, string> = new Map();
+    private openClawSessionEntriesByKey: Map<string, OpenClawSessionsListEntry> = new Map();
     private openClawAgentsSnapshotCache: CachedOpenClawAgentsSnapshot | null = null;
     private openClawAgentsSnapshotPromise: Promise<OpenClawAgentsSnapshot> | null = null;
 
@@ -241,6 +289,7 @@ export class OpenClawService extends EventEmitter {
         this.openClawDefaultAgentId = null;
         this.openClawMainKey = null;
         this.openClawSessionKeysByAgent.clear();
+        this.openClawSessionEntriesByKey.clear();
         this.invalidateOpenClawAgentsSnapshotCache();
         this.localAgents.clear();
         this.localSessions.clear();
@@ -323,6 +372,10 @@ export class OpenClawService extends EventEmitter {
 
     public isConnected(): boolean {
         return this.connected;
+    }
+
+    public supportsRemoteClusters(): boolean {
+        return this.mode === 'gateway';
     }
 
     public async getPreferredAgentId(): Promise<string | null> {
@@ -572,12 +625,11 @@ export class OpenClawService extends EventEmitter {
 
         if (this.mode === 'openclaw') {
             const runner = this.requireOpenClawRunner();
-            const historyBefore = await this.getChatHistory(sessionId).catch(() => []);
+            const historyBefore = await this.readOpenClawSessionMessages(sessionId).catch(() => []);
+            const knownIds = new Set(historyBefore.map(item => item.id));
             const result = await runner.sendChat(sessionId, message);
-            const historyAfter = await this.getChatHistory(sessionId).catch(() => historyBefore);
-            const appended = historyAfter.slice(historyBefore.length);
-            return [...appended].reverse().find(item => item.role === 'assistant')
-                || [...historyAfter].reverse().find(item => item.role === 'assistant')
+            const latestAssistant = await this.waitForOpenClawAssistantMessage(sessionId, knownIds, 4000);
+            return latestAssistant
                 || extractAssistantMessageFromPayload(result, sessionId)
                 || {
                     id: `${sessionId}:${Date.now()}`,
@@ -609,11 +661,81 @@ export class OpenClawService extends EventEmitter {
         }
 
         if (this.mode === 'openclaw') {
-            const response = await this.sendMessage(sessionId, message, options);
+            const runner = this.requireOpenClawRunner();
+            const historyBefore = await this.readOpenClawSessionMessages(sessionId).catch(() => []);
+            const seenIds = new Set(historyBefore.map(item => item.id));
+            let responsePayload: Record<string, unknown> | null = null;
+            let requestError: unknown = null;
+            let requestCompleted = false;
+            let requestCompletedAt = 0;
+            let finalAssistantSeen = false;
+
+            const requestPromise = runner.sendChat(sessionId, message)
+                .then(result => {
+                    responsePayload = result;
+                    requestCompleted = true;
+                    requestCompletedAt = Date.now();
+                    return result;
+                })
+                .catch(error => {
+                    requestError = error;
+                    requestCompleted = true;
+                    requestCompletedAt = Date.now();
+                    throw error;
+                });
+
+            while (!requestCompleted || Date.now() - requestCompletedAt < 2500) {
+                const currentMessages = await this.readOpenClawSessionMessages(sessionId).catch(() => []);
+                const newMessages = currentMessages.filter(item => !seenIds.has(item.id));
+
+                for (const newMessage of newMessages) {
+                    seenIds.add(newMessage.id);
+                    if (isFinalOpenClawAssistantMessage(newMessage)) {
+                        finalAssistantSeen = true;
+                    }
+
+                    yield {
+                        content: newMessage.role === 'assistant' ? newMessage.content : '',
+                        done: false,
+                        tokenCount: newMessage.tokenCount,
+                        message: newMessage
+                    };
+                }
+
+                if (requestCompleted) {
+                    if (requestError) {
+                        break;
+                    }
+
+                    if (finalAssistantSeen) {
+                        break;
+                    }
+                }
+
+                await delay(200);
+            }
+
+            try {
+                await requestPromise;
+            } catch {
+                throw requestError;
+            }
+
+            if (!finalAssistantSeen && responsePayload) {
+                const fallbackAssistant = extractAssistantMessageFromPayload(responsePayload, sessionId);
+                if (fallbackAssistant && !seenIds.has(fallbackAssistant.id)) {
+                    yield {
+                        content: fallbackAssistant.content,
+                        done: false,
+                        tokenCount: fallbackAssistant.tokenCount,
+                        message: fallbackAssistant
+                    };
+                }
+            }
+
             yield {
-                content: response.content,
-                done: true,
-                tokenCount: response.tokenCount
+                content: '',
+                done: true
             };
             return;
         }
@@ -648,6 +770,11 @@ export class OpenClawService extends EventEmitter {
         }
 
         if (this.mode === 'openclaw') {
+            const fileMessages = await this.readOpenClawSessionMessages(sessionId);
+            if (fileMessages.length > 0) {
+                return fileMessages;
+            }
+
             const response = await this.requireOpenClawRunner().getChatHistory(sessionId, 200);
             return normalizeOpenClawChatHistory(response.messages || [], sessionId);
         }
@@ -848,6 +975,11 @@ export class OpenClawService extends EventEmitter {
             )
         ]);
 
+        this.openClawSessionEntriesByKey = new Map(
+            (sessionsResult.sessions || [])
+                .filter(session => session.key)
+                .map(session => [session.key, session] as const)
+        );
         const sessionKeysByAgent = buildSessionKeyMap(sessionsResult.sessions || []);
         const defaultAgentId = resolvePreferredAgentId(records, gatewayAgents, sessionKeysByAgent);
         const gatewayNames = new Map(
@@ -933,6 +1065,83 @@ export class OpenClawService extends EventEmitter {
         const sessionKey = `agent:${agentId}:${snapshot.mainKey?.trim() || this.openClawMainKey || 'main'}`;
         this.openClawSessionKeysByAgent.set(agentId, sessionKey);
         return sessionKey;
+    }
+
+    private async readOpenClawSessionMessages(sessionKey: string, limit: number = 200): Promise<ChatMessage[]> {
+        const sessionEntry = await this.resolveOpenClawSessionEntry(sessionKey);
+        if (!sessionEntry?.sessionId) {
+            return [];
+        }
+
+        const agentId = sessionEntry.agentId || parseAgentIdFromSessionKey(sessionKey) || undefined;
+        if (!agentId || !this.openClawConfig) {
+            return [];
+        }
+
+        const sessionFilePath = path.join(
+            this.openClawConfig.stateDir,
+            'agents',
+            sanitizeAgentName(agentId),
+            'sessions',
+            `${sessionEntry.sessionId}.jsonl`
+        );
+
+        try {
+            const content = await fs.readFile(sessionFilePath, 'utf8');
+            return normalizeOpenClawSessionLog(content, sessionKey, agentId, limit);
+        } catch (error) {
+            const maybeNodeError = error as NodeJS.ErrnoException;
+            if (maybeNodeError.code === 'ENOENT') {
+                return [];
+            }
+
+            throw error;
+        }
+    }
+
+    private async resolveOpenClawSessionEntry(sessionKey: string): Promise<OpenClawSessionsListEntry | null> {
+        const cached = this.openClawSessionEntriesByKey.get(sessionKey);
+        if (cached) {
+            return cached;
+        }
+
+        await this.loadOpenClawAgentsSnapshot();
+        const fromSnapshot = this.openClawSessionEntriesByKey.get(sessionKey);
+        if (fromSnapshot) {
+            return fromSnapshot;
+        }
+
+        const sessionsResult = await this.requireOpenClawRunner().listSessions().catch(() => ({ sessions: [] as OpenClawSessionsListEntry[] }));
+        this.openClawSessionEntriesByKey = new Map(
+            (sessionsResult.sessions || [])
+                .filter(session => session.key)
+                .map(session => [session.key, session] as const)
+        );
+
+        return this.openClawSessionEntriesByKey.get(sessionKey) || null;
+    }
+
+    private async waitForOpenClawAssistantMessage(
+        sessionKey: string,
+        knownIds: Set<string>,
+        timeoutMs: number
+    ): Promise<ChatMessage | null> {
+        const startedAt = Date.now();
+
+        while (Date.now() - startedAt < timeoutMs) {
+            const messages = await this.readOpenClawSessionMessages(sessionKey).catch(() => []);
+            const assistant = [...messages]
+                .reverse()
+                .find(message => !knownIds.has(message.id) && isFinalOpenClawAssistantMessage(message));
+
+            if (assistant) {
+                return assistant;
+            }
+
+            await delay(150);
+        }
+
+        return null;
     }
 
     private requireOpenClawRunner(): OpenClawCliRunner {
@@ -1151,6 +1360,10 @@ export class OpenClawService extends EventEmitter {
         }
 
         for (const message of session.messages) {
+            if (message.role === 'tool') {
+                continue;
+            }
+
             messages.push({
                 role: message.role,
                 content: message.content
@@ -1354,28 +1567,74 @@ function parseAgentIdFromSessionKey(sessionKey: string): string | null {
 
 function normalizeOpenClawChatHistory(messages: OpenClawChatHistoryMessage[], sessionKey: string): ChatMessage[] {
     const agentId = parseAgentIdFromSessionKey(sessionKey) || undefined;
+    const toolCalls = new Map<string, OpenClawToolCallInfo>();
 
     return messages
-        .map((message, index) => normalizeOpenClawChatMessage(message, `${sessionKey}:${index}`, agentId))
+        .map((message, index) => normalizeOpenClawChatMessage(message, `${sessionKey}:${index}`, agentId, toolCalls))
         .filter((message): message is ChatMessage => Boolean(message));
 }
 
 function normalizeOpenClawChatMessage(
     message: OpenClawChatHistoryMessage,
     fallbackId: string,
-    agentId?: string
+    agentId?: string,
+    toolCalls: Map<string, OpenClawToolCallInfo> = new Map()
 ): ChatMessage | null {
     const role = normalizeRole(message.role);
     if (!role) {
         return null;
     }
 
+    if (role === 'tool') {
+        const toolCallId = typeof message.toolCallId === 'string' ? message.toolCallId : undefined;
+        const storedToolCall = toolCallId ? toolCalls.get(toolCallId) : undefined;
+        const toolName = typeof message.toolName === 'string'
+            ? message.toolName
+            : storedToolCall?.name || 'tool';
+        const resultText = extractTextContent(message.content) || (typeof message.text === 'string' ? message.text : '');
+
+        return {
+            id: fallbackId,
+            role: 'tool',
+            content: resultText,
+            timestamp: normalizeTimestamp(message.timestamp),
+            agentId,
+            parts: [{
+                type: 'toolResult',
+                toolCallId,
+                name: toolName,
+                arguments: storedToolCall?.arguments,
+                result: resultText,
+                details: message.details,
+                isError: Boolean(message.isError)
+            }],
+            toolCallId,
+            toolName,
+            toolArguments: storedToolCall?.arguments,
+            toolDetails: message.details,
+            isError: Boolean(message.isError),
+            metadata: extractMessageMetadata(message)
+        };
+    }
+
+    const parts = normalizeOpenClawMessageParts(message.content);
+    for (const part of parts) {
+        if (part.type === 'toolCall' && part.id) {
+            toolCalls.set(part.id, {
+                name: part.name,
+                arguments: part.arguments
+            });
+        }
+    }
+
     return {
         id: fallbackId,
         role,
-        content: extractTextContent(message.content) || (typeof message.text === 'string' ? message.text : ''),
+        content: buildDisplayContentFromParts(parts, message),
         timestamp: normalizeTimestamp(message.timestamp),
-        agentId
+        agentId,
+        parts,
+        metadata: extractMessageMetadata(message)
     };
 }
 
@@ -1387,6 +1646,10 @@ function normalizeRole(value: unknown): ChatMessage['role'] | null {
     const normalized = value.toLowerCase();
     if (normalized === 'user' || normalized === 'assistant' || normalized === 'system') {
         return normalized;
+    }
+
+    if (normalized === 'toolresult') {
+        return 'tool';
     }
 
     return null;
@@ -1413,6 +1676,7 @@ function extractAssistantMessageFromPayload(payload: unknown, sessionKey: string
     }
 
     const record = payload as Record<string, unknown>;
+    const toolCalls = new Map<string, OpenClawToolCallInfo>();
     if (Array.isArray(record.messages)) {
         const candidate = [...record.messages]
             .reverse()
@@ -1424,7 +1688,8 @@ function extractAssistantMessageFromPayload(payload: unknown, sessionKey: string
                 return normalizeOpenClawChatMessage(
                     message as OpenClawChatHistoryMessage,
                     `${sessionKey}:payload:${index}`,
-                    parseAgentIdFromSessionKey(sessionKey) || undefined
+                    parseAgentIdFromSessionKey(sessionKey) || undefined,
+                    toolCalls
                 );
             })
             .find((message): message is ChatMessage => {
@@ -1440,7 +1705,8 @@ function extractAssistantMessageFromPayload(payload: unknown, sessionKey: string
         const candidate = normalizeOpenClawChatMessage(
             record.message as OpenClawChatHistoryMessage,
             `${sessionKey}:payload`,
-            parseAgentIdFromSessionKey(sessionKey) || undefined
+            parseAgentIdFromSessionKey(sessionKey) || undefined,
+            toolCalls
         );
         if (candidate?.role === 'assistant') {
             return candidate;
@@ -1449,12 +1715,15 @@ function extractAssistantMessageFromPayload(payload: unknown, sessionKey: string
 
     const role = normalizeRole(record.role);
     if (role === 'assistant') {
+        const parts = normalizeOpenClawMessageParts(record.content);
         return {
             id: `${sessionKey}:payload`,
             role,
-            content: extractTextContent(record.content),
+            content: buildDisplayContentFromParts(parts, record),
             timestamp: normalizeTimestamp(record.timestamp),
-            agentId: parseAgentIdFromSessionKey(sessionKey) || undefined
+            agentId: parseAgentIdFromSessionKey(sessionKey) || undefined,
+            parts,
+            metadata: extractRecordMetadata(record)
         };
     }
 
@@ -1463,6 +1732,162 @@ function extractAssistantMessageFromPayload(payload: unknown, sessionKey: string
     }
 
     return null;
+}
+
+function normalizeOpenClawSessionLog(
+    content: string,
+    sessionKey: string,
+    agentId?: string,
+    limit: number = 200
+): ChatMessage[] {
+    const messages: ChatMessage[] = [];
+    const toolCalls = new Map<string, OpenClawToolCallInfo>();
+    const lines = content.split(/\r?\n/);
+
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index].trim();
+        if (!line) {
+            continue;
+        }
+
+        let entry: OpenClawSessionLogEntry | null = null;
+        try {
+            entry = JSON.parse(line) as OpenClawSessionLogEntry;
+        } catch {
+            continue;
+        }
+
+        if (entry?.type !== 'message' || !entry.message) {
+            continue;
+        }
+
+        const normalized = normalizeOpenClawChatMessage(
+            {
+                ...entry.message,
+                timestamp: entry.message.timestamp ?? entry.timestamp
+            },
+            entry.id || `${sessionKey}:log:${index}`,
+            agentId,
+            toolCalls
+        );
+
+        if (normalized) {
+            messages.push(normalized);
+        }
+    }
+
+    if (limit <= 0 || messages.length <= limit) {
+        return messages;
+    }
+
+    return messages.slice(-limit);
+}
+
+function normalizeOpenClawMessageParts(content: unknown): ChatMessagePart[] {
+    const values = Array.isArray(content) ? content : [content];
+    const parts: ChatMessagePart[] = [];
+
+    for (const value of values) {
+        if (typeof value === 'string') {
+            if (value) {
+                parts.push({ type: 'text', text: value });
+            }
+            continue;
+        }
+
+        if (!value || typeof value !== 'object') {
+            continue;
+        }
+
+        const record = value as Record<string, unknown>;
+        const type = typeof record.type === 'string' ? record.type : '';
+
+        if (type === 'text' && typeof record.text === 'string') {
+            parts.push({
+                type: 'text',
+                text: record.text
+            });
+            continue;
+        }
+
+        if (type === 'thinking' && typeof record.thinking === 'string') {
+            parts.push({
+                type: 'thinking',
+                thinking: record.thinking,
+                thinkingSignature: typeof record.thinkingSignature === 'string' ? record.thinkingSignature : undefined
+            });
+            continue;
+        }
+
+        if (type === 'toolCall') {
+            parts.push({
+                type: 'toolCall',
+                id: typeof record.id === 'string' ? record.id : undefined,
+                name: typeof record.name === 'string' ? record.name : 'tool',
+                arguments: record.arguments
+            });
+            continue;
+        }
+
+        const text = extractTextContent(record);
+        if (text) {
+            parts.push({
+                type: 'text',
+                text
+            });
+        }
+    }
+
+    return parts;
+}
+
+function buildDisplayContentFromParts(parts: ChatMessagePart[], message: Record<string, unknown>): string {
+    const text = parts
+        .filter((part): part is Extract<ChatMessagePart, { type: 'text' }> => part.type === 'text')
+        .map(part => part.text)
+        .join('');
+    if (text) {
+        return text;
+    }
+
+    const thinking = parts
+        .filter((part): part is Extract<ChatMessagePart, { type: 'thinking' }> => part.type === 'thinking')
+        .map(part => part.thinking)
+        .join('\n\n');
+    if (thinking) {
+        return thinking;
+    }
+
+    return extractTextContent(message.content) || (typeof message.text === 'string' ? message.text : '');
+}
+
+function extractMessageMetadata(message: OpenClawChatHistoryMessage): Record<string, unknown> | undefined {
+    const metadata = extractRecordMetadata(message as Record<string, unknown>);
+    return Object.keys(metadata).length > 0 ? metadata : undefined;
+}
+
+function extractRecordMetadata(record: Record<string, unknown>): Record<string, unknown> {
+    const metadata: Record<string, unknown> = {};
+
+    for (const key of ['api', 'provider', 'model', 'usage', 'stopReason', 'thinkingLevel']) {
+        if (record[key] !== undefined) {
+            metadata[key] = record[key];
+        }
+    }
+
+    return metadata;
+}
+
+function isFinalOpenClawAssistantMessage(message: ChatMessage): boolean {
+    if (message.role !== 'assistant') {
+        return false;
+    }
+
+    if (message.metadata?.stopReason === 'toolUse') {
+        return false;
+    }
+
+    return true;
 }
 
 function mapOpenClawUsage(
@@ -1618,6 +2043,10 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Pr
                 resolve(fallback);
             });
     });
+}
+
+function delay(timeoutMs: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, timeoutMs));
 }
 
 function sanitizeAgentName(value: string): string {

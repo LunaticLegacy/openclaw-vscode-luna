@@ -129,7 +129,7 @@
 
         const inlineCodeBlocks = [];
         let source = String(text).replace(/`([^`\n]+)`/g, (_, code) => {
-            const placeholder = `\u0000INLINE_CODE_${inlineCodeBlocks.length}\u0000`;
+            const placeholder = `\u0000INLINECODE${inlineCodeBlocks.length}\u0000`;
             inlineCodeBlocks.push(`<code>${escapeHtml(code)}</code>`);
             return placeholder;
         });
@@ -160,7 +160,7 @@
             .replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
 
         inlineCodeBlocks.forEach((code, index) => {
-            const placeholder = `\u0000INLINE_CODE_${index}\u0000`;
+            const placeholder = `\u0000INLINECODE${index}\u0000`;
             html = html.split(placeholder).join(code);
         });
 

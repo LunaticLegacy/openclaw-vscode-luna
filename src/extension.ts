@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { t } from './i18n';
 import { OpenClawService } from './services/openclawService';
 import { resolveOpenClawServiceConfig } from './services/openclawConfig';
@@ -24,7 +25,10 @@ export async function activate(context: vscode.ExtensionContext) {
     const serviceConfig = await resolveOpenClawServiceConfig(context.extensionPath);
     openclawService = new OpenClawService(serviceConfig);
     agentManager = new AgentManager(openclawService);
-    clusterManager = new ClusterManager(openclawService);
+    clusterManager = new ClusterManager(
+        openclawService,
+        path.join(context.globalStorageUri.fsPath, 'clusters.json')
+    );
     usageManager = new UsageManager(openclawService);
 
     // 设置上下文变量
@@ -54,7 +58,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // 1. 打开主面板
     const openPanelCmd = vscode.commands.registerCommand('openclaw.openPanel', () => {
-        OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager);
+        OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager);
     });
     context.subscriptions.push(openPanelCmd);
 
@@ -103,7 +107,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // 发送消息
         try {
-            const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager);
+            const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager);
             panel.setActiveAgent(selectedAgent.agentId);
             await panel.sendMessage(input, selectedAgent.agentId);
             
@@ -118,7 +122,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // 3. 与 Agent 聊天 (完整面板)
     const chatCmd = vscode.commands.registerCommand('openclaw.chat', async (agentArg?: any) => {
         const agentId = resolveAgentId(agentArg);
-        const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager);
+        const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager);
         
         if (agentId) {
             panel.setActiveAgent(agentId);
@@ -254,14 +258,14 @@ export async function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-        const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager);
+        const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager);
         panel.showClusterView(clusters);
     });
     context.subscriptions.push(viewClustersCmd);
 
     // 7. API 用量仪表板
     const apiUsageCmd = vscode.commands.registerCommand('openclaw.apiUsage', async () => {
-        const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager);
+        const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager);
         panel.showUsageDashboard();
     });
     context.subscriptions.push(apiUsageCmd);
@@ -274,7 +278,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // 9. 发送消息
     const sendMessageCmd = vscode.commands.registerCommand('openclaw.sendMessage', async (message: string, agentId?: string) => {
-        const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager);
+        const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager);
         await panel.sendMessage(message, agentId);
     });
     context.subscriptions.push(sendMessageCmd);
@@ -456,7 +460,7 @@ export async function activate(context: vscode.ExtensionContext) {
             }
 
             // 打开设置面板
-            const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager);
+            const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager);
             panel.showAgentSettings(agent);
             
         } catch (error) {

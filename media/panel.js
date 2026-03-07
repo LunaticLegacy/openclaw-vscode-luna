@@ -8,8 +8,10 @@
     let state = {
         currentAgentId: null,
         agents: [],
+        clusters: [],
         isStreaming: false,
         currentThinking: null,
+        lastSwarmRun: null,
         viewMode: 'chat',
         locale: 'en'
     };
@@ -69,6 +71,8 @@
         elements.views = document.querySelectorAll('.view');
         elements.tokenCount = document.getElementById('token-count');
         elements.clustersList = document.getElementById('clusters-list');
+        elements.btnCreateCluster = document.getElementById('btn-create-cluster');
+        elements.btnRefreshUsage = document.getElementById('btn-refresh-usage');
         elements.modalAgentSettings = document.getElementById('modal-agent-settings');
         elements.formAgentSettings = document.getElementById('form-agent-settings');
     }
@@ -102,6 +106,14 @@
         // New agent modal
         elements.btnNewAgent?.addEventListener('click', () => {
             openModal(elements.modalNewAgent);
+        });
+
+        elements.btnCreateCluster?.addEventListener('click', () => {
+            vscode.postMessage({ type: 'createCluster' });
+        });
+
+        elements.btnRefreshUsage?.addEventListener('click', () => {
+            vscode.postMessage({ type: 'getUsage' });
         });
 
         document.querySelectorAll('.modal-close, .modal-cancel').forEach(btn => {
@@ -142,6 +154,53 @@
             modal.addEventListener('click', (e) => {
                 if (e.target === modal) closeAllModals();
             });
+        });
+
+        document.addEventListener('click', (e) => {
+            const target = e.target;
+            if (!(target instanceof Element)) {
+                return;
+            }
+
+            const thinkingHeader = target.closest('.thinking-header');
+            if (thinkingHeader) {
+                toggleThinkingBlock(thinkingHeader);
+                return;
+            }
+
+            const clusterActionButton = target.closest('[data-cluster-action]');
+            if (clusterActionButton) {
+                const clusterId = clusterActionButton.getAttribute('data-cluster-id');
+                const action = clusterActionButton.getAttribute('data-cluster-action');
+                if (!clusterId || !action) {
+                    return;
+                }
+
+                if (action === 'broadcast') {
+                    promptBroadcastToCluster(clusterId);
+                } else if (action === 'collaborate') {
+                    promptCollaborateCluster(clusterId);
+                }
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') {
+                return;
+            }
+
+            const target = e.target;
+            if (!(target instanceof Element)) {
+                return;
+            }
+
+            const thinkingHeader = target.closest('.thinking-header');
+            if (!thinkingHeader) {
+                return;
+            }
+
+            e.preventDefault();
+            toggleThinkingBlock(thinkingHeader);
         });
     }
 
@@ -215,6 +274,7 @@
         }
         
         elements.messageInput.value = '';
+        resetTransientChatState();
         
         // Add user message
         addMessage({
@@ -265,6 +325,21 @@
         state.currentThinking = div;
     }
 
+    function clearThinkingIndicator() {
+        if (!state.currentThinking) return;
+        state.currentThinking.remove();
+        state.currentThinking = null;
+    }
+
+    function resetTransientChatState() {
+        clearThinkingIndicator();
+        document.querySelector('.message-streaming')?.remove();
+        state.isStreaming = false;
+        if (elements.btnSend) {
+            elements.btnSend.disabled = false;
+        }
+    }
+
     // Update thinking content
     function updateThinking(content) {
         if (!state.currentThinking) return;
@@ -286,10 +361,7 @@
 
     // Hide thinking and show response
     function finalizeThinking(content) {
-        if (state.currentThinking) {
-            state.currentThinking.remove();
-            state.currentThinking = null;
-        }
+        clearThinkingIndicator();
         
         addMessage({
             role: 'assistant',
@@ -300,27 +372,138 @@
 
     // Add message to chat
     function addMessage(msg) {
+        if (!msg) return;
+
+        if ((msg.role === 'assistant' || msg.role === 'tool') && state.currentThinking) {
+            clearThinkingIndicator();
+        }
+
         const div = document.createElement('div');
         div.className = `message message-${msg.role}`;
         
         const time = new Date(msg.timestamp).toLocaleTimeString();
         const tokenInfo = msg.tokenCount ? `<span class="token-count">${msg.tokenCount} tokens</span>` : '';
-        
-        // Process content: first handle thinking blocks, then format the rest
-        const { mainContent, thinkingHtml } = processMessageContent(msg.content);
+        const rendered = renderMessageContent(msg);
         
         div.innerHTML = `
             <div class="message-header">
-                <span class="message-role">${msg.role === 'user' ? 'You' : 'Assistant'}</span>
+                <span class="message-role">${getMessageRoleLabel(msg)}</span>
                 <span class="message-time">${time}</span>
                 ${tokenInfo}
             </div>
-            ${thinkingHtml}
-            <div class="message-content">${formatContent(mainContent)}</div>
+            ${rendered}
         `;
         
         elements.chatMessages.appendChild(div);
         scrollToBottom();
+
+        if (msg.role === 'assistant' && !isToolUseMessage(msg)) {
+            state.isStreaming = false;
+            if (elements.btnSend) {
+                elements.btnSend.disabled = false;
+            }
+        }
+    }
+
+    function renderMessageContent(msg) {
+        if (Array.isArray(msg.parts) && msg.parts.length > 0) {
+            return renderStructuredMessage(msg);
+        }
+
+        const { mainContent, thinkingHtml } = processMessageContent(msg.content);
+        return `${thinkingHtml}<div class="message-content">${formatContent(mainContent)}</div>`;
+    }
+
+    function renderStructuredMessage(msg) {
+        const parts = Array.isArray(msg.parts) ? msg.parts : [];
+
+        if (msg.role === 'tool') {
+            return renderToolMessage(msg, parts);
+        }
+
+        const thinkingParts = parts.filter(part => part.type === 'thinking');
+        const textParts = parts.filter(part => part.type === 'text');
+        const toolCalls = parts.filter(part => part.type === 'toolCall');
+        const thinkingHtml = thinkingParts.length > 0
+            ? `
+                <div class="thinking-block collapsed">
+                    <div class="thinking-header" role="button" tabindex="0" aria-expanded="false">
+                        <span class="thinking-icon">💭</span>
+                        <span class="thinking-label">${window.OpenClawI18n ? window.OpenClawI18n.t('common.thinking') : 'Thinking'}</span>
+                        <span class="thinking-toggle">▼</span>
+                    </div>
+                    <div class="thinking-body">${formatThinking(thinkingParts.map(part => part.thinking).join('\n\n'))}</div>
+                </div>
+            `
+            : '';
+        const toolCallsHtml = toolCalls.length > 0
+            ? `
+                <div class="tool-call-list">
+                    ${toolCalls.map(toolCall => `
+                        <div class="tool-card tool-card-pending">
+                            <div class="tool-card-header">
+                                <span class="tool-card-status">⏳</span>
+                                <span class="tool-card-name">${escapeHtml(toolCall.name || 'tool')}</span>
+                            </div>
+                            ${toolCall.arguments !== undefined ? `<div class="tool-card-section"><div class="tool-card-label">Input</div><pre class="tool-card-pre">${escapeHtml(formatToolData(toolCall.arguments))}</pre></div>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            `
+            : '';
+        const mainContent = textParts.map(part => part.text).join('');
+
+        return `
+            ${thinkingHtml}
+            ${toolCallsHtml}
+            ${mainContent ? `<div class="message-content">${formatContent(mainContent)}</div>` : ''}
+        `;
+    }
+
+    function renderToolMessage(msg, parts) {
+        const toolPart = parts.find(part => part.type === 'toolResult');
+        const toolName = toolPart?.name || msg.toolName || 'tool';
+        const toolArguments = toolPart?.arguments ?? msg.toolArguments;
+        const toolResult = toolPart?.result ?? msg.content ?? '';
+        const toolDetails = toolPart?.details ?? msg.toolDetails;
+        const isError = Boolean(toolPart?.isError ?? msg.isError);
+
+        return `
+            <div class="tool-card ${isError ? 'tool-card-error' : 'tool-card-success'}">
+                <div class="tool-card-header">
+                    <span class="tool-card-status">${isError ? '❌' : '✅'}</span>
+                    <span class="tool-card-name">${escapeHtml(toolName)}</span>
+                </div>
+                ${toolArguments !== undefined ? `<div class="tool-card-section"><div class="tool-card-label">Input</div><pre class="tool-card-pre">${escapeHtml(formatToolData(toolArguments))}</pre></div>` : ''}
+                <div class="tool-card-section">
+                    <div class="tool-card-label">Result</div>
+                    <div class="message-content">${formatContent(toolResult)}</div>
+                </div>
+                ${toolDetails !== undefined ? `<details class="tool-card-details"><summary>Details</summary><pre class="tool-card-pre">${escapeHtml(formatToolData(toolDetails))}</pre></details>` : ''}
+            </div>
+        `;
+    }
+
+    function getMessageRoleLabel(msg) {
+        if (msg.role === 'user') return 'You';
+        if (msg.role === 'tool') return 'Tool';
+        return 'Assistant';
+    }
+
+    function isToolUseMessage(msg) {
+        return msg?.role === 'assistant' && msg?.metadata?.stopReason === 'toolUse';
+    }
+
+    function formatToolData(value) {
+        if (typeof value === 'string') {
+            return value;
+        }
+
+        try {
+            return JSON.stringify(value, null, 2);
+        } catch {
+            return String(value);
+        }
     }
     
     // Process message content, extracting thinking blocks
@@ -349,7 +532,7 @@
             
             thinkingHtml = `
                 <div class="thinking-block collapsed">
-                    <div class="thinking-header" onclick="toggleThinking(this)">
+                    <div class="thinking-header" role="button" tabindex="0" aria-expanded="false">
                         <span class="thinking-icon">💭</span>
                         <span class="thinking-label">${t('common.thinking')}</span>
                         <span class="thinking-toggle">▼</span>
@@ -377,17 +560,27 @@
         }).join('');
     }
 
-    // Toggle thinking block
-    window.toggleThinking = function(header) {
+    function toggleThinkingBlock(header) {
         const block = header.parentElement;
+        if (!block) {
+            return;
+        }
         block.classList.toggle('collapsed');
         const toggle = header.querySelector('.thinking-toggle');
-        toggle.textContent = block.classList.contains('collapsed') ? '▼' : '▲';
-    };
+        if (toggle) {
+            toggle.textContent = block.classList.contains('collapsed') ? '▼' : '▲';
+        }
+        header.setAttribute('aria-expanded', block.classList.contains('collapsed') ? 'false' : 'true');
+    }
 
     // Update streaming message
     function updateStreamingMessage(content, done) {
-        if (!content) return;
+        if (!content) {
+            if (done) {
+                resetTransientChatState();
+            }
+            return;
+        }
         
         // If we were showing thinking indicator and we're done, finalize
         if (state.currentThinking && done) {
@@ -414,10 +607,7 @@
         
         if (!streamingMsg) {
             // Remove thinking indicator if exists
-            if (state.currentThinking) {
-                state.currentThinking.remove();
-                state.currentThinking = null;
-            }
+            clearThinkingIndicator();
             
             streamingMsg = document.createElement('div');
             streamingMsg.className = 'message message-assistant message-streaming';
@@ -640,38 +830,156 @@
 
     // Render clusters
     function renderClusters(clusters) {
+        state.clusters = Array.isArray(clusters) ? clusters : [];
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (k) => k;
         
-        if (clusters.length === 0) {
+        if (state.clusters.length === 0) {
             elements.clustersList.innerHTML = `<div class="empty">${t('clusters.noneFound')}</div>`;
             return;
         }
-        
-        elements.clustersList.innerHTML = clusters.map(cluster => `
+
+        const swarmResultsHtml = state.lastSwarmRun
+            ? renderSwarmResults()
+            : '';
+
+        elements.clustersList.innerHTML = `${swarmResultsHtml}${state.clusters.map(cluster => `
             <div class="cluster-card">
                 <div class="cluster-header">
                     <h4>${escapeHtml(cluster.name)}</h4>
                     <span class="cluster-status status-${cluster.status}">${cluster.status}</span>
                 </div>
                 <div class="cluster-agents">
-                    ${cluster.agentIds.map(id => `<span class="cluster-agent-tag">${id}</span>`).join('')}
+                    ${cluster.agentIds.map(id => `<span class="cluster-agent-tag">${escapeHtml(resolveAgentLabel(id))}</span>`).join('')}
                 </div>
                 <div class="cluster-actions">
-                    <button class="btn btn-small" onclick="broadcastToCluster('${cluster.id}')">
+                    <button class="btn btn-small" data-cluster-action="broadcast" data-cluster-id="${cluster.id}">
                         ${t('clusters.broadcast')}
+                    </button>
+                    <button class="btn btn-small" data-cluster-action="collaborate" data-cluster-id="${cluster.id}">
+                        ${t('clusters.collaborate')}
                     </button>
                 </div>
             </div>
-        `).join('');
+        `).join('')}`;
     }
 
-    window.broadcastToCluster = function(clusterId) {
-        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (k) => k;
-        const message = prompt(t('clusters.broadcastPrompt') || 'Enter message to broadcast:');
-        if (message) {
-            vscode.postMessage({ type: 'broadcastToCluster', clusterId, message });
+    function promptBroadcastToCluster(clusterId) {
+        vscode.postMessage({
+            type: 'promptBroadcastToCluster',
+            clusterId
+        });
+    }
+
+    function promptCollaborateCluster(clusterId) {
+        vscode.postMessage({
+            type: 'promptCollaborateCluster',
+            clusterId
+        });
+    }
+
+    function renderSwarmResults() {
+        if (!state.lastSwarmRun) {
+            return '';
         }
-    };
+
+        if (state.lastSwarmRun.kind === 'collaboration') {
+            return renderCollaborationResults(state.lastSwarmRun.result);
+        }
+
+        return renderBroadcastResults(state.lastSwarmRun.clusterId, state.lastSwarmRun.responses);
+    }
+
+    function renderBroadcastResults(clusterId, responses) {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (k) => k;
+        const cluster = state.clusters.find(item => item.id === clusterId);
+        const entries = Object.values(responses || {});
+        if (entries.length === 0) {
+            return '';
+        }
+
+        return `
+            <div class="broadcast-results">
+                <h4>${t('clusters.resultsTitle') || 'Broadcast Results'}${cluster ? ` · ${escapeHtml(cluster.name)}` : ''}</h4>
+                ${entries.map(entry => `
+                    <div class="broadcast-result-item">
+                        <div class="message-header">
+                            <span class="message-role">${escapeHtml(resolveAgentLabel(entry.agentId))}</span>
+                            <span class="message-time">${entry.ok ? (t('clusters.resultOk') || 'Completed') : (t('clusters.resultFailed') || 'Failed')}</span>
+                        </div>
+                        <div class="message-content">
+                            ${entry.ok && entry.message
+                                ? formatContent(entry.message.content || '')
+                                : `<p>${escapeHtml(entry.error || (t('clusters.resultUnknownError') || 'Unknown error'))}</p>`}
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    function renderCollaborationResults(result) {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (k) => k;
+        if (!result) {
+            return '';
+        }
+
+        const cluster = state.clusters.find(item => item.id === result.clusterId);
+        const clusterName = cluster?.name || result.clusterName || '';
+        const contributionIds = (cluster?.agentIds || Object.keys(result.contributions || {}))
+            .filter(agentId => result.contributions?.[agentId]);
+        const finalAnswerHtml = result.synthesis?.ok && result.synthesis.message
+            ? formatContent(result.synthesis.message.content || '')
+            : `<p>${escapeHtml(result.synthesis?.error || (t('clusters.noSuccessfulAgents') || 'No agent produced a usable contribution.'))}</p>`;
+        const coordinatorLabel = result.coordinatorAgentId
+            ? resolveAgentLabel(result.coordinatorAgentId)
+            : '—';
+
+        return `
+            <div class="broadcast-results">
+                <h4>${t('clusters.collaborationTitle') || 'Swarm Collaboration'}${clusterName ? ` · ${escapeHtml(clusterName)}` : ''}</h4>
+                <div class="broadcast-result-item">
+                    <div class="message-header">
+                        <span class="message-role">${t('clusters.coordinator') || 'Coordinator'}: ${escapeHtml(coordinatorLabel)}</span>
+                        <span class="message-time">${result.synthesis?.ok ? (t('clusters.resultOk') || 'Completed') : (t('clusters.resultFailed') || 'Failed')}</span>
+                    </div>
+                    <div class="message-header">
+                        <span class="message-role">${t('clusters.finalAnswer') || 'Final Answer'}</span>
+                    </div>
+                    <div class="message-content">${finalAnswerHtml}</div>
+                </div>
+                <h4>${t('clusters.contributions') || 'Contributions'}</h4>
+                ${contributionIds.map(agentId => {
+                    const entry = result.contributions[agentId];
+                    return `
+                        <div class="broadcast-result-item">
+                            <div class="message-header">
+                                <span class="message-role">${escapeHtml(resolveAgentLabel(agentId))}</span>
+                                <span class="message-time">${entry.ok ? (t('clusters.resultOk') || 'Completed') : (t('clusters.resultFailed') || 'Failed')}</span>
+                            </div>
+                            <div class="message-content">
+                                ${entry.ok && entry.message
+                                    ? formatContent(entry.message.content || '')
+                                    : `<p>${escapeHtml(entry.error || (t('clusters.resultUnknownError') || 'Unknown error'))}</p>`}
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        `;
+    }
+
+    function resolveAgentLabel(agentId) {
+        if (!agentId) {
+            return '—';
+        }
+
+        const agent = state.agents.find(item => item.id === agentId);
+        if (!agent) {
+            return agentId;
+        }
+
+        return `${agent.name} (${agent.model})`;
+    }
 
     // Render usage
     function renderUsage(usage) {
@@ -739,10 +1047,12 @@
                 break;
                 
             case 'clearChat':
+                resetTransientChatState();
                 elements.chatMessages.innerHTML = '';
                 break;
                 
             case 'setActiveAgent':
+                resetTransientChatState();
                 state.currentAgentId = message.agentId;
                 document.querySelectorAll('.agent-item').forEach(item => {
                     item.classList.toggle('active', item.dataset.id === message.agentId);
@@ -776,7 +1086,20 @@
                 break;
                 
             case 'broadcastResults':
-                // Handle broadcast results
+                state.lastSwarmRun = {
+                    kind: 'broadcast',
+                    clusterId: message.clusterId,
+                    responses: message.responses || {}
+                };
+                renderClusters(state.clusters);
+                break;
+
+            case 'collaborationResults':
+                state.lastSwarmRun = {
+                    kind: 'collaboration',
+                    result: message.result || null
+                };
+                renderClusters(state.clusters);
                 break;
 
             case 'agentsLoadFailed':
@@ -793,10 +1116,7 @@
                 
             case 'error':
                 showError(message.message);
-                if (state.isStreaming) {
-                    state.isStreaming = false;
-                    elements.btnSend.disabled = false;
-                }
+                resetTransientChatState();
                 break;
         }
     });
