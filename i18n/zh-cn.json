@@ -42,10 +42,10 @@
   "chat.send": "发送",
   "chat.thinking": "思考中",
   "chat.clear": "清空聊天",
-  "sidebar.agents": "Agents",
+  "sidebar.agents": "智能体",
   "sidebar.clusters": "集群",
   "sidebar.usage": "用量",
-  "sidebar.newAgent": "新建 Agent",
+  "sidebar.newAgent": "新建智能体",
   "sidebar.chat": "对话",
   "sidebar.basic": "基础设置",
   "agentSettings.basic": "基础设置",
@@ -140,5 +140,5 @@
   "manageAgents.actionDelete": "$(trash) 删除",
   "manageAgents.actionDetails": "$(info) 查看详情",
   "welcome.title": "欢迎使用 OpenClaw Luna",
-  "welcome.subtitle": "从侧边栏选择一个 Agent 开始对话！"
+  "welcome.subtitle": "从侧边栏选择一个智能体开始对话！"
 }

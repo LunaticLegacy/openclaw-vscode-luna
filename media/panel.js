@@ -22,16 +22,38 @@
         cacheElements();
         bindEvents();
         
-        // Set locale and translations from global variables
-        if (typeof window.LOCALE !== 'undefined') {
-            state.locale = window.LOCALE;
+        const locale = document.body?.dataset.locale;
+        if (locale) {
+            state.locale = locale;
         }
-        if (typeof window.TRANSLATIONS !== 'undefined' && window.OpenClawI18n) {
-            window.OpenClawI18n.setTranslations(window.TRANSLATIONS, state.locale);
+
+        const encodedTranslations = document.body?.dataset.translations;
+        if (encodedTranslations && window.OpenClawI18n) {
+            try {
+                const translations = JSON.parse(decodeBase64Utf8(encodedTranslations));
+                window.OpenClawI18n.setTranslations(translations, state.locale);
+            } catch (error) {
+                console.error('Failed to initialize OpenClaw translations.', error);
+            }
         }
         
         updateUIText();
         vscode.postMessage({ type: 'webviewReady' });
+    }
+
+    function decodeBase64Utf8(value) {
+        const binary = atob(value);
+        const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+
+        if (typeof TextDecoder !== 'undefined') {
+            return new TextDecoder('utf-8').decode(bytes);
+        }
+
+        let result = '';
+        bytes.forEach(byte => {
+            result += String.fromCharCode(byte);
+        });
+        return decodeURIComponent(escape(result));
     }
 
     function cacheElements() {

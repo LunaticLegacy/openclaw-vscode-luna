@@ -1,5 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import { EventEmitter } from 'events';
+import * as path from 'path';
 import { t } from '../i18n';
 import {
     LocalProviderConfig,
@@ -392,6 +393,27 @@ export class OpenClawService extends EventEmitter {
         }
     }
 
+    public async resolveAgentFolderPath(agentOrId: string | Agent): Promise<string | undefined> {
+        const agent = typeof agentOrId === 'string'
+            ? await this.getAgent(agentOrId)
+            : agentOrId;
+
+        if (!agent) {
+            return undefined;
+        }
+
+        const explicitPath = normalizeOptionalPath(agent.workspacePath);
+        if (explicitPath) {
+            return explicitPath;
+        }
+
+        if (this.mode === 'openclaw') {
+            return inferOpenClawWorkspacePath(agent.id, this.openClawConfig);
+        }
+
+        return undefined;
+    }
+
     public async createAgent(params: {
         name: string;
         model: string;
@@ -430,7 +452,8 @@ export class OpenClawService extends EventEmitter {
                     name: params.name,
                     model: params.model,
                     status: 'idle' as const,
-                    createdAt: new Date().toISOString()
+                    createdAt: new Date().toISOString(),
+                    workspacePath: inferOpenClawWorkspacePath(createdAgentId || params.name, this.openClawConfig)
                 };
 
             this.emit('agentCreated', agent);
@@ -849,7 +872,8 @@ export class OpenClawService extends EventEmitter {
                 status: record.id === defaultAgentId ? 'active' : 'idle',
                 createdAt: now,
                 lastActive: sessionKeysByAgent.has(record.id) ? now : undefined,
-                isDefault: Boolean(record.isDefault || record.id === defaultAgentId)
+                isDefault: Boolean(record.isDefault || record.id === defaultAgentId),
+                workspacePath: resolveOpenClawRecordWorkspacePath(record, this.openClawConfig)
             });
         }
 
@@ -865,7 +889,8 @@ export class OpenClawService extends EventEmitter {
                 status: id === defaultAgentId ? 'active' : 'idle',
                 createdAt: now,
                 lastActive: sessionKeysByAgent.has(id) ? now : undefined,
-                isDefault: id === defaultAgentId
+                isDefault: id === defaultAgentId,
+                workspacePath: inferOpenClawWorkspacePath(id, this.openClawConfig)
             });
         }
 
@@ -1598,6 +1623,37 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Pr
 function sanitizeAgentName(value: string): string {
     const normalized = value.trim().toLowerCase().replace(/[^a-z0-9-_]+/g, '-').replace(/-+/g, '-');
     return normalized.replace(/^-|-$/g, '') || 'agent';
+}
+
+function normalizeOptionalPath(value: string | undefined): string | undefined {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : undefined;
+}
+
+function resolveOpenClawRecordWorkspacePath(
+    record: OpenClawAgentRecord,
+    config: OpenClawCliServiceConfig | null
+): string | undefined {
+    return normalizeOptionalPath(record.workspace)
+        || normalizeOptionalPath(record.agentDir)
+        || inferOpenClawWorkspacePath(record.id, config);
+}
+
+function inferOpenClawWorkspacePath(
+    agentId: string | undefined,
+    config: OpenClawCliServiceConfig | null
+): string | undefined {
+    const normalizedAgentId = normalizeOptionalPath(agentId);
+    if (!normalizedAgentId || !config) {
+        return undefined;
+    }
+
+    const safeAgentId = sanitizeAgentName(normalizedAgentId);
+    if (!config.defaultWorkspacePath) {
+        return path.join(config.stateDir, 'workspace', safeAgentId);
+    }
+
+    return path.join(path.dirname(config.defaultWorkspacePath), 'agents', safeAgentId);
 }
 
 function extractString(payload: unknown, keys: string[]): string | undefined {

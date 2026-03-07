@@ -404,7 +404,13 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(createClusterCmd);
 
     // 15. 打开 Agent 文件夹
-    const openAgentFolderCmd = vscode.commands.registerCommand('openclaw.openAgentFolder', async (agentId: string) => {
+    const openAgentFolderCmd = vscode.commands.registerCommand('openclaw.openAgentFolder', async (agentArg: any) => {
+        const agentId = resolveAgentId(agentArg);
+        if (!agentId) {
+            vscode.window.showErrorMessage(t('agent.notFound'));
+            return;
+        }
+
         try {
             const agent = await agentManager.getAgent(agentId);
             if (!agent) {
@@ -412,40 +418,22 @@ export async function activate(context: vscode.ExtensionContext) {
                 return;
             }
 
-            // 获取 Agent 工作区路径
-            let folderPath: string | undefined;
-            
-            if (agent.workspacePath) {
-                folderPath = agent.workspacePath;
-            } else {
-                // 尝试从配置或默认位置获取
-                const config = vscode.workspace.getConfiguration('openclaw');
-                const agentsRoot = config.get<string>('agentsRootPath');
-                if (agentsRoot) {
-                    folderPath = `${agentsRoot}/${agentId}`;
-                }
-            } 
-
+            const folderPath = await openclawService.resolveAgentFolderPath(agent);
             if (!folderPath) {
                 vscode.window.showWarningMessage(t('agentSettings.noWorkspace'));
                 return;
             }
 
             const folderUri = vscode.Uri.file(folderPath);
-            
-            // 检查文件夹是否存在
+
             try {
                 await vscode.workspace.fs.stat(folderUri);
             } catch {
-                // 文件夹不存在，创建它
-                await vscode.workspace.fs.createDirectory(folderUri);
+                vscode.window.showWarningMessage(t('agentSettings.noWorkspace'));
+                return;
             }
 
-            // 在 VSCode 中打开文件夹
-            await vscode.commands.executeCommand('vscode.openFolder', folderUri, {
-                forceNewWindow: false
-            });
-            
+            await vscode.commands.executeCommand('revealFileInOS', folderUri);
         } catch (error) {
             vscode.window.showErrorMessage(t('agentSettings.openFolderFailed', { error: String(error) }));
         }
@@ -453,7 +441,13 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(openAgentFolderCmd);
 
     // 16. 打开 Agent 设置
-    const openAgentSettingsCmd = vscode.commands.registerCommand('openclaw.openAgentSettings', async (agentId: string) => {
+    const openAgentSettingsCmd = vscode.commands.registerCommand('openclaw.openAgentSettings', async (agentArg: any) => {
+        const agentId = resolveAgentId(agentArg);
+        if (!agentId) {
+            vscode.window.showErrorMessage(t('agent.notFound'));
+            return;
+        }
+
         try {
             const agent = await agentManager.getAgent(agentId);
             if (!agent) {

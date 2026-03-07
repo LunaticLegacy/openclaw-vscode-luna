@@ -191,11 +191,11 @@ export class OpenClawPanel {
                 break;
 
             case 'openAgentSettings':
-                await this._handleOpenAgentSettings(message.agentId);
+                await vscode.commands.executeCommand('openclaw.openAgentSettings', message.agentId);
                 break;
 
             case 'openAgentFolder':
-                await this._handleOpenAgentFolder(message.agentId);
+                await vscode.commands.executeCommand('openclaw.openAgentFolder', message.agentId);
                 break;
         }
     }

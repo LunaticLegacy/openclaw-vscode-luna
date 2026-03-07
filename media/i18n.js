@@ -7,8 +7,9 @@
     let currentLocale = 'en';
 
     function setTranslations(translations, locale) {
-        TRANSLATIONS = translations;
-        currentLocale = locale.startsWith('zh') ? 'zh-cn' : 'en';
+        TRANSLATIONS = translations && typeof translations === 'object' ? translations : {};
+        const normalizedLocale = String(locale || '').toLowerCase();
+        currentLocale = normalizedLocale.startsWith('zh') ? 'zh-cn' : 'en';
     }
 
     function t(key, values = {}) {
