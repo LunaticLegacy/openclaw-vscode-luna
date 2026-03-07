@@ -499,6 +499,11 @@
     function renderMessageContent(msg) {
         const displayContent = getDisplayContent(msg);
 
+        if (msg.role === 'user') {
+            const { mainContent, thinkingHtml } = processMessageContent(displayContent);
+            return `${thinkingHtml}<div class="message-content">${formatContent(mainContent)}</div>`;
+        }
+
         if (Array.isArray(msg.parts) && msg.parts.length > 0) {
             return renderStructuredMessage(msg);
         }
@@ -536,17 +541,7 @@
         ).trim();
 
         visible = visible.replace(
-            /^```json\s*[\r\n]+[\s\S]*?```\s*/i,
-            ''
-        ).trim();
-
-        visible = visible.replace(
-            /^json\s*[\r\n]+\{[\s\S]*?\}\s*/i,
-            ''
-        ).trim();
-
-        visible = visible.replace(
-            /^\{[\s\S]*?\}\s*/,
+            /^(?:```(?:json)?\s*[\r\n]+|json\s*[\r\n]+)?\{[\s\S]*?\}(?:\s*```)?\s*/i,
             ''
         ).trim();
 

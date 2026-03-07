@@ -3,11 +3,11 @@
   "displayName": "%displayName%",
   "description": "%description%",
   "version": "0.1.0",
-  "publisher": "openclaw",
+  "publisher": "lunaticlegacy",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/openclaw/openclaw-vscode"
+    "url": "https://github.com/LunaticLegacy/openclaw-vscode-luna.git"
   },
   "icon": "resources/icon.png",
   
