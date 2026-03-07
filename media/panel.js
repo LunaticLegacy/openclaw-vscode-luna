@@ -531,7 +531,22 @@
         }
 
         let visible = normalized.replace(
-            /^Conversation info \(untrusted metadata\):\s*```json[\s\S]*?```\s*/i,
+            /^Conversation info \(untrusted metadata\):\s*/i,
+            ''
+        ).trim();
+
+        visible = visible.replace(
+            /^```json\s*[\r\n]+[\s\S]*?```\s*/i,
+            ''
+        ).trim();
+
+        visible = visible.replace(
+            /^json\s*[\r\n]+\{[\s\S]*?\}\s*/i,
+            ''
+        ).trim();
+
+        visible = visible.replace(
+            /^\{[\s\S]*?\}\s*/,
             ''
         ).trim();
 

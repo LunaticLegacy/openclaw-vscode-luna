@@ -6,6 +6,7 @@
     --text-secondary: var(--vscode-descriptionForeground);
     --accent: var(--vscode-button-background);
     --accent-hover: var(--vscode-button-hoverBackground);
+    --accent-strong: var(--vscode-textLink-activeForeground, var(--vscode-button-background));
     --border: var(--vscode-panel-border);
     --error: var(--vscode-errorForeground);
     --success: var(--vscode-testing-iconPassed);
@@ -326,8 +327,9 @@ body {
 }
 
 .message-user .message-content {
-    background: var(--accent);
+    background: var(--accent-strong);
     color: white;
+    border: 1px solid var(--accent-hover);
 }
 
 .message-assistant .message-content {
