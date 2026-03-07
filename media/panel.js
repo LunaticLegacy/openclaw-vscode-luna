@@ -15,6 +15,7 @@
         viewMode: 'chat',
         locale: 'en'
     };
+    let activeTraceContainer = null;
 
     // DOM Elements cache
     const elements = {};
@@ -180,6 +181,8 @@
                     promptBroadcastToCluster(clusterId);
                 } else if (action === 'collaborate') {
                     promptCollaborateCluster(clusterId);
+                } else if (action === 'delete') {
+                    deleteCluster(clusterId);
                 }
             }
         });
@@ -334,6 +337,7 @@
     function resetTransientChatState() {
         clearThinkingIndicator();
         document.querySelector('.message-streaming')?.remove();
+        activeTraceContainer = null;
         state.isStreaming = false;
         if (elements.btnSend) {
             elements.btnSend.disabled = false;
@@ -373,11 +377,28 @@
     // Add message to chat
     function addMessage(msg) {
         if (!msg) return;
+        if (shouldHideMessage(msg)) return;
 
         if ((msg.role === 'assistant' || msg.role === 'tool') && state.currentThinking) {
             clearThinkingIndicator();
         }
 
+        if (msg.role === 'user') {
+            activeTraceContainer = null;
+            appendStandaloneMessage(msg);
+            return;
+        }
+
+        if (shouldAppendToTrace(msg)) {
+            appendTraceMessage(msg);
+            return;
+        }
+
+        activeTraceContainer = null;
+        appendStandaloneMessage(msg);
+    }
+
+    function appendStandaloneMessage(msg) {
         const div = document.createElement('div');
         div.className = `message message-${msg.role}`;
         
@@ -405,13 +426,117 @@
         }
     }
 
+    function appendTraceMessage(msg) {
+        const container = getOrCreateTraceContainer(msg);
+        const body = container.querySelector('.trace-body');
+        if (!body) {
+            return;
+        }
+
+        const segment = document.createElement('div');
+        segment.className = `trace-segment trace-segment-${msg.role}`;
+        segment.innerHTML = renderTraceSegment(msg);
+        body.appendChild(segment);
+        scrollToBottom();
+
+        if (msg.role === 'assistant' && !isToolUseMessage(msg)) {
+            activeTraceContainer = null;
+            state.isStreaming = false;
+            if (elements.btnSend) {
+                elements.btnSend.disabled = false;
+            }
+        }
+    }
+
+    function getOrCreateTraceContainer(msg) {
+        if (activeTraceContainer?.isConnected) {
+            return activeTraceContainer;
+        }
+
+        const div = document.createElement('div');
+        div.className = 'message message-assistant message-trace';
+        div.innerHTML = `
+            <div class="message-header">
+                <span class="message-role">Assistant</span>
+                <span class="message-time">${new Date(msg.timestamp).toLocaleTimeString()}</span>
+            </div>
+            <div class="trace-body"></div>
+        `;
+
+        elements.chatMessages.appendChild(div);
+        activeTraceContainer = div;
+        return div;
+    }
+
+    function renderTraceSegment(msg) {
+        if (msg.role === 'tool') {
+            return renderToolMessage(msg, Array.isArray(msg.parts) ? msg.parts : []);
+        }
+
+        return renderMessageContent(msg);
+    }
+
+    function shouldAppendToTrace(msg) {
+        if (msg.role === 'tool') {
+            return true;
+        }
+
+        if (msg.role !== 'assistant') {
+            return false;
+        }
+
+        return isToolUseMessage(msg) || Boolean(activeTraceContainer);
+    }
+
+    function shouldHideMessage(msg) {
+        if (msg.role !== 'user') {
+            return false;
+        }
+
+        return !getDisplayContent(msg).trim();
+    }
+
     function renderMessageContent(msg) {
+        const displayContent = getDisplayContent(msg);
+
         if (Array.isArray(msg.parts) && msg.parts.length > 0) {
             return renderStructuredMessage(msg);
         }
 
-        const { mainContent, thinkingHtml } = processMessageContent(msg.content);
+        const { mainContent, thinkingHtml } = processMessageContent(displayContent);
         return `${thinkingHtml}<div class="message-content">${formatContent(mainContent)}</div>`;
+    }
+
+    function getDisplayContent(msg) {
+        const content = String(msg?.content || '');
+        if (msg?.role !== 'user') {
+            return content;
+        }
+
+        return stripHiddenUserEnvelope(content);
+    }
+
+    function stripHiddenUserEnvelope(content) {
+        const normalized = String(content || '').trim();
+        if (!normalized) {
+            return '';
+        }
+
+        if (normalized.startsWith('A new session was started via /new or /reset.')) {
+            return '';
+        }
+
+        if (!normalized.startsWith('Conversation info (untrusted metadata):')) {
+            return normalized;
+        }
+
+        let visible = normalized.replace(
+            /^Conversation info \(untrusted metadata\):\s*```json[\s\S]*?```\s*/i,
+            ''
+        ).trim();
+
+        visible = visible.replace(/^\[[^\]]+\]\s*/, '').trim();
+        return visible;
     }
 
     function renderStructuredMessage(msg) {
@@ -832,6 +957,10 @@
     function renderClusters(clusters) {
         state.clusters = Array.isArray(clusters) ? clusters : [];
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (k) => k;
+
+        if (state.lastSwarmRun && !state.clusters.some(cluster => cluster.id === state.lastSwarmRun.clusterId)) {
+            state.lastSwarmRun = null;
+        }
         
         if (state.clusters.length === 0) {
             elements.clustersList.innerHTML = `<div class="empty">${t('clusters.noneFound')}</div>`;
@@ -858,6 +987,9 @@
                     <button class="btn btn-small" data-cluster-action="collaborate" data-cluster-id="${cluster.id}">
                         ${t('clusters.collaborate')}
                     </button>
+                    <button class="btn btn-small btn-secondary" data-cluster-action="delete" data-cluster-id="${cluster.id}">
+                        ${t('clusters.delete')}
+                    </button>
                 </div>
             </div>
         `).join('')}`;
@@ -873,6 +1005,13 @@
     function promptCollaborateCluster(clusterId) {
         vscode.postMessage({
             type: 'promptCollaborateCluster',
+            clusterId
+        });
+    }
+
+    function deleteCluster(clusterId) {
+        vscode.postMessage({
+            type: 'deleteCluster',
             clusterId
         });
     }

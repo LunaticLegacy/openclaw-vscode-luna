@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
+import * as crypto from 'crypto';
 import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -18,6 +19,10 @@ import {
     OpenClawSessionsUsageResult,
     OpenClawUsageCostResult
 } from './openclawCli';
+import {
+    GatewayEventFrame,
+    OpenClawGatewayClient
+} from './openclawGatewayClient';
 
 export interface Agent {
     id: string;
@@ -661,82 +666,7 @@ export class OpenClawService extends EventEmitter {
         }
 
         if (this.mode === 'openclaw') {
-            const runner = this.requireOpenClawRunner();
-            const historyBefore = await this.readOpenClawSessionMessages(sessionId).catch(() => []);
-            const seenIds = new Set(historyBefore.map(item => item.id));
-            let responsePayload: Record<string, unknown> | null = null;
-            let requestError: unknown = null;
-            let requestCompleted = false;
-            let requestCompletedAt = 0;
-            let finalAssistantSeen = false;
-
-            const requestPromise = runner.sendChat(sessionId, message)
-                .then(result => {
-                    responsePayload = result;
-                    requestCompleted = true;
-                    requestCompletedAt = Date.now();
-                    return result;
-                })
-                .catch(error => {
-                    requestError = error;
-                    requestCompleted = true;
-                    requestCompletedAt = Date.now();
-                    throw error;
-                });
-
-            while (!requestCompleted || Date.now() - requestCompletedAt < 2500) {
-                const currentMessages = await this.readOpenClawSessionMessages(sessionId).catch(() => []);
-                const newMessages = currentMessages.filter(item => !seenIds.has(item.id));
-
-                for (const newMessage of newMessages) {
-                    seenIds.add(newMessage.id);
-                    if (isFinalOpenClawAssistantMessage(newMessage)) {
-                        finalAssistantSeen = true;
-                    }
-
-                    yield {
-                        content: newMessage.role === 'assistant' ? newMessage.content : '',
-                        done: false,
-                        tokenCount: newMessage.tokenCount,
-                        message: newMessage
-                    };
-                }
-
-                if (requestCompleted) {
-                    if (requestError) {
-                        break;
-                    }
-
-                    if (finalAssistantSeen) {
-                        break;
-                    }
-                }
-
-                await delay(200);
-            }
-
-            try {
-                await requestPromise;
-            } catch {
-                throw requestError;
-            }
-
-            if (!finalAssistantSeen && responsePayload) {
-                const fallbackAssistant = extractAssistantMessageFromPayload(responsePayload, sessionId);
-                if (fallbackAssistant && !seenIds.has(fallbackAssistant.id)) {
-                    yield {
-                        content: fallbackAssistant.content,
-                        done: false,
-                        tokenCount: fallbackAssistant.tokenCount,
-                        message: fallbackAssistant
-                    };
-                }
-            }
-
-            yield {
-                content: '',
-                done: true
-            };
+            yield* this.streamOpenClawMessage(sessionId, message);
             return;
         }
 
@@ -1144,6 +1074,363 @@ export class OpenClawService extends EventEmitter {
         return null;
     }
 
+    private async *streamOpenClawMessage(
+        sessionKey: string,
+        message: string
+    ): AsyncGenerator<StreamChunk, void, unknown> {
+        const historyBefore = await this.readOpenClawSessionMessages(sessionKey).catch(() => []);
+        const knownIds = new Set(historyBefore.map(item => item.id));
+
+        try {
+            yield* this.streamOpenClawMessageViaGateway(sessionKey, message, knownIds);
+            return;
+        } catch {
+            yield* this.streamOpenClawMessageFromSessionLog(sessionKey, message, knownIds);
+        }
+    }
+
+    private async *streamOpenClawMessageViaGateway(
+        sessionKey: string,
+        message: string,
+        knownIds: Set<string>
+    ): AsyncGenerator<StreamChunk, void, unknown> {
+        if (!this.openClawConfig?.gatewayUrl) {
+            throw new Error('OpenClaw gateway URL is not configured');
+        }
+
+        const gatewayClient = new OpenClawGatewayClient({
+            url: this.openClawConfig.gatewayUrl,
+            token: this.openClawConfig.gatewayToken,
+            timeoutMs: 30000,
+            caps: ['tool-events'],
+            clientId: 'gateway-client',
+            clientDisplayName: 'OpenClaw VS Code',
+            clientVersion: 'vscode-plugin'
+        });
+
+        const events: GatewayEventFrame[] = [];
+        let wakeNextEvent: (() => void) | null = null;
+        let streamError: Error | null = null;
+        let dispatched = false;
+        let runId = '';
+        let assistantText = '';
+        let thinkingText = '';
+        let thinkingOpen = false;
+
+        const queueEvent = (event: GatewayEventFrame) => {
+            events.push(event);
+            const wake = wakeNextEvent;
+            wakeNextEvent = null;
+            wake?.();
+        };
+
+        const onEvent = (event: GatewayEventFrame) => {
+            if (event.event !== 'chat' && event.event !== 'agent') {
+                return;
+            }
+
+            queueEvent(event);
+        };
+
+        const onError = (error: unknown) => {
+            streamError = error instanceof Error ? error : new Error(String(error));
+            const wake = wakeNextEvent;
+            wakeNextEvent = null;
+            wake?.();
+        };
+
+        const nextEvent = async (): Promise<GatewayEventFrame> => {
+            while (events.length === 0) {
+                if (streamError) {
+                    throw streamError;
+                }
+
+                await new Promise<void>((resolve, reject) => {
+                    const timer = setTimeout(() => {
+                        if (wakeNextEvent === wake) {
+                            wakeNextEvent = null;
+                        }
+                        reject(new Error('Timed out waiting for gateway stream event'));
+                    }, 30000);
+
+                    const wake = () => {
+                        clearTimeout(timer);
+                        resolve();
+                    };
+
+                    wakeNextEvent = wake;
+                });
+            }
+
+            return events.shift()!;
+        };
+
+        gatewayClient.on('event', onEvent);
+        gatewayClient.on('error', onError);
+
+        try {
+            await gatewayClient.connect();
+
+            const started = await gatewayClient.request<{
+                runId?: string;
+                status?: string;
+            }>('chat.send', {
+                sessionKey,
+                message,
+                deliver: false,
+                idempotencyKey: crypto.randomUUID()
+            }, {
+                timeoutMs: 30000
+            });
+
+            dispatched = true;
+            runId = typeof started.runId === 'string' && started.runId.trim()
+                ? started.runId.trim()
+                : '';
+
+            if (!runId) {
+                throw new Error('Gateway chat.send did not return a runId');
+            }
+
+            while (true) {
+                const event = await nextEvent();
+                const payload = event.payload && typeof event.payload === 'object'
+                    ? event.payload as Record<string, unknown>
+                    : null;
+
+                if (!payload || payload.runId !== runId) {
+                    continue;
+                }
+
+                if (event.event === 'agent') {
+                    const stream = typeof payload.stream === 'string' ? payload.stream : '';
+
+                    if (stream === 'thinking') {
+                        const data = payload.data && typeof payload.data === 'object'
+                            ? payload.data as Record<string, unknown>
+                            : {};
+                        const fullThinking = typeof data.text === 'string' ? data.text : '';
+                        const deltaThinking = typeof data.delta === 'string'
+                            ? data.delta
+                            : fullThinking.startsWith(thinkingText)
+                                ? fullThinking.slice(thinkingText.length)
+                                : fullThinking;
+
+                        thinkingText = fullThinking || thinkingText;
+                        if (!deltaThinking) {
+                            continue;
+                        }
+
+                        yield {
+                            content: thinkingOpen ? deltaThinking : `<thinking>${deltaThinking}`,
+                            done: false
+                        };
+                        thinkingOpen = true;
+                        continue;
+                    }
+
+                    if (thinkingOpen && (stream === 'assistant' || stream === 'tool' || stream === 'lifecycle')) {
+                        thinkingOpen = false;
+                        thinkingText = '';
+                        yield {
+                            content: '</thinking>',
+                            done: false
+                        };
+                    }
+
+                    if (stream === 'tool') {
+                        const transientMessage = normalizeOpenClawGatewayToolEvent(sessionKey, payload);
+                        if (transientMessage) {
+                            yield {
+                                content: '',
+                                done: false,
+                                message: transientMessage
+                            };
+                        }
+                        continue;
+                    }
+
+                    if (stream === 'lifecycle') {
+                        const data = payload.data && typeof payload.data === 'object'
+                            ? payload.data as Record<string, unknown>
+                            : {};
+                        if (data.phase === 'error') {
+                            throw new Error(typeof data.error === 'string' ? data.error : 'OpenClaw agent run failed');
+                        }
+                    }
+
+                    continue;
+                }
+
+                if (thinkingOpen) {
+                    thinkingOpen = false;
+                    thinkingText = '';
+                    yield {
+                        content: '</thinking>',
+                        done: false
+                    };
+                }
+
+                const state = typeof payload.state === 'string' ? payload.state : '';
+                const messageText = extractTextContent((payload.message as { content?: unknown } | undefined)?.content);
+                const deltaText = messageText
+                    ? messageText.startsWith(assistantText)
+                        ? messageText.slice(assistantText.length)
+                        : messageText
+                    : '';
+
+                if (messageText) {
+                    assistantText = messageText;
+                }
+
+                if (deltaText) {
+                    yield {
+                        content: deltaText,
+                        done: false
+                    };
+                }
+
+                if (state === 'error') {
+                    throw new Error(typeof payload.errorMessage === 'string' ? payload.errorMessage : 'OpenClaw chat stream failed');
+                }
+
+                if (state === 'aborted') {
+                    throw new Error('OpenClaw chat stream aborted');
+                }
+
+                if (state === 'final') {
+                    yield {
+                        content: '',
+                        done: true
+                    };
+                    return;
+                }
+            }
+        } catch (error) {
+            if (!dispatched) {
+                throw error;
+            }
+
+            const streamFailure = error instanceof Error ? error : new Error(String(error));
+            if (thinkingOpen) {
+                thinkingOpen = false;
+                thinkingText = '';
+                yield {
+                    content: '</thinking>',
+                    done: false
+                };
+            }
+
+            const fallbackAssistant = await this.waitForOpenClawAssistantMessage(sessionKey, knownIds, 120000);
+            if (!fallbackAssistant && !assistantText) {
+                throw streamFailure;
+            }
+
+            if (fallbackAssistant?.content) {
+                const deltaText = fallbackAssistant.content.startsWith(assistantText)
+                    ? fallbackAssistant.content.slice(assistantText.length)
+                    : fallbackAssistant.content;
+
+                if (deltaText) {
+                    yield {
+                        content: deltaText,
+                        done: false
+                    };
+                }
+            }
+
+            yield {
+                content: '',
+                done: true
+            };
+        } finally {
+            gatewayClient.off('event', onEvent);
+            gatewayClient.off('error', onError);
+            gatewayClient.dispose();
+        }
+    }
+
+    private async *streamOpenClawMessageFromSessionLog(
+        sessionKey: string,
+        message: string,
+        knownIds: Set<string>
+    ): AsyncGenerator<StreamChunk, void, unknown> {
+        const runner = this.requireOpenClawRunner();
+        let responsePayload: Record<string, unknown> | null = null;
+        let requestError: unknown = null;
+        let requestCompleted = false;
+        let requestCompletedAt = 0;
+        let finalAssistantSeen = false;
+
+        const requestPromise = runner.sendChat(sessionKey, message)
+            .then(result => {
+                responsePayload = result;
+                requestCompleted = true;
+                requestCompletedAt = Date.now();
+                return result;
+            })
+            .catch(error => {
+                requestError = error;
+                requestCompleted = true;
+                requestCompletedAt = Date.now();
+                throw error;
+            });
+
+        while (!requestCompleted || Date.now() - requestCompletedAt < 2500) {
+            const currentMessages = await this.readOpenClawSessionMessages(sessionKey).catch(() => []);
+            const newMessages = currentMessages.filter(item => !knownIds.has(item.id));
+
+            for (const newMessage of newMessages) {
+                knownIds.add(newMessage.id);
+                if (isFinalOpenClawAssistantMessage(newMessage)) {
+                    finalAssistantSeen = true;
+                }
+
+                yield {
+                    content: newMessage.role === 'assistant' ? newMessage.content : '',
+                    done: false,
+                    tokenCount: newMessage.tokenCount,
+                    message: newMessage
+                };
+            }
+
+            if (requestCompleted) {
+                if (requestError) {
+                    break;
+                }
+
+                if (finalAssistantSeen) {
+                    break;
+                }
+            }
+
+            await delay(200);
+        }
+
+        try {
+            await requestPromise;
+        } catch {
+            throw requestError;
+        }
+
+        if (!finalAssistantSeen && responsePayload) {
+            const fallbackAssistant = extractAssistantMessageFromPayload(responsePayload, sessionKey);
+            if (fallbackAssistant && !knownIds.has(fallbackAssistant.id)) {
+                yield {
+                    content: fallbackAssistant.content,
+                    done: false,
+                    tokenCount: fallbackAssistant.tokenCount,
+                    message: fallbackAssistant
+                };
+            }
+        }
+
+        yield {
+            content: '',
+            done: true
+        };
+    }
+
     private requireOpenClawRunner(): OpenClawCliRunner {
         if (!this.openClawRunner) {
             throw new Error(t('service.cliNotConfigured'));
@@ -1511,6 +1798,88 @@ function extractTextContent(value: unknown): string {
     }
 
     return '';
+}
+
+function normalizeOpenClawGatewayToolEvent(
+    sessionKey: string,
+    payload: Record<string, unknown>
+): ChatMessage | null {
+    const data = payload.data && typeof payload.data === 'object'
+        ? payload.data as Record<string, unknown>
+        : null;
+    if (!data) {
+        return null;
+    }
+
+    const phase = typeof data.phase === 'string' ? data.phase : '';
+    const toolCallId = typeof data.toolCallId === 'string' ? data.toolCallId : undefined;
+    const toolName = typeof data.name === 'string' && data.name.trim() ? data.name.trim() : 'tool';
+    const runId = typeof payload.runId === 'string' && payload.runId.trim()
+        ? payload.runId.trim()
+        : sessionKey;
+    const seq = typeof payload.seq === 'number' && Number.isFinite(payload.seq)
+        ? payload.seq
+        : Date.now();
+    const timestamp = typeof payload.ts === 'number' && Number.isFinite(payload.ts)
+        ? new Date(payload.ts).toISOString()
+        : new Date().toISOString();
+    const agentId = parseAgentIdFromSessionKey(sessionKey) || undefined;
+    const metadata: Record<string, unknown> = {
+        transient: true,
+        runId,
+        seq,
+        stream: 'tool',
+        phase
+    };
+
+    if (phase === 'start') {
+        return {
+            id: `${runId}:tool:start:${toolCallId || toolName}:${seq}`,
+            role: 'assistant',
+            content: '',
+            timestamp,
+            agentId,
+            parts: [{
+                type: 'toolCall',
+                id: toolCallId,
+                name: toolName,
+                arguments: data.args
+            }],
+            metadata: {
+                ...metadata,
+                stopReason: 'toolUse'
+            }
+        };
+    }
+
+    if (phase === 'result') {
+        const resultText = extractTextContent(data.result);
+        const isError = Boolean(data.isError);
+        return {
+            id: `${runId}:tool:result:${toolCallId || toolName}:${seq}`,
+            role: 'tool',
+            content: resultText,
+            timestamp,
+            agentId,
+            parts: [{
+                type: 'toolResult',
+                toolCallId,
+                name: toolName,
+                arguments: data.args,
+                result: resultText,
+                details: data.result,
+                isError
+            }],
+            toolCallId,
+            toolName,
+            toolArguments: data.args,
+            toolDetails: data.result,
+            isError,
+            metadata
+        };
+    }
+
+    return null;
 }
 
 function buildSessionKeyMap(sessions: OpenClawSessionsListEntry[]): Map<string, string> {

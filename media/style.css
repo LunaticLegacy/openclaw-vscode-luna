@@ -535,6 +535,98 @@ body {
     color: rgba(255, 255, 255, 0.8);
 }
 
+.message-trace {
+    background: transparent;
+}
+
+.trace-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.trace-segment + .trace-segment {
+    margin-top: 2px;
+}
+
+.tool-call-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.tool-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+}
+
+.tool-card-pending {
+    border-color: var(--warning);
+}
+
+.tool-card-success {
+    border-color: var(--success);
+}
+
+.tool-card-error {
+    border-color: var(--error);
+}
+
+.tool-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    font-weight: 600;
+}
+
+.tool-card-status {
+    flex: none;
+}
+
+.tool-card-name {
+    overflow-wrap: anywhere;
+}
+
+.tool-card-section + .tool-card-section {
+    margin-top: 10px;
+}
+
+.tool-card-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.tool-card-pre {
+    margin: 0;
+    padding: 10px 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: var(--vscode-editor-font-family);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.tool-card-details {
+    margin-top: 10px;
+}
+
+.tool-card-details summary {
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
 /* Chat Input */
 .chat-input-container {
     padding: 16px 20px;

@@ -208,6 +208,11 @@ export class OpenClawPanel {
                 await this._promptCollaborateCluster(message.clusterId);
                 break;
 
+            case 'deleteCluster':
+                await vscode.commands.executeCommand('openclaw.deleteCluster', message.clusterId);
+                await this._loadClusters();
+                break;
+
             case 'saveAgentSettings':
                 await this._handleSaveAgentSettings(message.agentId, message.settings);
                 break;

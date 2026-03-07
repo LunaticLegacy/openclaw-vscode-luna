@@ -151,6 +151,12 @@
         "icon": "$(add)"
       },
       {
+        "command": "openclaw.deleteCluster",
+        "title": "%command.deleteCluster.title%",
+        "category": "%command.category%",
+        "icon": "$(trash)"
+      },
+      {
         "command": "openclaw.statusBarClick",
         "title": "%command.statusBarClick.title%",
         "category": "%command.category%",
@@ -207,6 +213,9 @@
         },
         {
           "command": "openclaw.viewClusters"
+        },
+        {
+          "command": "openclaw.deleteCluster"
         },
         {
           "command": "openclaw.apiUsage"
@@ -292,6 +301,11 @@
           "command": "openclaw.deleteAgent",
           "when": "view == openclawSidebar && viewItem == agent",
           "group": "inline@6"
+        },
+        {
+          "command": "openclaw.deleteCluster",
+          "when": "view == openclawClusters && viewItem == cluster",
+          "group": "inline@1"
         }
       ],
       "editor/context": [

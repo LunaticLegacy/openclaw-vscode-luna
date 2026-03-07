@@ -20,6 +20,7 @@
   "command.openAgentSettings.title": "⚙️ Agent 设置",
   "command.saveAgentSettings.title": "保存 Agent 设置",
   "command.createCluster.title": "➕ 创建集群",
+  "command.deleteCluster.title": "🗑️ 删除集群",
   "command.statusBarClick.title": "🚀 打开 OpenClaw Luna",
   
   "viewsContainer.openclaw.title": "OpenClaw Luna",

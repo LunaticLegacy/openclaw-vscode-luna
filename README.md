@@ -6,18 +6,20 @@
 
 # OpenClaw Luna for VSCode
 
-### 在 VSCode 中无缝使用 AI Agent 功能
+### 在 VSCode 中无缝使用 OpenClaw AI Agent 功能
 
 (Public Alpha)
 
 **支持 Agent 管理、集群操作、API 用量监控的 VSCode 插件**
+
+[🇨🇳 中文](README.md) | [🇺🇸 English](docs/README_EN.md)
 
 [![VSCode](https://img.shields.io/badge/VSCode-%5E1.80.0-blue?logo=visualstudiocode&logoColor=white)](https://code.visualstudio.com)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.2+-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/openclaw/openclaw-vscode-luna?style=social)](https://github.com/openclaw/openclaw-vscode-luna)
 
-[📖 文档](https://docs.openclaw.ai) · [💬 讨论区](https://github.com/openclaw/openclaw-vscode-luna/discussions) · [🐛 问题反馈](https://github.com/openclaw/openclaw-vscode-luna/issues)
+[🇨🇳 📖 文档](https://docs.openclaw.ai) · [💬 讨论区](https://github.com/openclaw/openclaw-vscode-luna/discussions) · [🐛 问题反馈](https://github.com/openclaw/openclaw-vscode-luna/issues)
 
 <br />
 
@@ -40,7 +42,7 @@ OpenClaw Luna 帮助你：
 
 ---
 
-## 🚀 五分钟上手
+## 🚀 两分钟上手
 
 ### 安装
 
@@ -159,24 +161,44 @@ npm run watch  # 监听文件变化
 ```
 openclaw-vscode/
 ├── src/
-│   ├── extension.ts            # 插件入口文件
-│   ├── managers/               # 核心管理器
-│   │   ├── agentManager.ts     # Agent 管理逻辑
-│   │   ├── clusterManager.ts   # 集群管理逻辑
-│   │   └── usageManager.ts     # 用量管理逻辑
-│   ├── providers/              # 树视图提供者
-│   │   ├── agentTreeProvider.ts # Agent 树视图
-│   │   ├── clusterTreeProvider.ts # 集群树视图
-│   │   └── usageTreeProvider.ts # 用量树视图
-│   └── services/               # 服务层
-│       └── openclawService.ts  # OpenClaw API 服务
-├── resources/                  # 资源文件
-│   ├── icon.png                # 插件图标
-│   └── icon.svg                # SVG 图标
-├── .vscode/                    # VSCode 配置
-│   └── launch.json             # 调试配置
-├── package.json                # 插件元数据和脚本
-└── tsconfig.json               # TypeScript 配置
+│   ├── extension.ts                    # 插件入口与命令注册
+│   ├── i18n.ts                         # 运行时 i18n 加载
+│   ├── managers/                       # 会话 / Agent / 集群 / 用量管理
+│   │   ├── agentManager.ts
+│   │   ├── chatSessionManager.ts
+│   │   ├── clusterManager.ts
+│   │   └── usageManager.ts
+│   ├── panels/
+│   │   └── openclawPanel.ts            # Webview 面板控制器
+│   ├── providers/                      # 侧边栏树视图提供者
+│   │   ├── agentTreeProvider.ts
+│   │   ├── clusterTreeProvider.ts
+│   │   └── usageTreeProvider.ts
+│   ├── services/                       # OpenClaw 接入层
+│   │   ├── openclawCli.ts              # CLI / gateway call 封装
+│   │   ├── openclawConfig.ts           # 本地 OpenClaw 配置解析
+│   │   ├── openclawGatewayClient.ts    # Gateway WebSocket 事件流客户端
+│   │   └── openclawService.ts          # 统一服务接口与消息归一化
+│   └── types/
+│       └── ws.d.ts                     # `ws` 本地类型声明
+├── media/
+│   ├── panel.html                      # Webview 模板
+│   ├── panel.js                        # 主界面交互逻辑
+│   ├── style.css                       # Webview 样式
+│   ├── i18n.js                         # 前端 i18n
+│   └── markdownRenderer.js             # Markdown 渲染器
+├── i18n/
+│   ├── en.json                         # 运行时英文文案
+│   └── zh-cn.json                      # 运行时中文文案
+├── docs/
+│   └── README_EN.md                    # 英文说明文档
+├── resources/
+│   ├── icon.png
+│   └── icon.svg
+├── package.json                        # 插件清单、命令与配置
+├── package.nls.json                    # 英文本地化占位
+├── package.nls.zh-cn.json              # 中文本地化占位
+└── tsconfig.json                       # TypeScript 配置
 ```
 
 ---
@@ -226,6 +248,6 @@ openclaw-vscode/
 
 **[⬆ 回到顶部](#openclaw-luna-for-vscode)**
 
-Made with ❤️ by [OpenClaw Team](https://github.com/openclaw)
+Made with ❤️ and 💻 by [月と猫 - LunaNeko](https://github.com/openclaw)
 
 </div>

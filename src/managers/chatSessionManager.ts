@@ -102,8 +102,12 @@ export class ChatSessionManager extends EventEmitter {
         
         for await (const chunk of this.service.streamMessage(session.id, content)) {
             if (chunk.message) {
-                emittedStructuredMessage = true;
-                if (!session.messages.some(message => message.id === chunk.message!.id)) {
+                const isTransient = Boolean(chunk.message.metadata?.transient);
+                if (!isTransient) {
+                    emittedStructuredMessage = true;
+                }
+
+                if (!isTransient && !session.messages.some(message => message.id === chunk.message!.id)) {
                     session.messages.push(chunk.message);
                     session.updatedAt = chunk.message.timestamp || new Date().toISOString();
                 }
@@ -115,7 +119,7 @@ export class ChatSessionManager extends EventEmitter {
         }
 
         // 添加助手消息到历史
-        if (!emittedStructuredMessage) {
+        if (!emittedStructuredMessage && fullContent.trim()) {
             session.messages.push({
                 id: (Date.now() + 1).toString(),
                 role: 'assistant',

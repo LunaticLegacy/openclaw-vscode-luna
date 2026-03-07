@@ -20,6 +20,7 @@
   "command.openAgentSettings.title": "⚙️ Agent Settings",
   "command.saveAgentSettings.title": "Save Agent Settings",
   "command.createCluster.title": "➕ Create Cluster",
+  "command.deleteCluster.title": "🗑️ Delete Cluster",
   "command.statusBarClick.title": "🚀 Open OpenClaw Luna",
   
   "viewsContainer.openclaw.title": "OpenClaw Luna",

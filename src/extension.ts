@@ -407,6 +407,59 @@ export async function activate(context: vscode.ExtensionContext) {
     });
     context.subscriptions.push(createClusterCmd);
 
+    const deleteClusterCmd = vscode.commands.registerCommand('openclaw.deleteCluster', async (clusterArg: any) => {
+        try {
+            let clusterId = resolveClusterId(clusterArg);
+            if (!clusterId) {
+                const clusters = await clusterManager.getClusters();
+                if (clusters.length === 0) {
+                    vscode.window.showInformationMessage(t('clusters.noneFound'));
+                    return;
+                }
+
+                const selectedCluster = await vscode.window.showQuickPick(
+                    clusters.map(cluster => ({
+                        label: cluster.name,
+                        description: t('clusterTree.agentsCount', { count: cluster.agentIds.length }),
+                        clusterId: cluster.id
+                    })),
+                    {
+                        placeHolder: t('clusters.selectClusterToDelete')
+                    }
+                );
+
+                if (!selectedCluster) {
+                    return;
+                }
+
+                clusterId = selectedCluster.clusterId;
+            }
+
+            const cluster = await clusterManager.getCluster(clusterId);
+            if (!cluster) {
+                vscode.window.showErrorMessage(t('clusterManager.notFound', { clusterId }));
+                return;
+            }
+
+            const confirm = await vscode.window.showWarningMessage(
+                t('clusters.deleteConfirm', { name: cluster.name }),
+                { modal: true },
+                t('common.delete')
+            );
+
+            if (confirm !== t('common.delete')) {
+                return;
+            }
+
+            await clusterManager.deleteCluster(clusterId);
+            vscode.window.showInformationMessage(t('clusters.deleted', { name: cluster.name }));
+            clusterTreeProvider.refresh();
+        } catch (error) {
+            vscode.window.showErrorMessage(t('clusters.deleteFailed', { error: String(error) }));
+        }
+    });
+    context.subscriptions.push(deleteClusterCmd);
+
     // 15. 打开 Agent 文件夹
     const openAgentFolderCmd = vscode.commands.registerCommand('openclaw.openAgentFolder', async (agentArg: any) => {
         const agentId = resolveAgentId(agentArg);
@@ -546,6 +599,26 @@ function resolveAgentId(agentArg: any): string | undefined {
 
     if (typeof agentArg.agent?.id === 'string') {
         return agentArg.agent.id;
+    }
+
+    return undefined;
+}
+
+function resolveClusterId(clusterArg: any): string | undefined {
+    if (!clusterArg) {
+        return undefined;
+    }
+
+    if (typeof clusterArg === 'string') {
+        return clusterArg;
+    }
+
+    if (typeof clusterArg.id === 'string') {
+        return clusterArg.id;
+    }
+
+    if (typeof clusterArg.cluster?.id === 'string') {
+        return clusterArg.cluster.id;
     }
 
     return undefined;
