@@ -580,7 +580,10 @@
                                 <span class="tool-card-status">⏳</span>
                                 <span class="tool-card-name">${escapeHtml(toolCall.name || 'tool')}</span>
                             </div>
-                            ${toolCall.arguments !== undefined ? `<div class="tool-card-section"><div class="tool-card-label">Input</div><pre class="tool-card-pre">${escapeHtml(formatToolData(toolCall.arguments))}</pre></div>` : ''}
+                            ${renderToolSection('Input', toolCall.arguments, {
+                                toolName: toolCall.name,
+                                format: 'pre'
+                            })}
                         </div>
                     `).join('')}
                 </div>
@@ -609,12 +612,20 @@
                     <span class="tool-card-status">${isError ? '❌' : '✅'}</span>
                     <span class="tool-card-name">${escapeHtml(toolName)}</span>
                 </div>
-                ${toolArguments !== undefined ? `<div class="tool-card-section"><div class="tool-card-label">Input</div><pre class="tool-card-pre">${escapeHtml(formatToolData(toolArguments))}</pre></div>` : ''}
-                <div class="tool-card-section">
-                    <div class="tool-card-label">Result</div>
-                    <div class="message-content">${formatContent(toolResult)}</div>
-                </div>
-                ${toolDetails !== undefined ? `<details class="tool-card-details"><summary>Details</summary><pre class="tool-card-pre">${escapeHtml(formatToolData(toolDetails))}</pre></details>` : ''}
+                ${renderToolSection('Input', toolArguments, {
+                    toolName,
+                    format: 'pre'
+                })}
+                ${renderToolSection('Result', toolResult, {
+                    toolName,
+                    format: 'content'
+                })}
+                ${renderToolSection('Details', toolDetails, {
+                    toolName,
+                    format: 'pre',
+                    forceCollapsible: true,
+                    defaultCollapsed: true
+                })}
             </div>
         `;
     }
@@ -639,6 +650,89 @@
         } catch {
             return String(value);
         }
+    }
+
+    function normalizeToolName(name) {
+        return String(name || '').trim().toLowerCase().replace(/\s+/g, '_');
+    }
+
+    function getToolSectionMetrics(value) {
+        const formatted = formatToolData(value);
+        const lineCount = formatted ? formatted.split(/\r?\n/).length : 0;
+        return {
+            formatted,
+            lineCount,
+            charCount: formatted.length
+        };
+    }
+
+    function isHeavyToolName(toolName) {
+        return new Set(['exec', 'write', 'append', 'edit', 'multi_edit', 'read']).has(normalizeToolName(toolName));
+    }
+
+    function shouldCollapseToolSection(toolName, metrics) {
+        if (isHeavyToolName(toolName)) {
+            return true;
+        }
+
+        return metrics.charCount > 280 || metrics.lineCount > 8;
+    }
+
+    function shouldStartToolSectionCollapsed(toolName, metrics) {
+        if (isHeavyToolName(toolName)) {
+            return true;
+        }
+
+        return metrics.charCount > 600 || metrics.lineCount > 16;
+    }
+
+    function describeToolSection(metrics) {
+        if (metrics.lineCount > 1) {
+            return `${metrics.lineCount} lines`;
+        }
+
+        return `${metrics.charCount} chars`;
+    }
+
+    function renderToolSection(label, value, options = {}) {
+        if (value === undefined) {
+            return '';
+        }
+
+        const {
+            toolName = '',
+            format = 'pre',
+            forceCollapsible = false,
+            defaultCollapsed
+        } = options;
+        const metrics = getToolSectionMetrics(value);
+        const bodyContent = format === 'content' && typeof value === 'string'
+            ? `<div class="message-content">${formatContent(value)}</div>`
+            : `<pre class="tool-card-pre">${escapeHtml(metrics.formatted)}</pre>`;
+        const isCollapsible = forceCollapsible || shouldCollapseToolSection(toolName, metrics);
+
+        if (!isCollapsible) {
+            return `
+                <div class="tool-card-section">
+                    <div class="tool-card-label">${label}</div>
+                    ${bodyContent}
+                </div>
+            `;
+        }
+
+        const isCollapsed = defaultCollapsed ?? shouldStartToolSectionCollapsed(toolName, metrics);
+
+        return `
+            <details class="tool-card-section tool-card-foldout"${isCollapsed ? '' : ' open'}>
+                <summary>
+                    <span class="tool-card-label">${label}</span>
+                    <span class="tool-card-meta">${escapeHtml(describeToolSection(metrics))}</span>
+                </summary>
+                <div class="tool-card-foldout-body">
+                    ${bodyContent}
+                </div>
+            </details>
+        `;
     }
     
     // Process message content, extracting thinking blocks

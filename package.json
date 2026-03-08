@@ -44,6 +44,8 @@
     "media/**/*",
     "i18n/**/*",
     "resources/**/*",
+    "LICENSE",
+    "CHANGELOG.md",
     "package.nls.json",
     "package.nls.zh-cn.json"
   ],

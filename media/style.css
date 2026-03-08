@@ -629,6 +629,53 @@ body {
     font-size: 12px;
 }
 
+.tool-card-foldout {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-tertiary);
+    overflow: hidden;
+}
+
+.tool-card-foldout summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    cursor: pointer;
+    list-style: none;
+}
+
+.tool-card-foldout summary::-webkit-details-marker {
+    display: none;
+}
+
+.tool-card-foldout[open] summary {
+    border-bottom: 1px solid var(--border);
+}
+
+.tool-card-foldout .tool-card-label {
+    margin-bottom: 0;
+}
+
+.tool-card-meta {
+    color: var(--text-secondary);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.tool-card-foldout-body {
+    padding: 10px 12px 12px;
+}
+
+.tool-card-foldout-body .tool-card-pre {
+    margin: 0;
+}
+
+.tool-card-foldout-body .message-content {
+    margin: 0;
+}
+
 /* Chat Input */
 .chat-input-container {
     padding: 16px 20px;
