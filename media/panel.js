@@ -16,6 +16,7 @@
         clusterConversations: {},
         tasks: [],
         tasksAvailable: true,
+        tasksLoaded: false,
         tasksMessage: '',
         tasksSourcePath: '',
         latestUsage: null,
@@ -23,7 +24,14 @@
         isStreaming: false,
         currentThinking: null,
         viewMode: 'chat',
-        locale: 'en'
+        locale: 'en',
+        runtime: {
+            connected: false,
+            mode: 'gateway',
+            sourceDescription: '',
+            supportsTasks: false,
+            supportsLiveSync: false
+        }
     };
     let activeTraceContainer = null;
 
@@ -71,11 +79,27 @@
 
     function cacheElements() {
         elements.agentList = document.getElementById('agent-list');
+        elements.chatHome = document.getElementById('chat-home');
         elements.clusterSidebarList = document.getElementById('cluster-sidebar-list');
         elements.chatMessages = document.getElementById('chat-messages');
         elements.messageInput = document.getElementById('message-input');
         elements.btnSend = document.getElementById('btn-send');
         elements.btnClear = document.getElementById('btn-clear');
+        elements.connectionStatus = document.getElementById('connection-status');
+        elements.connectionLabel = document.getElementById('connection-label');
+        elements.connectionCaption = document.getElementById('connection-caption');
+        elements.connectionPill = document.getElementById('connection-pill');
+        elements.consoleSummary = document.getElementById('console-summary');
+        elements.consoleConnectionValue = document.getElementById('console-connection-value');
+        elements.consoleConnectionMeta = document.getElementById('console-connection-meta');
+        elements.consoleModeValue = document.getElementById('console-mode-value');
+        elements.consoleModeMeta = document.getElementById('console-mode-meta');
+        elements.consoleAgentsValue = document.getElementById('console-agents-value');
+        elements.consoleAgentsMeta = document.getElementById('console-agents-meta');
+        elements.consoleTasksValue = document.getElementById('console-tasks-value');
+        elements.consoleTasksMeta = document.getElementById('console-tasks-meta');
+        elements.consoleNextSteps = document.getElementById('console-next-steps');
+        elements.consoleActionButtons = document.querySelectorAll('[data-console-action]');
         elements.clusterEmptyState = document.getElementById('clusters-empty-state');
         elements.clusterWorkspace = document.getElementById('cluster-workspace');
         elements.clusterTitle = document.getElementById('cluster-title');
@@ -152,6 +176,13 @@
         // Clear chat
         elements.btnClear?.addEventListener('click', () => {
             vscode.postMessage({ type: 'clearChat' });
+        });
+
+        elements.consoleActionButtons?.forEach(button => {
+            button.addEventListener('click', () => {
+                const action = button.getAttribute('data-console-action');
+                handleConsoleAction(action);
+            });
         });
 
         // New agent modal
@@ -392,6 +423,8 @@
             }
         });
 
+        updateConnectionBadge();
+        renderConsoleOverview();
         renderClusterWorkspace();
         if (state.latestUsage) {
             renderUsage(state.latestUsage);
@@ -409,6 +442,184 @@
     function switchView(view) {
         applyView(view);
         vscode.postMessage({ type: 'switchView', view });
+    }
+
+    function handleConsoleAction(action) {
+        switch (action) {
+            case 'new-agent':
+                openModal(elements.modalNewAgent);
+                break;
+            case 'clusters':
+                switchView('clusters');
+                break;
+            case 'tasks':
+                switchView('tasks');
+                break;
+            case 'usage':
+                switchView('usage');
+                break;
+            case 'settings':
+                vscode.postMessage({ type: 'openSettings' });
+                break;
+        }
+    }
+
+    function resolveRuntimeModeLabel(t) {
+        switch (state.runtime.mode) {
+            case 'openclaw':
+                return t('console.mode.openclaw');
+            case 'local':
+                return t('console.mode.local');
+            case 'gateway':
+            default:
+                return t('console.mode.gateway');
+        }
+    }
+
+    function updateConnectionBadge() {
+        if (!elements.connectionStatus || !elements.connectionLabel || !elements.connectionCaption || !elements.connectionPill) {
+            return;
+        }
+
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        const connected = Boolean(state.runtime.connected);
+        const statusKey = connected ? 'console.connected' : 'console.disconnected';
+        const modeLabel = resolveRuntimeModeLabel(t);
+
+        elements.connectionStatus.classList.toggle('online', connected);
+        elements.connectionStatus.classList.toggle('offline', !connected);
+        elements.connectionPill.classList.toggle('online', connected);
+        elements.connectionPill.classList.toggle('offline', !connected);
+        elements.connectionLabel.textContent = t(statusKey);
+        elements.connectionCaption.textContent = state.runtime.sourceDescription || modeLabel;
+    }
+
+    function renderConsoleOverview() {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        const modeLabel = resolveRuntimeModeLabel(t);
+        const selectedAgent = state.agents.find(agent => agent.id === state.currentAgentId) || null;
+
+        if (elements.consoleSummary) {
+            if (state.agents.length === 0) {
+                elements.consoleSummary.textContent = t('console.summaryNoAgents');
+            } else if (state.runtime.connected) {
+                elements.consoleSummary.textContent = t('console.summaryConnected', { mode: modeLabel });
+            } else {
+                elements.consoleSummary.textContent = t('console.summaryDisconnected', { mode: modeLabel });
+            }
+        }
+
+        if (elements.consoleConnectionValue) {
+            elements.consoleConnectionValue.textContent = t(state.runtime.connected ? 'console.connected' : 'console.disconnected');
+        }
+        if (elements.consoleConnectionMeta) {
+            elements.consoleConnectionMeta.textContent = state.runtime.sourceDescription || modeLabel;
+        }
+
+        if (elements.consoleModeValue) {
+            elements.consoleModeValue.textContent = modeLabel;
+        }
+        if (elements.consoleModeMeta) {
+            elements.consoleModeMeta.textContent = t(state.runtime.supportsLiveSync ? 'console.liveSync' : 'console.liveSyncDisabled');
+        }
+
+        if (elements.consoleAgentsValue) {
+            elements.consoleAgentsValue.textContent = String(state.agents.length);
+        }
+        if (elements.consoleAgentsMeta) {
+            elements.consoleAgentsMeta.textContent = selectedAgent
+                ? t('console.currentAgent', { name: selectedAgent.name })
+                : t('sidebar.noAgents');
+        }
+
+        if (elements.consoleTasksValue) {
+            if (!state.runtime.supportsTasks) {
+                elements.consoleTasksValue.textContent = t('console.unavailable');
+            } else if (!state.tasksLoaded) {
+                elements.consoleTasksValue.textContent = t('common.loading');
+            } else {
+                elements.consoleTasksValue.textContent = String(state.tasks.length);
+            }
+        }
+        if (elements.consoleTasksMeta) {
+            if (!state.runtime.supportsTasks) {
+                elements.consoleTasksMeta.textContent = t('console.requiresCli');
+            } else if (!state.tasksLoaded) {
+                elements.consoleTasksMeta.textContent = t('tasks.note');
+            } else if (state.tasks.length === 0) {
+                elements.consoleTasksMeta.textContent = t('tasks.empty');
+            } else {
+                elements.consoleTasksMeta.textContent = t('console.tasksReady', { count: state.tasks.length });
+            }
+        }
+
+        if (elements.consoleNextSteps) {
+            elements.consoleNextSteps.innerHTML = buildConsoleSteps(t).map((step, index) => `
+                <div class="console-step">
+                    <span class="console-step-index">${index + 1}</span>
+                    <div class="console-step-copy">
+                        <div class="console-step-title">${escapeHtml(step.title)}</div>
+                        <div class="console-step-text">${escapeHtml(step.text)}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        updateChatHomeVisibility();
+    }
+
+    function buildConsoleSteps(t) {
+        const steps = [];
+
+        if (!state.runtime.connected) {
+            steps.push({
+                title: t('console.stepCheckConnectionTitle'),
+                text: t('console.stepCheckConnection')
+            });
+        }
+
+        if (state.agents.length === 0) {
+            steps.push({
+                title: t('console.stepCreateAgentTitle'),
+                text: t('console.stepCreateAgent')
+            });
+        } else {
+            steps.push({
+                title: t('console.stepSendMessageTitle'),
+                text: t('console.stepSendMessage')
+            });
+        }
+
+        if (!state.runtime.supportsTasks) {
+            steps.push({
+                title: t('console.stepEnableTasksTitle'),
+                text: t('console.stepEnableTasks')
+            });
+        } else {
+            steps.push({
+                title: t('console.stepScheduleTitle'),
+                text: t('console.stepSchedule')
+            });
+        }
+
+        steps.push(state.clusters.length === 0 ? {
+            title: t('console.stepCreateClusterTitle'),
+            text: t('console.stepCreateCluster')
+        } : {
+            title: t('console.stepCompareAgentsTitle'),
+            text: t('console.stepCompareAgents')
+        });
+
+        return steps.slice(0, 4);
+    }
+
+    function updateChatHomeVisibility() {
+        if (!elements.chatHome || !elements.chatMessages) {
+            return;
+        }
+
+        const hasMessages = Boolean(elements.chatMessages.querySelector('.message, .context-loading'));
+        elements.chatHome.classList.toggle('hidden', hasMessages);
     }
 
     // Send message
@@ -602,16 +813,19 @@
         if (msg.role === 'user') {
             activeTraceContainer = null;
             appendStandaloneMessage(msg);
+            updateChatHomeVisibility();
             return;
         }
 
         if (shouldAppendToTrace(msg)) {
             appendTraceMessage(msg);
+            updateChatHomeVisibility();
             return;
         }
 
         activeTraceContainer = null;
         appendStandaloneMessage(msg);
+        updateChatHomeVisibility();
     }
 
     function appendStandaloneMessage(msg) {
@@ -1118,6 +1332,7 @@
         
         if (state.agents.length === 0) {
             elements.agentList.innerHTML = '<div class="empty">No agents yet. Create one!</div>';
+            renderConsoleOverview();
             return;
         }
         
@@ -1167,6 +1382,7 @@
             renderClusterWorkspace();
         }
         updateTaskFormFields();
+        renderConsoleOverview();
     }
 
     function selectAgent(agentId) {
@@ -1180,7 +1396,7 @@
             vscode.postMessage({ type: 'switchView', view: 'chat' });
         }
         
-        document.querySelector('.welcome-message')?.remove();
+        renderConsoleOverview();
         vscode.postMessage({ type: 'selectAgent', agentId });
     }
 
@@ -1508,6 +1724,7 @@
             renderTasks(state.tasks);
         }
         updateTaskFormFields();
+        renderConsoleOverview();
     }
 
     function renderClusterSidebarList(clusters) {
@@ -2350,6 +2567,7 @@
     function renderTasks(tasks, available = state.tasksAvailable, message = state.tasksMessage, sourcePath = state.tasksSourcePath) {
         state.tasks = Array.isArray(tasks) ? tasks : [];
         state.tasksAvailable = available !== false;
+        state.tasksLoaded = true;
         state.tasksMessage = message || '';
         state.tasksSourcePath = sourcePath || '';
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
@@ -2361,6 +2579,7 @@
         }
 
         if (!elements.tasksList) {
+            renderConsoleOverview();
             return;
         }
 
@@ -2373,15 +2592,18 @@
                     </div>
                 </div>
             `;
+            renderConsoleOverview();
             return;
         }
 
         if (state.tasks.length === 0) {
             elements.tasksList.innerHTML = `<div class="empty">${t('tasks.empty')}</div>`;
+            renderConsoleOverview();
             return;
         }
 
         elements.tasksList.innerHTML = state.tasks.map(task => renderTaskCard(task)).join('');
+        renderConsoleOverview();
     }
 
     function renderTaskCard(task) {
@@ -2699,6 +2921,18 @@
         const message = event.data;
         
         switch (message.type) {
+            case 'runtimeState':
+                state.runtime = {
+                    connected: Boolean(message.connected),
+                    mode: message.mode || 'gateway',
+                    sourceDescription: message.sourceDescription || '',
+                    supportsTasks: Boolean(message.supportsTasks),
+                    supportsLiveSync: Boolean(message.supportsLiveSync)
+                };
+                updateConnectionBadge();
+                renderConsoleOverview();
+                break;
+
             case 'agentsLoaded':
                 renderAgents(message.agents);
                 populateModelSelect(message.models || []);
@@ -2716,11 +2950,13 @@
                 resetTransientChatState();
                 elements.chatMessages.innerHTML = '';
                 (message.messages || []).forEach(item => addMessage(item));
+                updateChatHomeVisibility();
                 break;
                 
             case 'clearChat':
                 resetTransientChatState();
                 elements.chatMessages.innerHTML = '';
+                updateChatHomeVisibility();
                 break;
                 
             case 'setActiveAgent':
@@ -2729,6 +2965,7 @@
                 document.querySelectorAll('.agent-item').forEach(item => {
                     item.classList.toggle('active', item.dataset.id === message.agentId);
                 });
+                renderConsoleOverview();
                 break;
                 
             case 'setInputText':
@@ -2808,6 +3045,7 @@
 
             case 'agentsLoadFailed':
                 elements.agentList.innerHTML = `<div class="empty">Failed to load agents: ${escapeHtml(message.message)}</div>`;
+                renderConsoleOverview();
                 break;
 
             case 'setContextLoading':
@@ -2830,9 +3068,6 @@
 
     // Show context loading indicator
     function showContextLoading() {
-        // Remove any existing welcome message
-        document.querySelector('.welcome-message')?.remove();
-        
         // Check if already showing
         if (document.querySelector('.context-loading')) return;
         
@@ -2844,12 +3079,14 @@
             <span class="context-loading-text">${t('common.loading') || 'Loading...'}</span>
         `;
         elements.chatMessages.appendChild(loadingDiv);
+        updateChatHomeVisibility();
         scrollToBottom();
     }
 
     // Hide context loading indicator
     function hideContextLoading() {
         document.querySelector('.context-loading')?.remove();
+        updateChatHomeVisibility();
     }
 
     // Initialize

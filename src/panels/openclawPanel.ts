@@ -89,6 +89,14 @@ export class OpenClawPanel {
 
         this._update();
 
+        const handleConnectionChange = () => {
+            this._postRuntimeState();
+        };
+        this._service.on('connectionChange', handleConnectionChange);
+        this._disposables.push(new vscode.Disposable(() => {
+            this._service.off('connectionChange', handleConnectionChange);
+        }));
+
         const refreshTasks = () => {
             if (!this._isWebviewReady) {
                 return;
@@ -167,11 +175,14 @@ export class OpenClawPanel {
             case 'webviewReady':
                 this._isWebviewReady = true;
                 this._flushPendingMessages();
+                this._postRuntimeState();
+                void this._refreshRuntimeState();
                 if (!this._initialDataLoaded) {
                     this._initialDataLoaded = true;
                     await Promise.all([
                         this._loadAgents(),
-                        this._loadClusters()
+                        this._loadClusters(),
+                        this._loadTasks()
                     ]);
                 }
                 break;
@@ -293,6 +304,32 @@ export class OpenClawPanel {
             case 'openAgentFolder':
                 await vscode.commands.executeCommand('openclaw.openAgentFolder', message.agentId);
                 break;
+
+            case 'openSettings':
+                await vscode.commands.executeCommand('openclaw.settings');
+                break;
+        }
+    }
+
+    private _postRuntimeState() {
+        const mode = this._service.getMode();
+        this._postMessage({
+            type: 'runtimeState',
+            connected: this._service.isConnected(),
+            mode,
+            sourceDescription: this._service.getSourceDescription(),
+            supportsTasks: this._service.supportsScheduledTasks(),
+            supportsLiveSync: this._service.supportsLiveSessionSync()
+        });
+    }
+
+    private async _refreshRuntimeState() {
+        try {
+            await this._service.checkConnection();
+        } catch {
+            // Ignore transient connection probe errors. The panel already renders the current status.
+        } finally {
+            this._postRuntimeState();
         }
     }
 

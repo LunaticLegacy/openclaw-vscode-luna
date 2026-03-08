@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project follows Semantic Versioning.
 
+## [0.2.1] - 2026-03-09
+
+### Fixed
+- Optimize frontend behaviour.
+
 ## [0.2.0] - 2026-03-08
 
 ### Added
