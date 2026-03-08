@@ -166,6 +166,7 @@ interface CachedOpenClawAgentsSnapshot {
 export class OpenClawService extends EventEmitter {
     private client: AxiosInstance | null = null;
     private mode: ResolvedServiceConfig['mode'] = 'gateway';
+    private sourceDescription = '';
     private gatewayUrl = '';
     private gatewayToken = '';
     private connected = false;
@@ -263,6 +264,7 @@ export class OpenClawService extends EventEmitter {
     private applyConfig(config: ResolvedServiceConfig) {
         this.resetState();
         this.mode = config.mode;
+        this.sourceDescription = config.sourceDescription;
 
         switch (config.mode) {
             case 'gateway':
@@ -294,6 +296,7 @@ export class OpenClawService extends EventEmitter {
 
     private resetState() {
         this.client = null;
+        this.sourceDescription = '';
         this.openClawRunner = null;
         this.openClawConfig = null;
         this.openClawDefaultAgentId = null;
@@ -724,6 +727,14 @@ export class OpenClawService extends EventEmitter {
 
     public getMode(): ResolvedServiceConfig['mode'] {
         return this.mode;
+    }
+
+    public getSourceDescription(): string {
+        return this.sourceDescription;
+    }
+
+    public supportsScheduledTasks(): boolean {
+        return this.mode === 'openclaw';
     }
 
     public getOpenClawConfig(): OpenClawCliServiceConfig | null {

@@ -49,11 +49,48 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
 }
 
 .sidebar-header h2 {
     font-size: 16px;
     font-weight: 600;
+}
+
+.sidebar-brand {
+    min-width: 0;
+}
+
+.connection-caption {
+    margin-top: 4px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.connection-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
+    font-size: 11px;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.connection-pill.online {
+    color: var(--success);
+    border-color: color-mix(in srgb, var(--success) 40%, var(--border));
+}
+
+.connection-pill.offline {
+    color: var(--error);
+    border-color: color-mix(in srgb, var(--error) 40%, var(--border));
 }
 
 .status-indicator {
@@ -66,6 +103,10 @@ body {
 
 .status-indicator.offline {
     color: var(--error);
+}
+
+.hidden {
+    display: none !important;
 }
 
 /* Navigation */
@@ -321,6 +362,157 @@ body {
     overflow-y: auto;
     min-height: 0;
     padding: 20px;
+}
+
+.chat-home {
+    padding: 18px 20px 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    border-bottom: 1px solid var(--border);
+    background:
+        radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 18%, transparent) 0%, transparent 48%),
+        linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 84%, transparent), transparent);
+}
+
+.console-hero {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.console-hero-copy {
+    min-width: 0;
+}
+
+.console-eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent-strong);
+    margin-bottom: 8px;
+    font-weight: 700;
+}
+
+.console-hero h3 {
+    font-size: 22px;
+    line-height: 1.2;
+    margin-bottom: 8px;
+}
+
+.console-hero p {
+    color: var(--text-secondary);
+    max-width: 680px;
+}
+
+.console-hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.console-overview-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.console-card {
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--bg-primary) 92%, transparent);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+
+.console-card-label {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+    font-weight: 600;
+}
+
+.console-card-value {
+    font-size: 22px;
+    line-height: 1.1;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+
+.console-card-meta {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.console-next-panel {
+    padding: 14px 16px 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--bg-primary) 94%, transparent);
+}
+
+.console-next-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.console-next-header h4 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-secondary);
+}
+
+.console-next-steps {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.console-step {
+    display: flex;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+    background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+}
+
+.console-step-index {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--accent) 24%, transparent);
+    color: var(--accent-strong);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.console-step-copy {
+    min-width: 0;
+}
+
+.console-step-title {
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.console-step-text {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
 }
 
 .welcome-message {
@@ -1797,6 +1989,17 @@ form {
     .sidebar {
         width: 200px;
     }
+
+    .console-hero,
+    .console-next-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .console-overview-grid,
+    .console-next-steps {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
     
     .usage-charts {
         grid-template-columns: 1fr;
@@ -1839,5 +2042,16 @@ form {
 
     .usage-header-actions {
         width: 100%;
+    }
+
+    .chat-home {
+        padding: 14px 14px 4px;
+    }
+}
+
+@media (max-width: 560px) {
+    .console-overview-grid,
+    .console-next-steps {
+        grid-template-columns: 1fr;
     }
 }
