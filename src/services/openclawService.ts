@@ -113,6 +113,11 @@ export interface APIUsage {
         tokens: number;
         cost: number;
     }>;
+    byModelByDay?: Record<string, Record<string, {
+        requests: number;
+        tokens: number;
+        cost: number;
+    }>>;
     byDay: Record<string, {
         requests: number;
         tokens: number;
@@ -715,6 +720,14 @@ export class OpenClawService extends EventEmitter {
 
     public supportsLiveSessionSync(): boolean {
         return this.mode === 'openclaw';
+    }
+
+    public getMode(): ResolvedServiceConfig['mode'] {
+        return this.mode;
+    }
+
+    public getOpenClawConfig(): OpenClawCliServiceConfig | null {
+        return this.openClawConfig;
     }
 
     public async getLiveChatHistory(sessionId: string): Promise<ChatMessage[]> {
@@ -1706,6 +1719,13 @@ export class OpenClawService extends EventEmitter {
             tokens: (this.localUsage.byModel[agent.model]?.tokens || 0) + totalTokens,
             cost: (this.localUsage.byModel[agent.model]?.cost || 0) + cost
         };
+        const localUsageModelDay = this.localUsage.byModelByDay ||= {};
+        localUsageModelDay[today] ||= {};
+        localUsageModelDay[today][agent.model] = {
+            requests: (localUsageModelDay[today][agent.model]?.requests || 0) + 1,
+            tokens: (localUsageModelDay[today][agent.model]?.tokens || 0) + totalTokens,
+            cost: (localUsageModelDay[today][agent.model]?.cost || 0) + cost
+        };
 
         const agentUsage = this.localUsageByAgent.get(agent.id)
             || createEmptyUsage(inferCurrencyFromHints([agent.providerId, agent.model]));
@@ -1723,6 +1743,13 @@ export class OpenClawService extends EventEmitter {
             requests: (agentUsage.byModel[agent.model]?.requests || 0) + 1,
             tokens: (agentUsage.byModel[agent.model]?.tokens || 0) + totalTokens,
             cost: (agentUsage.byModel[agent.model]?.cost || 0) + cost
+        };
+        const agentUsageModelDay = agentUsage.byModelByDay ||= {};
+        agentUsageModelDay[today] ||= {};
+        agentUsageModelDay[today][agent.model] = {
+            requests: (agentUsageModelDay[today][agent.model]?.requests || 0) + 1,
+            tokens: (agentUsageModelDay[today][agent.model]?.tokens || 0) + totalTokens,
+            cost: (agentUsageModelDay[today][agent.model]?.cost || 0) + cost
         };
 
         this.localUsageByAgent.set(agent.id, agentUsage);
@@ -1746,6 +1773,7 @@ function createEmptyUsage(currency?: { code: string; symbol: string }): APIUsage
         currency: currency?.code,
         currencySymbol: currency?.symbol,
         byModel: {},
+        byModelByDay: {},
         byDay: {}
     };
 }
@@ -1760,6 +1788,7 @@ function cloneUsage(usage: APIUsage): APIUsage {
         currency: usage.currency,
         currencySymbol: usage.currencySymbol,
         byModel: JSON.parse(JSON.stringify(usage.byModel)),
+        byModelByDay: JSON.parse(JSON.stringify(usage.byModelByDay || {})),
         byDay: JSON.parse(JSON.stringify(usage.byDay))
     };
 }
@@ -2326,6 +2355,14 @@ function mapOpenClawUsage(
             dayStats.cost = (dayStats.cost || 0) + (daily.cost || 0);
             dayStats.requests += requestsByDay.get(date) || 0;
             usage.byDay[date] = dayStats;
+
+            const modelByDay = usage.byModelByDay ||= {};
+            modelByDay[date] ||= {};
+            const dayModelStats = modelByDay[date][modelKey] || { requests: 0, tokens: 0, cost: 0 };
+            dayModelStats.tokens += daily.tokens || 0;
+            dayModelStats.cost += daily.cost || 0;
+            dayModelStats.requests += requestsByDay.get(date) || 0;
+            modelByDay[date][modelKey] = dayModelStats;
             requestsByDay.delete(date);
         }
 
@@ -2333,6 +2370,12 @@ function mapOpenClawUsage(
             const dayStats = usage.byDay[date] || { requests: 0, tokens: 0, cost: 0 };
             dayStats.requests += requests;
             usage.byDay[date] = dayStats;
+
+            const modelByDay = usage.byModelByDay ||= {};
+            modelByDay[date] ||= {};
+            const dayModelStats = modelByDay[date][modelKey] || { requests: 0, tokens: 0, cost: 0 };
+            dayModelStats.requests += requests;
+            modelByDay[date][modelKey] = dayModelStats;
         }
     }
 

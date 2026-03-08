@@ -7,11 +7,21 @@
     // State
     let state = {
         currentAgentId: null,
+        currentClusterId: null,
+        currentClusterTargetKind: 'swarm',
+        currentClusterAgentId: null,
+        currentClusterSwarmMode: 'broadcast',
         agents: [],
         clusters: [],
+        clusterConversations: {},
+        tasks: [],
+        tasksAvailable: true,
+        tasksMessage: '',
+        tasksSourcePath: '',
+        latestUsage: null,
+        usagePeriodDays: 7,
         isStreaming: false,
         currentThinking: null,
-        lastSwarmRun: null,
         viewMode: 'chat',
         locale: 'en'
     };
@@ -61,21 +71,47 @@
 
     function cacheElements() {
         elements.agentList = document.getElementById('agent-list');
+        elements.clusterSidebarList = document.getElementById('cluster-sidebar-list');
         elements.chatMessages = document.getElementById('chat-messages');
         elements.messageInput = document.getElementById('message-input');
         elements.btnSend = document.getElementById('btn-send');
         elements.btnClear = document.getElementById('btn-clear');
+        elements.clusterEmptyState = document.getElementById('clusters-empty-state');
+        elements.clusterWorkspace = document.getElementById('cluster-workspace');
+        elements.clusterTitle = document.getElementById('cluster-title');
+        elements.clusterSubtitle = document.getElementById('cluster-subtitle');
+        elements.clusterTargetTabs = document.getElementById('cluster-target-tabs');
+        elements.clusterModeTabs = document.getElementById('cluster-mode-tabs');
+        elements.clusterMessages = document.getElementById('cluster-messages');
+        elements.clusterMessageInput = document.getElementById('cluster-message-input');
+        elements.clusterTargetHint = document.getElementById('cluster-target-hint');
+        elements.btnSendCluster = document.getElementById('btn-send-cluster');
         elements.btnNewAgent = document.getElementById('btn-new-agent');
+        elements.btnNewCluster = document.getElementById('btn-new-cluster');
         elements.modalNewAgent = document.getElementById('modal-new-agent');
         elements.formNewAgent = document.getElementById('form-new-agent');
         elements.navTabs = document.querySelectorAll('.nav-tab');
         elements.views = document.querySelectorAll('.view');
         elements.tokenCount = document.getElementById('token-count');
-        elements.clustersList = document.getElementById('clusters-list');
+        elements.tasksList = document.getElementById('tasks-list');
+        elements.tasksSource = document.getElementById('tasks-source');
         elements.btnCreateCluster = document.getElementById('btn-create-cluster');
+        elements.btnCreateClusterToolbar = document.getElementById('btn-create-cluster-toolbar');
+        elements.btnAddClusterAgent = document.getElementById('btn-add-cluster-agent');
+        elements.btnRemoveClusterAgent = document.getElementById('btn-remove-cluster-agent');
+        elements.btnDeleteCurrentCluster = document.getElementById('btn-delete-current-cluster');
+        elements.btnCreateTask = document.getElementById('btn-create-task');
         elements.btnRefreshUsage = document.getElementById('btn-refresh-usage');
+        elements.btnUsagePeriod7 = document.getElementById('btn-usage-period-7');
+        elements.btnUsagePeriod30 = document.getElementById('btn-usage-period-30');
+        elements.usagePeriodButtons = document.querySelectorAll('[data-usage-period]');
+        elements.usagePeriodCaption = document.getElementById('usage-period-caption');
+        elements.usageChartTitle = document.getElementById('usage-chart-title');
+        elements.modelChartTitle = document.getElementById('model-chart-title');
         elements.modalAgentSettings = document.getElementById('modal-agent-settings');
         elements.formAgentSettings = document.getElementById('form-agent-settings');
+        elements.modalTask = document.getElementById('modal-task');
+        elements.formTask = document.getElementById('form-task');
     }
 
     function bindEvents() {
@@ -99,6 +135,20 @@
             sendMessage();
         });
 
+        elements.btnSendCluster?.addEventListener('click', sendClusterMessage);
+        elements.clusterMessageInput?.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' || e.isComposing) {
+                return;
+            }
+
+            if (e.shiftKey) {
+                return;
+            }
+
+            e.preventDefault();
+            sendClusterMessage();
+        });
+
         // Clear chat
         elements.btnClear?.addEventListener('click', () => {
             vscode.postMessage({ type: 'clearChat' });
@@ -109,12 +159,51 @@
             openModal(elements.modalNewAgent);
         });
 
+        elements.btnNewCluster?.addEventListener('click', () => {
+            vscode.postMessage({ type: 'createCluster' });
+        });
+
         elements.btnCreateCluster?.addEventListener('click', () => {
             vscode.postMessage({ type: 'createCluster' });
         });
 
+        elements.btnCreateClusterToolbar?.addEventListener('click', () => {
+            vscode.postMessage({ type: 'createCluster' });
+        });
+
+        elements.btnAddClusterAgent?.addEventListener('click', () => {
+            if (state.currentClusterId) {
+                vscode.postMessage({ type: 'addAgentsToCluster', clusterId: state.currentClusterId });
+            }
+        });
+
+        elements.btnRemoveClusterAgent?.addEventListener('click', () => {
+            if (state.currentClusterId) {
+                vscode.postMessage({ type: 'removeAgentsFromCluster', clusterId: state.currentClusterId });
+            }
+        });
+
+        elements.btnDeleteCurrentCluster?.addEventListener('click', () => {
+            if (state.currentClusterId) {
+                deleteCluster(state.currentClusterId);
+            }
+        });
+
+        elements.btnCreateTask?.addEventListener('click', () => {
+            showTaskEditor();
+        });
+
         elements.btnRefreshUsage?.addEventListener('click', () => {
             vscode.postMessage({ type: 'getUsage' });
+        });
+
+        elements.usagePeriodButtons?.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const days = Number(btn.getAttribute('data-usage-period'));
+                if (days === 7 || days === 30) {
+                    setUsagePeriod(days);
+                }
+            });
         });
 
         document.querySelectorAll('.modal-close, .modal-cancel').forEach(btn => {
@@ -150,6 +239,18 @@
             }
         }
 
+        if (elements.formTask) {
+            elements.formTask.addEventListener('submit', (e) => {
+                e.preventDefault();
+                saveTask();
+            });
+
+            const taskScheduleKind = document.getElementById('task-schedule-kind');
+            taskScheduleKind?.addEventListener('change', () => updateTaskFormFields());
+            const taskPayloadKind = document.getElementById('task-payload-kind');
+            taskPayloadKind?.addEventListener('change', () => updateTaskFormFields());
+        }
+
         // Close modal when clicking outside
         document.querySelectorAll('.modal').forEach(modal => {
             modal.addEventListener('click', (e) => {
@@ -169,20 +270,53 @@
                 return;
             }
 
-            const clusterActionButton = target.closest('[data-cluster-action]');
-            if (clusterActionButton) {
-                const clusterId = clusterActionButton.getAttribute('data-cluster-id');
-                const action = clusterActionButton.getAttribute('data-cluster-action');
-                if (!clusterId || !action) {
+            const clusterSidebarItem = target.closest('[data-sidebar-cluster-id]');
+            if (clusterSidebarItem) {
+                const clusterId = clusterSidebarItem.getAttribute('data-sidebar-cluster-id');
+                if (clusterId) {
+                    selectCluster(clusterId);
+                }
+                return;
+            }
+
+            const clusterTargetTab = target.closest('[data-cluster-target-kind]');
+            if (clusterTargetTab) {
+                const targetKind = clusterTargetTab.getAttribute('data-cluster-target-kind');
+                const agentId = clusterTargetTab.getAttribute('data-cluster-agent-id');
+                if (targetKind === 'swarm') {
+                    selectClusterTarget('swarm');
+                } else if (targetKind === 'agent' && agentId) {
+                    selectClusterTarget('agent', agentId);
+                }
+                return;
+            }
+
+            const clusterModeTab = target.closest('[data-cluster-mode]');
+            if (clusterModeTab) {
+                const mode = clusterModeTab.getAttribute('data-cluster-mode');
+                if (mode === 'broadcast' || mode === 'collaborate') {
+                    selectClusterSwarmMode(mode);
+                }
+                return;
+            }
+
+            const taskActionButton = target.closest('[data-task-action]');
+            if (taskActionButton) {
+                const taskId = taskActionButton.getAttribute('data-task-id');
+                const action = taskActionButton.getAttribute('data-task-action');
+                if (!taskId || !action) {
                     return;
                 }
 
-                if (action === 'broadcast') {
-                    promptBroadcastToCluster(clusterId);
-                } else if (action === 'collaborate') {
-                    promptCollaborateCluster(clusterId);
+                if (action === 'edit') {
+                    const task = state.tasks.find(item => item.id === taskId) || null;
+                    showTaskEditor(task);
+                } else if (action === 'toggle') {
+                    toggleTask(taskId);
+                } else if (action === 'run') {
+                    runTask(taskId);
                 } else if (action === 'delete') {
-                    deleteCluster(clusterId);
+                    deleteTask(taskId);
                 }
             }
         });
@@ -216,8 +350,14 @@
         if (elements.messageInput) {
             elements.messageInput.placeholder = t('chat.placeholder');
         }
+        if (elements.clusterMessageInput) {
+            elements.clusterMessageInput.placeholder = t('clusters.chatPlaceholder');
+        }
         if (elements.btnSend) {
             elements.btnSend.textContent = t('chat.send');
+        }
+        if (elements.btnSendCluster) {
+            elements.btnSendCluster.textContent = t('chat.send');
         }
         if (elements.btnClear) {
             elements.btnClear.title = t('chat.clear');
@@ -251,6 +391,11 @@
                 el.placeholder = t(key);
             }
         });
+
+        renderClusterWorkspace();
+        if (state.latestUsage) {
+            renderUsage(state.latestUsage);
+        }
     }
 
     // View switching
@@ -302,6 +447,58 @@
 
     function normalizeOutgoingMessage(content) {
         return String(content || '').replace(/\r\n?/g, '\n');
+    }
+
+    function sendClusterMessage() {
+        const cluster = getCurrentCluster();
+        if (!cluster) {
+            showError(window.OpenClawI18n ? window.OpenClawI18n.t('clusters.emptyWorkspace') : 'Select a cluster first');
+            return;
+        }
+
+        const content = normalizeOutgoingMessage(elements.clusterMessageInput?.value || '');
+        if (!content.trim()) {
+            return;
+        }
+
+        const target = getCurrentClusterTargetInfo(cluster);
+        const conversation = ensureClusterConversation(target.key);
+        if (conversation.loading || conversation.pending) {
+            return;
+        }
+
+        conversation.messages.push({
+            role: 'user',
+            content,
+            timestamp: new Date().toISOString(),
+            contextLabel: target.kind === 'swarm'
+                ? (window.OpenClawI18n ? window.OpenClawI18n.t(target.mode === 'broadcast' ? 'clusters.broadcast' : 'clusters.collaborate') : target.mode)
+                : resolveAgentLabel(target.agentId)
+        });
+        conversation.pending = true;
+
+        if (elements.clusterMessageInput) {
+            elements.clusterMessageInput.value = '';
+        }
+
+        renderCurrentClusterConversation();
+        updateClusterInputState(cluster);
+
+        if (target.kind === 'agent') {
+            vscode.postMessage({
+                type: 'sendClusterAgentMessage',
+                clusterId: cluster.id,
+                agentId: target.agentId,
+                content
+            });
+            return;
+        }
+
+        vscode.postMessage({
+            type: target.mode === 'broadcast' ? 'broadcastToCluster' : 'collaborateCluster',
+            clusterId: cluster.id,
+            message: content
+        });
     }
 
     // Show thinking indicator
@@ -651,9 +848,11 @@
     }
 
     function getMessageRoleLabel(msg) {
-        if (msg.role === 'user') return 'You';
-        if (msg.role === 'tool') return 'Tool';
-        return 'Assistant';
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        if (msg?.displayName) return msg.displayName;
+        if (msg.role === 'user') return t('chat.roleUser');
+        if (msg.role === 'tool') return t('chat.roleTool');
+        return t('chat.roleAssistant');
     }
 
     function isToolUseMessage(msg) {
@@ -960,6 +1159,14 @@
                 }
             });
         });
+
+        if (state.viewMode === 'tasks') {
+            renderTasks(state.tasks);
+        }
+        if (state.viewMode === 'clusters') {
+            renderClusterWorkspace();
+        }
+        updateTaskFormFields();
     }
 
     function selectAgent(agentId) {
@@ -967,6 +1174,11 @@
         document.querySelectorAll('.agent-item').forEach(item => {
             item.classList.toggle('active', item.dataset.id === agentId);
         });
+
+        if (state.viewMode !== 'chat') {
+            applyView('chat');
+            vscode.postMessage({ type: 'switchView', view: 'chat' });
+        }
         
         document.querySelector('.welcome-message')?.remove();
         vscode.postMessage({ type: 'selectAgent', agentId });
@@ -1056,6 +1268,217 @@
         closeAllModals();
     }
 
+    function showTaskEditor(task) {
+        if (state.tasksAvailable === false) {
+            showError(state.tasksMessage || (window.OpenClawI18n ? window.OpenClawI18n.t('tasks.unavailable') : 'OpenClaw cron is unavailable.'));
+            return;
+        }
+
+        const modal = elements.modalTask;
+        if (!modal) {
+            return;
+        }
+
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        const title = document.getElementById('task-modal-title');
+        const idField = document.getElementById('task-id');
+        const nameField = document.getElementById('task-name');
+        const descriptionField = document.getElementById('task-description');
+        const agentField = document.getElementById('task-agent-id');
+        const scheduleKindField = document.getElementById('task-schedule-kind');
+        const scheduleEveryField = document.getElementById('task-schedule-every');
+        const scheduleAtField = document.getElementById('task-schedule-at');
+        const scheduleCronField = document.getElementById('task-schedule-cron');
+        const scheduleTimezoneField = document.getElementById('task-schedule-timezone');
+        const sessionTargetField = document.getElementById('task-session-target');
+        const wakeModeField = document.getElementById('task-wake-mode');
+        const payloadKindField = document.getElementById('task-payload-kind');
+        const contentField = document.getElementById('task-content');
+        const modelField = document.getElementById('task-model');
+        const timeoutField = document.getElementById('task-timeout-seconds');
+        const enabledField = document.getElementById('task-enabled');
+        const deleteAfterRunField = document.getElementById('task-delete-after-run');
+
+        if (!idField
+            || !nameField
+            || !descriptionField
+            || !agentField
+            || !scheduleKindField
+            || !scheduleEveryField
+            || !scheduleAtField
+            || !scheduleCronField
+            || !scheduleTimezoneField
+            || !sessionTargetField
+            || !wakeModeField
+            || !payloadKindField
+            || !contentField
+            || !modelField
+            || !timeoutField
+            || !enabledField
+            || !deleteAfterRunField) {
+            return;
+        }
+
+        idField.value = task?.id || '';
+        nameField.value = task?.name || '';
+        descriptionField.value = task?.description || '';
+        populateTaskAgentOptions(task?.agentId || '');
+
+        const scheduleKind = task?.schedule?.kind || 'every';
+        scheduleKindField.value = scheduleKind;
+        scheduleEveryField.value = task?.schedule?.kind === 'every'
+            ? formatEveryDuration(task.schedule.everyMs)
+            : '10m';
+        scheduleAtField.value = task?.schedule?.kind === 'at'
+            ? toDateTimeLocalValue(task.schedule.at)
+            : '';
+        scheduleCronField.value = task?.schedule?.kind === 'cron'
+            ? task.schedule.expr
+            : '';
+        scheduleTimezoneField.value = task?.schedule?.kind === 'cron'
+            ? (task.schedule.tz || '')
+            : '';
+
+        const payloadKind = task?.payload?.kind || 'agentTurn';
+        payloadKindField.value = payloadKind;
+        sessionTargetField.value = task?.sessionTarget || (payloadKind === 'systemEvent' ? 'main' : 'isolated');
+        wakeModeField.value = task?.wakeMode || 'now';
+        contentField.value = extractTaskContent(task) || '';
+        modelField.value = task?.payload?.kind === 'agentTurn' ? (task.payload.model || '') : '';
+        timeoutField.value = task?.payload?.kind === 'agentTurn' && task.payload.timeoutSeconds
+            ? String(task.payload.timeoutSeconds)
+            : '';
+        enabledField.checked = task ? task.enabled !== false : true;
+        deleteAfterRunField.checked = task
+            ? Boolean(task.deleteAfterRun)
+            : scheduleKind === 'at';
+
+        if (title) {
+            title.textContent = task ? t('tasks.form.editTitle') : t('tasks.form.createTitle');
+        }
+
+        updateTaskFormFields();
+        openModal(modal);
+    }
+
+    function updateTaskFormFields() {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        const agentField = document.getElementById('task-agent-id');
+        const scheduleKindField = document.getElementById('task-schedule-kind');
+        const scheduleEveryGroup = document.getElementById('task-schedule-every-group');
+        const scheduleEveryField = document.getElementById('task-schedule-every');
+        const scheduleAtGroup = document.getElementById('task-schedule-at-group');
+        const scheduleAtField = document.getElementById('task-schedule-at');
+        const scheduleCronGroup = document.getElementById('task-schedule-cron-group');
+        const scheduleCronField = document.getElementById('task-schedule-cron');
+        const scheduleTimezoneGroup = document.getElementById('task-schedule-timezone-group');
+        const payloadKindField = document.getElementById('task-payload-kind');
+        const sessionTargetField = document.getElementById('task-session-target');
+        const modelGroup = document.getElementById('task-model-group');
+        const modelField = document.getElementById('task-model');
+        const timeoutGroup = document.getElementById('task-timeout-group');
+        const timeoutField = document.getElementById('task-timeout-seconds');
+        const deleteAfterRunGroup = document.getElementById('task-delete-after-run-group');
+        const deleteAfterRunField = document.getElementById('task-delete-after-run');
+        const contentLabel = document.getElementById('task-content-label');
+
+        if (!agentField
+            || !scheduleKindField
+            || !scheduleEveryGroup
+            || !scheduleEveryField
+            || !scheduleAtGroup
+            || !scheduleAtField
+            || !scheduleCronGroup
+            || !scheduleCronField
+            || !scheduleTimezoneGroup
+            || !payloadKindField
+            || !sessionTargetField
+            || !modelGroup
+            || !modelField
+            || !timeoutGroup
+            || !timeoutField
+            || !deleteAfterRunGroup
+            || !deleteAfterRunField
+            || !contentLabel) {
+            return;
+        }
+
+        populateTaskAgentOptions(agentField.value || '');
+
+        const scheduleKind = scheduleKindField.value || 'every';
+        scheduleEveryGroup.hidden = scheduleKind !== 'every';
+        scheduleEveryField.required = scheduleKind === 'every';
+        scheduleAtGroup.hidden = scheduleKind !== 'at';
+        scheduleAtField.required = scheduleKind === 'at';
+        scheduleCronGroup.hidden = scheduleKind !== 'cron';
+        scheduleCronField.required = scheduleKind === 'cron';
+        scheduleTimezoneGroup.hidden = scheduleKind !== 'cron';
+        deleteAfterRunGroup.hidden = scheduleKind !== 'at';
+        if (scheduleKind !== 'at') {
+            deleteAfterRunField.checked = false;
+        }
+
+        const payloadKind = payloadKindField.value === 'systemEvent' ? 'systemEvent' : 'agentTurn';
+        const isSystemEvent = payloadKind === 'systemEvent';
+        sessionTargetField.value = isSystemEvent ? 'main' : 'isolated';
+        sessionTargetField.disabled = true;
+        modelGroup.hidden = isSystemEvent;
+        timeoutGroup.hidden = isSystemEvent;
+        modelField.required = false;
+        timeoutField.required = false;
+        contentLabel.textContent = isSystemEvent
+            ? t('tasks.form.payloadSystemEvent')
+            : t('tasks.form.payloadAgentTurn');
+    }
+
+    function saveTask() {
+        const idField = document.getElementById('task-id');
+        const nameField = document.getElementById('task-name');
+        const descriptionField = document.getElementById('task-description');
+        const agentField = document.getElementById('task-agent-id');
+        const scheduleKindField = document.getElementById('task-schedule-kind');
+        const scheduleEveryField = document.getElementById('task-schedule-every');
+        const scheduleAtField = document.getElementById('task-schedule-at');
+        const scheduleCronField = document.getElementById('task-schedule-cron');
+        const scheduleTimezoneField = document.getElementById('task-schedule-timezone');
+        const sessionTargetField = document.getElementById('task-session-target');
+        const wakeModeField = document.getElementById('task-wake-mode');
+        const payloadKindField = document.getElementById('task-payload-kind');
+        const contentField = document.getElementById('task-content');
+        const modelField = document.getElementById('task-model');
+        const timeoutField = document.getElementById('task-timeout-seconds');
+        const enabledField = document.getElementById('task-enabled');
+        const deleteAfterRunField = document.getElementById('task-delete-after-run');
+
+        const taskId = idField ? idField.value : '';
+        const scheduleKind = scheduleKindField?.value || 'every';
+        const data = {
+            name: nameField ? nameField.value : '',
+            description: descriptionField ? descriptionField.value : '',
+            agentId: agentField ? agentField.value : '',
+            scheduleKind,
+            scheduleEvery: scheduleEveryField ? scheduleEveryField.value : '',
+            scheduleAt: scheduleAtField ? scheduleAtField.value : '',
+            scheduleCron: scheduleCronField ? scheduleCronField.value : '',
+            scheduleTimezone: scheduleTimezoneField ? scheduleTimezoneField.value : '',
+            sessionTarget: sessionTargetField ? sessionTargetField.value : 'isolated',
+            wakeMode: wakeModeField ? wakeModeField.value : 'now',
+            payloadKind: payloadKindField ? payloadKindField.value : 'agentTurn',
+            content: contentField ? contentField.value : '',
+            model: modelField ? modelField.value : '',
+            timeoutSeconds: timeoutField ? timeoutField.value : '',
+            enabled: Boolean(enabledField?.checked),
+            deleteAfterRun: Boolean(deleteAfterRunField?.checked)
+        };
+
+        vscode.postMessage({
+            type: taskId ? 'updateTask' : 'createTask',
+            taskId,
+            data
+        });
+        closeAllModals();
+    }
+
     // Modal handling
     function openModal(modal) {
         if (modal) modal.classList.add('active');
@@ -1068,43 +1491,318 @@
     // Render clusters
     function renderClusters(clusters) {
         state.clusters = Array.isArray(clusters) ? clusters : [];
-        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (k) => k;
 
-        if (state.lastSwarmRun && !state.clusters.some(cluster => cluster.id === state.lastSwarmRun.clusterId)) {
-            state.lastSwarmRun = null;
+        if (state.currentClusterId && !state.clusters.some(cluster => cluster.id === state.currentClusterId)) {
+            state.currentClusterId = null;
         }
-        
-        if (state.clusters.length === 0) {
-            elements.clustersList.innerHTML = `<div class="empty">${t('clusters.noneFound')}</div>`;
+
+        if (!state.currentClusterId && state.clusters.length > 0) {
+            state.currentClusterId = state.clusters[0].id;
+        }
+
+        ensureCurrentClusterSelection();
+        renderClusterSidebarList(state.clusters);
+        renderClusterWorkspace();
+
+        if (state.viewMode === 'tasks') {
+            renderTasks(state.tasks);
+        }
+        updateTaskFormFields();
+    }
+
+    function renderClusterSidebarList(clusters) {
+        if (!elements.clusterSidebarList) {
             return;
         }
 
-        const swarmResultsHtml = state.lastSwarmRun
-            ? renderSwarmResults()
-            : '';
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        if (!Array.isArray(clusters) || clusters.length === 0) {
+            elements.clusterSidebarList.innerHTML = `<div class="cluster-sidebar-empty">${escapeHtml(t('clusters.emptySidebar'))}</div>`;
+            return;
+        }
 
-        elements.clustersList.innerHTML = `${swarmResultsHtml}${state.clusters.map(cluster => `
-            <div class="cluster-card">
-                <div class="cluster-header">
-                    <h4>${escapeHtml(cluster.name)}</h4>
-                    <span class="cluster-status status-${cluster.status}">${cluster.status}</span>
-                </div>
-                <div class="cluster-agents">
-                    ${cluster.agentIds.map(id => `<span class="cluster-agent-tag">${escapeHtml(resolveAgentLabel(id))}</span>`).join('')}
-                </div>
-                <div class="cluster-actions">
-                    <button class="btn btn-small" data-cluster-action="broadcast" data-cluster-id="${cluster.id}">
-                        ${t('clusters.broadcast')}
-                    </button>
-                    <button class="btn btn-small" data-cluster-action="collaborate" data-cluster-id="${cluster.id}">
-                        ${t('clusters.collaborate')}
-                    </button>
-                    <button class="btn btn-small btn-secondary" data-cluster-action="delete" data-cluster-id="${cluster.id}">
-                        ${t('clusters.delete')}
-                    </button>
+        elements.clusterSidebarList.innerHTML = clusters.map(cluster => `
+            <div class="cluster-sidebar-item ${cluster.id === state.currentClusterId ? 'active' : ''}" data-sidebar-cluster-id="${escapeHtml(cluster.id)}" title="${escapeHtml(cluster.name)}">
+                <span class="cluster-sidebar-icon">&#128421;</span>
+                <div class="cluster-sidebar-info">
+                    <div class="cluster-sidebar-name">${escapeHtml(cluster.name)}</div>
+                    <div class="cluster-sidebar-meta">${escapeHtml(t('clusterTree.agentsCount', { count: cluster.agentIds.length }))}</div>
                 </div>
             </div>
-        `).join('')}`;
+        `).join('');
+    }
+
+    function renderClusterWorkspace() {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        const cluster = getCurrentCluster();
+        const hasCluster = Boolean(cluster);
+
+        elements.clusterEmptyState?.classList.toggle('hidden', hasCluster);
+        elements.clusterWorkspace?.classList.toggle('hidden', !hasCluster);
+
+        if (!cluster) {
+            if (elements.clusterMessages) {
+                elements.clusterMessages.innerHTML = `<div class="cluster-empty-conversation">${escapeHtml(t('clusters.emptyWorkspace'))}</div>`;
+            }
+            if (elements.clusterTargetTabs) {
+                elements.clusterTargetTabs.innerHTML = '';
+            }
+            if (elements.clusterModeTabs) {
+                elements.clusterModeTabs.innerHTML = '';
+                elements.clusterModeTabs.classList.add('hidden');
+            }
+            if (elements.clusterMessageInput) {
+                elements.clusterMessageInput.disabled = true;
+            }
+            if (elements.btnSendCluster) {
+                elements.btnSendCluster.disabled = true;
+            }
+            if (elements.clusterTargetHint) {
+                elements.clusterTargetHint.textContent = '';
+            }
+        if (elements.btnDeleteCurrentCluster) {
+            elements.btnDeleteCurrentCluster.disabled = true;
+        }
+        if (elements.btnAddClusterAgent) {
+            elements.btnAddClusterAgent.disabled = true;
+        }
+        if (elements.btnRemoveClusterAgent) {
+            elements.btnRemoveClusterAgent.disabled = true;
+        }
+        return;
+    }
+
+        if (elements.clusterTitle) {
+            elements.clusterTitle.textContent = cluster.name;
+        }
+        if (elements.clusterSubtitle) {
+            elements.clusterSubtitle.textContent = t('clusters.subtitle', {
+                count: cluster.agentIds.length,
+                status: resolveClusterStatusLabel(cluster.status)
+            });
+        }
+        if (elements.btnAddClusterAgent) {
+            elements.btnAddClusterAgent.disabled = getAvailableAgentsForCluster(cluster).length === 0;
+        }
+        if (elements.btnRemoveClusterAgent) {
+            elements.btnRemoveClusterAgent.disabled = cluster.agentIds.length <= 1;
+        }
+        if (elements.btnDeleteCurrentCluster) {
+            elements.btnDeleteCurrentCluster.disabled = false;
+        }
+
+        renderClusterTargetTabs(cluster);
+        renderClusterModeTabs();
+        renderCurrentClusterConversation();
+        updateClusterInputState(cluster);
+    }
+
+    function renderClusterTargetTabs(cluster) {
+        if (!elements.clusterTargetTabs) {
+            return;
+        }
+
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        const items = [
+            `
+                <button class="cluster-target-tab ${state.currentClusterTargetKind === 'swarm' ? 'active' : ''}" type="button" data-cluster-target-kind="swarm">
+                    <span>${escapeHtml(t('clusters.targetSwarm'))}</span>
+                    <span class="cluster-target-count">${escapeHtml(t('clusterTree.agentsCount', { count: cluster.agentIds.length }))}</span>
+                </button>
+            `
+        ];
+
+        cluster.agentIds.forEach(agentId => {
+            items.push(`
+                <button
+                    class="cluster-target-tab ${state.currentClusterTargetKind === 'agent' && state.currentClusterAgentId === agentId ? 'active' : ''}"
+                    type="button"
+                    data-cluster-target-kind="agent"
+                    data-cluster-agent-id="${escapeHtml(agentId)}"
+                >
+                    <span>${escapeHtml(resolveAgentLabel(agentId))}</span>
+                </button>
+            `);
+        });
+
+        elements.clusterTargetTabs.innerHTML = items.join('');
+    }
+
+    function renderClusterModeTabs() {
+        if (!elements.clusterModeTabs) {
+            return;
+        }
+
+        if (state.currentClusterTargetKind !== 'swarm') {
+            elements.clusterModeTabs.innerHTML = '';
+            elements.clusterModeTabs.classList.add('hidden');
+            return;
+        }
+
+        elements.clusterModeTabs.classList.remove('hidden');
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        elements.clusterModeTabs.innerHTML = ['broadcast', 'collaborate'].map(mode => `
+            <button
+                class="cluster-mode-tab ${state.currentClusterSwarmMode === mode ? 'active' : ''}"
+                type="button"
+                data-cluster-mode="${mode}"
+            >
+                ${escapeHtml(t(mode === 'broadcast' ? 'clusters.broadcast' : 'clusters.collaborate'))}
+            </button>
+        `).join('');
+    }
+
+    function renderCurrentClusterConversation() {
+        if (!elements.clusterMessages) {
+            return;
+        }
+
+        const cluster = getCurrentCluster();
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        if (!cluster) {
+            elements.clusterMessages.innerHTML = `<div class="cluster-empty-conversation">${escapeHtml(t('clusters.emptyWorkspace'))}</div>`;
+            return;
+        }
+
+        const target = getCurrentClusterTargetInfo(cluster);
+        const conversation = ensureClusterConversation(target.key);
+
+        if (conversation.loading) {
+            elements.clusterMessages.innerHTML = `
+                <div class="context-loading">
+                    <div class="context-loading-spinner"></div>
+                    <span class="context-loading-text">${escapeHtml(t('common.loading'))}</span>
+                </div>
+            `;
+            return;
+        }
+
+        const sections = [];
+        if (conversation.messages.length === 0 && !conversation.pending) {
+            sections.push(`<div class="cluster-empty-conversation">${escapeHtml(getClusterEmptyConversationCopy(cluster, target))}</div>`);
+        } else {
+            sections.push(conversation.messages.map(renderClusterConversationMessage).join(''));
+        }
+
+        if (conversation.pending) {
+            sections.push(renderClusterPendingMessage(target));
+        }
+
+        elements.clusterMessages.innerHTML = sections.join('');
+        scrollClusterToBottom();
+    }
+
+    function renderClusterConversationMessage(msg) {
+        if (!msg || shouldHideMessage(msg)) {
+            return '';
+        }
+
+        const role = msg.role || 'assistant';
+        const time = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString() : '';
+        const tokenInfo = msg.tokenCount ? `<span class="token-count">${msg.tokenCount} tokens</span>` : '';
+        const badge = msg.contextLabel ? `<span class="cluster-status-pill">${escapeHtml(msg.contextLabel)}</span>` : '';
+
+        return `
+            <div class="message message-${escapeHtml(role)}">
+                <div class="message-header">
+                    <span class="message-role">${escapeHtml(getMessageRoleLabel(msg))}</span>
+                    ${badge}
+                    ${time ? `<span class="message-time">${time}</span>` : ''}
+                    ${tokenInfo}
+                </div>
+                ${renderMessageContent(msg)}
+            </div>
+        `;
+    }
+
+    function renderClusterPendingMessage(target) {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        return `
+            <div class="message message-thinking thinking-indicator">
+                <div class="message-header">
+                    <span class="message-role">${escapeHtml(getClusterPendingLabel(target))}</span>
+                    <span class="thinking-dots">
+                        <span></span><span></span><span></span>
+                    </span>
+                </div>
+                <div class="thinking-content">
+                    <div class="thinking-line">${escapeHtml(t('thinking.processing'))}</div>
+                </div>
+            </div>
+        `;
+    }
+
+    function updateClusterInputState(cluster) {
+        const target = getCurrentClusterTargetInfo(cluster);
+        const conversation = ensureClusterConversation(target.key);
+        const disabled = !cluster || conversation.loading || conversation.pending;
+
+        if (elements.clusterMessageInput) {
+            elements.clusterMessageInput.disabled = disabled;
+            elements.clusterMessageInput.placeholder = getClusterInputPlaceholder(cluster, target);
+        }
+
+        if (elements.btnSendCluster) {
+            elements.btnSendCluster.disabled = disabled;
+        }
+
+        if (elements.clusterTargetHint) {
+            elements.clusterTargetHint.textContent = getClusterTargetHint(cluster, target);
+        }
+    }
+
+    function selectCluster(clusterId, options = {}) {
+        const { notify = true } = options;
+        state.currentClusterId = clusterId;
+        ensureCurrentClusterSelection();
+        renderClusterSidebarList(state.clusters);
+        renderClusterWorkspace();
+        applyView('clusters');
+
+        if (notify) {
+            vscode.postMessage({ type: 'switchView', view: 'clusters', clusterId });
+        }
+    }
+
+    function selectClusterTarget(targetKind, agentId) {
+        const cluster = getCurrentCluster();
+        if (!cluster) {
+            return;
+        }
+
+        if (targetKind === 'agent' && agentId) {
+            state.currentClusterTargetKind = 'agent';
+            state.currentClusterAgentId = agentId;
+
+            const conversation = ensureClusterConversation(getClusterConversationKey(cluster.id, {
+                targetKind: 'agent',
+                agentId
+            }));
+
+            if (!conversation.loaded && !conversation.loading) {
+                conversation.loading = true;
+                renderClusterWorkspace();
+                vscode.postMessage({
+                    type: 'loadClusterAgentMessages',
+                    clusterId: cluster.id,
+                    agentId
+                });
+                return;
+            }
+        } else {
+            state.currentClusterTargetKind = 'swarm';
+        }
+
+        renderClusterWorkspace();
+    }
+
+    function selectClusterSwarmMode(mode) {
+        if (mode !== 'broadcast' && mode !== 'collaborate') {
+            return;
+        }
+
+        state.currentClusterSwarmMode = mode;
+        renderClusterWorkspace();
     }
 
     function promptBroadcastToCluster(clusterId) {
@@ -1219,6 +1917,310 @@
         `;
     }
 
+    function getCurrentCluster() {
+        return state.clusters.find(cluster => cluster.id === state.currentClusterId) || null;
+    }
+
+    function ensureCurrentClusterSelection() {
+        const cluster = getCurrentCluster();
+        if (!cluster) {
+            state.currentClusterTargetKind = 'swarm';
+            state.currentClusterAgentId = null;
+            return;
+        }
+
+        if (state.currentClusterTargetKind === 'agent' && !cluster.agentIds.includes(state.currentClusterAgentId)) {
+            state.currentClusterTargetKind = 'swarm';
+            state.currentClusterAgentId = null;
+        }
+
+        if (!state.currentClusterSwarmMode) {
+            state.currentClusterSwarmMode = 'broadcast';
+        }
+
+        if (state.currentClusterTargetKind === 'swarm') {
+            ensureClusterConversation(getClusterConversationKey(cluster.id, {
+                targetKind: 'swarm',
+                mode: state.currentClusterSwarmMode
+            })).loaded = true;
+        }
+    }
+
+    function getCurrentClusterTargetInfo(cluster = getCurrentCluster()) {
+        if (!cluster) {
+            return {
+                kind: 'swarm',
+                mode: state.currentClusterSwarmMode,
+                agentId: null,
+                key: getClusterConversationKey('', {
+                    targetKind: 'swarm',
+                    mode: state.currentClusterSwarmMode
+                })
+            };
+        }
+
+        if (state.currentClusterTargetKind === 'agent' && state.currentClusterAgentId) {
+            return {
+                kind: 'agent',
+                agentId: state.currentClusterAgentId,
+                key: getClusterConversationKey(cluster.id, {
+                    targetKind: 'agent',
+                    agentId: state.currentClusterAgentId
+                })
+            };
+        }
+
+        return {
+            kind: 'swarm',
+            mode: state.currentClusterSwarmMode,
+            agentId: null,
+            key: getClusterConversationKey(cluster.id, {
+                targetKind: 'swarm',
+                mode: state.currentClusterSwarmMode
+            })
+        };
+    }
+
+    function getClusterConversationKey(clusterId, options = {}) {
+        const targetKind = options.targetKind || state.currentClusterTargetKind;
+        if (targetKind === 'agent') {
+            return `cluster:${clusterId}:agent:${options.agentId || state.currentClusterAgentId || ''}`;
+        }
+
+        return `cluster:${clusterId}:swarm:${options.mode || state.currentClusterSwarmMode || 'broadcast'}`;
+    }
+
+    function ensureClusterConversation(key) {
+        if (!state.clusterConversations[key]) {
+            state.clusterConversations[key] = {
+                messages: [],
+                loading: false,
+                loaded: false,
+                pending: false
+            };
+        }
+
+        return state.clusterConversations[key];
+    }
+
+    function setClusterConversationLoading(clusterId, agentId, loading) {
+        const conversation = ensureClusterConversation(getClusterConversationKey(clusterId, {
+            targetKind: 'agent',
+            agentId
+        }));
+        conversation.loading = Boolean(loading);
+        if (!loading) {
+            conversation.loaded = true;
+        }
+        renderClusterWorkspace();
+    }
+
+    function replaceClusterConversationMessages(clusterId, agentId, messages) {
+        const conversation = ensureClusterConversation(getClusterConversationKey(clusterId, {
+            targetKind: 'agent',
+            agentId
+        }));
+        conversation.messages = Array.isArray(messages) ? messages : [];
+        conversation.loading = false;
+        conversation.loaded = true;
+        conversation.pending = false;
+        renderClusterWorkspace();
+    }
+
+    function appendClusterConversationMessage(clusterId, agentId, message) {
+        const conversation = ensureClusterConversation(getClusterConversationKey(clusterId, {
+            targetKind: 'agent',
+            agentId
+        }));
+        conversation.messages.push(message);
+        conversation.loading = false;
+        conversation.loaded = true;
+        conversation.pending = false;
+        renderClusterWorkspace();
+    }
+
+    function appendSwarmConversationMessages(clusterId, mode, messages) {
+        const conversation = ensureClusterConversation(getClusterConversationKey(clusterId, {
+            targetKind: 'swarm',
+            mode
+        }));
+        conversation.messages.push(...messages);
+        conversation.pending = false;
+        conversation.loaded = true;
+        renderClusterWorkspace();
+    }
+
+    function clearSwarmConversationPending(clusterId, mode) {
+        const conversation = ensureClusterConversation(getClusterConversationKey(clusterId, {
+            targetKind: 'swarm',
+            mode
+        }));
+        conversation.pending = false;
+        renderClusterWorkspace();
+    }
+
+    function clearCurrentClusterPendingState() {
+        const cluster = getCurrentCluster();
+        if (!cluster) {
+            return;
+        }
+
+        const conversation = ensureClusterConversation(getCurrentClusterTargetInfo(cluster).key);
+        conversation.pending = false;
+        conversation.loading = false;
+        renderClusterWorkspace();
+    }
+
+    function buildBroadcastConversationMessages(responses) {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        return Object.values(responses || {}).map(entry => {
+            if (entry.ok && entry.message) {
+                return {
+                    ...entry.message,
+                    displayName: resolveAgentLabel(entry.agentId),
+                    contextLabel: t('clusters.broadcast')
+                };
+            }
+
+            return {
+                role: 'assistant',
+                content: entry.error || t('clusters.resultUnknownError'),
+                timestamp: new Date().toISOString(),
+                displayName: resolveAgentLabel(entry.agentId),
+                contextLabel: t('clusters.broadcast')
+            };
+        });
+    }
+
+    function buildCollaborationConversationMessages(result) {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        if (!result) {
+            return [];
+        }
+
+        const messages = [];
+        const coordinatorLabel = result.coordinatorAgentId
+            ? resolveAgentLabel(result.coordinatorAgentId)
+            : t('clusters.targetSwarm');
+
+        if (result.synthesis?.ok && result.synthesis.message) {
+            messages.push({
+                ...result.synthesis.message,
+                displayName: t('clusters.finalAnswer'),
+                contextLabel: `${t('clusters.coordinator')}: ${coordinatorLabel}`
+            });
+        } else {
+            messages.push({
+                role: 'assistant',
+                content: result.synthesis?.error || t('clusters.noSuccessfulAgents'),
+                timestamp: new Date().toISOString(),
+                displayName: t('clusters.finalAnswer'),
+                contextLabel: `${t('clusters.coordinator')}: ${coordinatorLabel}`
+            });
+        }
+
+        Object.entries(result.contributions || {}).forEach(([agentId, entry]) => {
+            messages.push(entry.ok && entry.message
+                ? {
+                    ...entry.message,
+                    displayName: resolveAgentLabel(agentId),
+                    contextLabel: t('clusters.contributions')
+                }
+                : {
+                    role: 'assistant',
+                    content: entry.error || t('clusters.resultUnknownError'),
+                    timestamp: new Date().toISOString(),
+                    displayName: resolveAgentLabel(agentId),
+                    contextLabel: t('clusters.contributions')
+                });
+        });
+
+        return messages;
+    }
+
+    function getClusterEmptyConversationCopy(cluster, target) {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        if (target.kind === 'agent') {
+            return t('clusters.emptyAgentConversation', {
+                agent: resolveAgentLabel(target.agentId)
+            });
+        }
+
+        return target.mode === 'collaborate'
+            ? t('clusters.emptyCollaborateConversation', { count: cluster.agentIds.length })
+            : t('clusters.emptyBroadcastConversation', { count: cluster.agentIds.length });
+    }
+
+    function getClusterInputPlaceholder(cluster, target) {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        if (!cluster) {
+            return t('clusters.chatPlaceholder');
+        }
+
+        if (target.kind === 'agent') {
+            return t('clusters.chatPlaceholderAgent', {
+                agent: resolveAgentLabel(target.agentId)
+            });
+        }
+
+        return target.mode === 'collaborate'
+            ? t('clusters.chatPlaceholderCollaborate')
+            : t('clusters.chatPlaceholderBroadcast');
+    }
+
+    function getClusterTargetHint(cluster, target) {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        if (!cluster) {
+            return '';
+        }
+
+        if (target.kind === 'agent') {
+            return t('clusters.hintAgent', {
+                agent: resolveAgentLabel(target.agentId)
+            });
+        }
+
+        return target.mode === 'collaborate'
+            ? t('clusters.hintCollaborate', { count: cluster.agentIds.length })
+            : t('clusters.hintBroadcast', { count: cluster.agentIds.length });
+    }
+
+    function getClusterPendingLabel(target) {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        if (target.kind === 'agent') {
+            return resolveAgentLabel(target.agentId);
+        }
+
+        return t(target.mode === 'broadcast' ? 'clusters.broadcast' : 'clusters.collaborate');
+    }
+
+    function scrollClusterToBottom() {
+        if (!elements.clusterMessages) {
+            return;
+        }
+
+        elements.clusterMessages.scrollTop = elements.clusterMessages.scrollHeight;
+    }
+
+    function getAvailableAgentsForCluster(cluster) {
+        if (!cluster) {
+            return [];
+        }
+
+        return state.agents.filter(agent => !cluster.agentIds.includes(agent.id));
+    }
+
+    function resolveClusterStatusLabel(status) {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        if (status === 'active') {
+            return t('clusters.statusActive');
+        }
+        if (status === 'inactive') {
+            return t('clusters.statusInactive');
+        }
+        return t('clusters.statusUnknown');
+    }
+
     function resolveAgentLabel(agentId) {
         if (!agentId) {
             return '—';
@@ -1232,51 +2234,464 @@
         return `${agent.name} (${agent.model})`;
     }
 
+    function resolveTaskAgentLabel(agentId) {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        if (!agentId) {
+            return t('tasks.form.agentDefault');
+        }
+
+        return resolveAgentLabel(agentId);
+    }
+
+    function populateTaskAgentOptions(selectedAgentId) {
+        const select = document.getElementById('task-agent-id');
+        if (!select) {
+            return;
+        }
+
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        const options = [{
+            value: '',
+            label: t('tasks.form.agentDefault')
+        }];
+
+        state.agents.forEach(agent => {
+            options.push({
+                value: agent.id,
+                label: `${agent.name} (${agent.model})`
+            });
+        });
+
+        if (selectedAgentId && !options.some(option => option.value === selectedAgentId)) {
+            options.push({
+                value: selectedAgentId,
+                label: selectedAgentId
+            });
+        }
+
+        select.innerHTML = options.map(option => `
+            <option value="${escapeHtml(option.value)}"${option.value === (selectedAgentId || '') ? ' selected' : ''}>
+                ${escapeHtml(option.label)}
+            </option>
+        `).join('');
+    }
+
+    function extractTaskContent(task) {
+        if (!task || !task.payload) {
+            return '';
+        }
+
+        return task.payload.kind === 'systemEvent'
+            ? (task.payload.text || '')
+            : (task.payload.message || '');
+    }
+
+    function formatTaskSchedule(task) {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        if (!task || !task.schedule) {
+            return '-';
+        }
+
+        if (task.schedule.kind === 'at') {
+            return `${t('tasks.form.scheduleAt')}: ${formatTaskDateTime(task.schedule.at)}`;
+        }
+
+        if (task.schedule.kind === 'cron') {
+            return task.schedule.tz
+                ? `${task.schedule.expr} (${task.schedule.tz})`
+                : task.schedule.expr;
+        }
+
+        return formatEveryDuration(task.schedule.everyMs);
+    }
+
+    function formatEveryDuration(value) {
+        if (!Number.isFinite(value) || value <= 0) {
+            return '-';
+        }
+
+        if (value % 86400000 === 0) {
+            return `${value / 86400000}d`;
+        }
+
+        if (value % 3600000 === 0) {
+            return `${value / 3600000}h`;
+        }
+
+        if (value % 60000 === 0) {
+            return `${value / 60000}m`;
+        }
+
+        if (value % 1000 === 0) {
+            return `${value / 1000}s`;
+        }
+
+        return `${value}ms`;
+    }
+
+    function toDateTimeLocalValue(value) {
+        if (!value) {
+            return '';
+        }
+
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+            return '';
+        }
+
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        return `${year}-${month}-${day}T${hours}:${minutes}`;
+    }
+
+    function renderTasks(tasks, available = state.tasksAvailable, message = state.tasksMessage, sourcePath = state.tasksSourcePath) {
+        state.tasks = Array.isArray(tasks) ? tasks : [];
+        state.tasksAvailable = available !== false;
+        state.tasksMessage = message || '';
+        state.tasksSourcePath = sourcePath || '';
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+
+        if (elements.tasksSource) {
+            elements.tasksSource.textContent = state.tasksSourcePath
+                ? `${t('tasks.source')}: ${state.tasksSourcePath}`
+                : '';
+        }
+
+        if (!elements.tasksList) {
+            return;
+        }
+
+        if (!state.tasksAvailable) {
+            elements.tasksList.innerHTML = `
+                <div class="task-card unavailable">
+                    <div class="task-summary">
+                        <div class="task-summary-label">${escapeHtml(t('tasks.status.label'))}</div>
+                        <div class="task-summary-text">${escapeHtml(state.tasksMessage || t('tasks.unavailable'))}</div>
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
+        if (state.tasks.length === 0) {
+            elements.tasksList.innerHTML = `<div class="empty">${t('tasks.empty')}</div>`;
+            return;
+        }
+
+        elements.tasksList.innerHTML = state.tasks.map(task => renderTaskCard(task)).join('');
+    }
+
+    function renderTaskCard(task) {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        const effectiveStatus = task.enabled ? (task.lastRunStatus || 'idle') : 'disabled';
+        const targetLabel = resolveTaskAgentLabel(task.agentId);
+        const scheduleLabel = formatTaskSchedule(task);
+        const nextRunLabel = task.enabled && task.nextRunAt
+            ? formatTaskDateTime(task.nextRunAt)
+            : t('tasks.status.disabled');
+        const lastRunLabel = task.lastRunAt
+            ? formatTaskDateTime(task.lastRunAt)
+            : '-';
+        const resultText = task.lastError || task.lastRunSummary || '-';
+        const payloadKindLabel = task.payload?.kind === 'systemEvent'
+            ? t('tasks.form.payloadSystemEvent')
+            : t('tasks.form.payloadAgentTurn');
+        const resultTitle = task.lastError
+            ? t('tasks.lastError', { error: '' }).replace(/:\s*$/, '')
+            : t('tasks.lastResult', { summary: '' }).replace(/:\s*$/, '');
+        return `
+            <div class="task-card ${escapeHtml(effectiveStatus)}">
+                <div class="task-card-header">
+                    <div class="task-card-title-wrap">
+                        <h4>${escapeHtml(task.name)}</h4>
+                        <div class="task-card-target">${escapeHtml(targetLabel)}</div>
+                    </div>
+                    <span class="task-status ${escapeHtml(effectiveStatus)}">${escapeHtml(t(`tasks.status.${effectiveStatus}`))}</span>
+                </div>
+                ${task.description ? `
+                    <div class="task-summary">
+                        <div class="task-summary-label">${escapeHtml(t('tasks.description'))}</div>
+                        <div class="task-summary-text">${escapeHtml(task.description)}</div>
+                    </div>
+                ` : ''}
+                <div class="task-meta">
+                    <div class="task-meta-item">
+                        <div class="task-meta-label">${escapeHtml(t('tasks.schedule'))}</div>
+                        <div class="task-meta-value">${escapeHtml(scheduleLabel)}</div>
+                    </div>
+                    <div class="task-meta-item">
+                        <div class="task-meta-label">${escapeHtml(t('tasks.nextRunAt', { time: '' }).replace(/:\s*$/, ''))}</div>
+                        <div class="task-meta-value">${escapeHtml(nextRunLabel)}</div>
+                    </div>
+                    <div class="task-meta-item">
+                        <div class="task-meta-label">${escapeHtml(t('tasks.lastRunAt', { time: '' }).replace(/:\s*$/, ''))}</div>
+                        <div class="task-meta-value">${escapeHtml(lastRunLabel)}</div>
+                    </div>
+                    <div class="task-meta-item">
+                        <div class="task-meta-label">${escapeHtml(t('tasks.target'))}</div>
+                        <div class="task-meta-value">${escapeHtml(targetLabel)}</div>
+                    </div>
+                    <div class="task-meta-item">
+                        <div class="task-meta-label">${escapeHtml(t('tasks.payloadKind'))}</div>
+                        <div class="task-meta-value">${escapeHtml(payloadKindLabel)}</div>
+                    </div>
+                    <div class="task-meta-item">
+                        <div class="task-meta-label">${escapeHtml(t('tasks.wakeMode'))}</div>
+                        <div class="task-meta-value">${escapeHtml(t(task.wakeMode === 'next-heartbeat' ? 'tasks.form.wakeModeNextHeartbeat' : 'tasks.form.wakeModeNow'))}</div>
+                    </div>
+                </div>
+                <div class="task-summary">
+                    <div class="task-summary-label">${escapeHtml(resultTitle)}</div>
+                    <div class="task-summary-text">${escapeHtml(resultText)}</div>
+                </div>
+                <details class="task-prompt">
+                    <summary>${escapeHtml(t('tasks.form.content'))}</summary>
+                    <pre>${escapeHtml(extractTaskContent(task) || '-')}</pre>
+                </details>
+                <div class="task-actions">
+                    <button class="btn btn-small" data-task-action="run" data-task-id="${escapeHtml(task.id)}">${escapeHtml(t('tasks.runNow'))}</button>
+                    <button class="btn btn-small" data-task-action="edit" data-task-id="${escapeHtml(task.id)}">${escapeHtml(t('common.edit'))}</button>
+                    <button class="btn btn-small btn-secondary" data-task-action="toggle" data-task-id="${escapeHtml(task.id)}">${escapeHtml(task.enabled ? t('tasks.disable') : t('tasks.enable'))}</button>
+                    <button class="btn btn-small btn-secondary" data-task-action="delete" data-task-id="${escapeHtml(task.id)}">${escapeHtml(t('common.delete'))}</button>
+                </div>
+            </div>
+        `;
+    }
+
+    function resolveLegacyTaskTargetLabel(task) {
+        if (!task) {
+            return '-';
+        }
+
+        if (task.targetType === 'cluster') {
+            const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+            const cluster = state.clusters.find(item => item.id === task.targetId);
+            const clusterName = cluster ? cluster.name : task.targetId;
+            const modeKey = task.action === 'collaborate'
+                ? 'tasks.form.actionCollaborate'
+                : 'tasks.form.actionBroadcast';
+            return `${clusterName} · ${t(modeKey)}`;
+        }
+
+        return resolveAgentLabel(task.targetId);
+    }
+
+    function resolveTaskTargetLabel(task) {
+        return resolveTaskAgentLabel(task?.agentId);
+    }
+
+    function toggleTask(taskId) {
+        const task = state.tasks.find(item => item.id === taskId);
+        vscode.postMessage({
+            type: 'toggleTask',
+            taskId,
+            enabled: task ? !task.enabled : undefined
+        });
+    }
+
+    function runTask(taskId) {
+        vscode.postMessage({
+            type: 'runTask',
+            taskId
+        });
+    }
+
+    function deleteTask(taskId) {
+        vscode.postMessage({
+            type: 'deleteTask',
+            taskId
+        });
+    }
+
+    function formatTaskDateTime(value) {
+        if (!value) {
+            return '-';
+        }
+
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+            return value;
+        }
+
+        return date.toLocaleString();
+    }
+
     // Render usage
     function renderUsage(usage) {
-        const formatNum = (n) => n >= 1000000 ? (n/1000000).toFixed(1) + 'M' : n >= 1000 ? (n/1000).toFixed(1) + 'K' : n;
-        
+        state.latestUsage = usage || null;
+        const usageWindow = buildUsageWindow(state.latestUsage, state.usagePeriodDays);
         const requestsEl = document.getElementById('usage-requests');
         const tokensEl = document.getElementById('usage-tokens');
         const costEl = document.getElementById('usage-cost');
-        
-        if (requestsEl) requestsEl.textContent = usage.totalRequests.toLocaleString();
-        if (tokensEl) tokensEl.textContent = formatNum(usage.totalTokens);
-        if (costEl) costEl.textContent = '$' + (usage.cost || 0).toFixed(4);
-        
-        // Render charts
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key, vars) => {
+            if (vars && typeof vars.days !== 'undefined') {
+                return `${key} ${vars.days}`;
+            }
+            return key;
+        };
+
+        if (requestsEl) requestsEl.textContent = usageWindow.totalRequests.toLocaleString();
+        if (tokensEl) tokensEl.textContent = formatCompactNumber(usageWindow.totalTokens);
+        if (costEl) costEl.textContent = formatUsageCurrency(usageWindow.totalCost, usageWindow.currencySymbol);
+
+        if (elements.usagePeriodButtons) {
+            elements.usagePeriodButtons.forEach(btn => {
+                btn.classList.toggle('active', Number(btn.getAttribute('data-usage-period')) === state.usagePeriodDays);
+            });
+        }
+        if (elements.usagePeriodCaption) {
+            elements.usagePeriodCaption.textContent = t('usage.showingPeriod', { days: state.usagePeriodDays });
+        }
+        if (elements.usageChartTitle) {
+            elements.usageChartTitle.textContent = t('usage.dailyUsagePeriod', { days: state.usagePeriodDays });
+        }
+        if (elements.modelChartTitle) {
+            elements.modelChartTitle.textContent = t('usage.byModelPeriod', { days: state.usagePeriodDays });
+        }
+
         const chartContainer = document.getElementById('usage-chart');
         if (chartContainer) {
-            const days = Object.entries(usage.byDay || {}).slice(-7);
-            if (days.length > 0) {
-                chartContainer.innerHTML = days.map(([date, data]) => `
+            const maxTokens = usageWindow.days.reduce((max, [, data]) => Math.max(max, data.tokens || 0), 0);
+            const hasUsageData = usageWindow.days.some(([, data]) => (data.tokens || 0) > 0 || (data.requests || 0) > 0 || (data.cost || 0) > 0);
+            if (hasUsageData) {
+                chartContainer.innerHTML = usageWindow.days.map(([date, data]) => `
                     <div class="bar-item">
-                        <div class="bar" style="height: ${Math.min((data.tokens || 0) / 1000, 100)}px"></div>
+                        <div class="bar" style="height: ${computeUsageBarHeight(data.tokens || 0, maxTokens)}px"></div>
                         <div class="bar-label">${date.slice(5)}</div>
                     </div>
                 `).join('');
             } else {
-                chartContainer.innerHTML = '<div class="empty">No data available</div>';
+                chartContainer.innerHTML = `<div class="empty">${escapeHtml(t('usage.noData'))}</div>`;
             }
         }
-        
+
         const modelChart = document.getElementById('model-chart');
         if (modelChart) {
-            const models = Object.entries(usage.byModel || {});
-            if (models.length > 0 && usage.totalTokens > 0) {
+            const models = Object.entries(usageWindow.byModel || {}).sort(([, left], [, right]) => (right.tokens || 0) - (left.tokens || 0));
+            if (models.length > 0 && usageWindow.totalTokens > 0) {
                 modelChart.innerHTML = models.map(([model, data]) => `
                     <div class="model-item">
                         <div class="model-name">${escapeHtml(model)}</div>
                         <div class="model-bar-container">
-                            <div class="model-bar" style="width: ${Math.min((data.tokens || 0) / usage.totalTokens * 100, 100)}%"></div>
+                            <div class="model-bar" style="width: ${Math.min((data.tokens || 0) / usageWindow.totalTokens * 100, 100)}%"></div>
                         </div>
-                        <div class="model-value">${formatNum(data.tokens || 0)} tokens</div>
+                        <div class="model-value">${formatCompactNumber(data.tokens || 0)} tokens</div>
                     </div>
                 `).join('');
             } else {
-                modelChart.innerHTML = '<div class="empty">No model data available</div>';
+                modelChart.innerHTML = `<div class="empty">${escapeHtml(t('usage.noModelData'))}</div>`;
             }
         }
+    }
+
+    function setUsagePeriod(days) {
+        if ((days !== 7 && days !== 30) || state.usagePeriodDays === days) {
+            return;
+        }
+
+        state.usagePeriodDays = days;
+        if (state.latestUsage) {
+            renderUsage(state.latestUsage);
+        }
+    }
+
+    function buildUsageWindow(usage, days) {
+        const safeUsage = usage || {
+            totalRequests: 0,
+            totalTokens: 0,
+            cost: 0,
+            currencySymbol: '$',
+            byDay: {},
+            byModel: {},
+            byModelByDay: {}
+        };
+        const dayKeys = buildRecentDateKeys(days);
+        const dayEntries = dayKeys.map(date => {
+            const data = safeUsage.byDay?.[date] || { requests: 0, tokens: 0, cost: 0 };
+            return [date, data];
+        });
+
+        const totals = dayEntries.reduce((acc, [, data]) => {
+            acc.totalRequests += data.requests || 0;
+            acc.totalTokens += data.tokens || 0;
+            acc.totalCost += data.cost || 0;
+            return acc;
+        }, {
+            totalRequests: 0,
+            totalTokens: 0,
+            totalCost: 0
+        });
+
+        return {
+            days: dayEntries,
+            byModel: aggregateUsageModelsByWindow(safeUsage, dayKeys),
+            currencySymbol: safeUsage.currencySymbol || '$',
+            ...totals
+        };
+    }
+
+    function aggregateUsageModelsByWindow(usage, dayKeys) {
+        const aggregated = {};
+        const byModelByDay = usage?.byModelByDay;
+
+        if (byModelByDay && Object.keys(byModelByDay).length > 0) {
+            dayKeys.forEach(date => {
+                const dayModels = byModelByDay[date] || {};
+                Object.entries(dayModels).forEach(([model, data]) => {
+                    if (!aggregated[model]) {
+                        aggregated[model] = { requests: 0, tokens: 0, cost: 0 };
+                    }
+
+                    aggregated[model].requests += data.requests || 0;
+                    aggregated[model].tokens += data.tokens || 0;
+                    aggregated[model].cost += data.cost || 0;
+                });
+            });
+
+            return aggregated;
+        }
+
+        return usage?.byModel || {};
+    }
+
+    function buildRecentDateKeys(days) {
+        const result = [];
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        for (let offset = days - 1; offset >= 0; offset -= 1) {
+            const date = new Date(today);
+            date.setDate(today.getDate() - offset);
+            result.push(formatLocalDateKey(date));
+        }
+
+        return result;
+    }
+
+    function formatLocalDateKey(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    function computeUsageBarHeight(value, maxValue) {
+        if (!maxValue || value <= 0) {
+            return 4;
+        }
+
+        return Math.max(4, Math.min((value / maxValue) * 120, 120));
+    }
+
+    function formatCompactNumber(n) {
+        return n >= 1000000 ? (n / 1000000).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'K' : String(n);
+    }
+
+    function formatUsageCurrency(value, symbol) {
+        return `${symbol || '$'}${Number(value || 0).toFixed(4)}`;
     }
 
     // Message handling from extension
@@ -1321,7 +2736,14 @@
                 break;
                 
             case 'clustersLoaded':
+                if (message.selectedClusterId) {
+                    state.currentClusterId = message.selectedClusterId;
+                }
                 renderClusters(message.clusters);
+                break;
+
+            case 'tasksLoaded':
+                renderTasks(message.tasks, message.available, message.message, message.sourcePath);
                 break;
                 
             case 'usageLoaded':
@@ -1330,33 +2752,58 @@
 
             case 'switchView':
                 applyView(message.view);
+                if (message.view === 'clusters' && message.selectedClusterId) {
+                    state.currentClusterId = message.selectedClusterId;
+                }
                 if (message.view === 'clusters' && message.clusters) {
                     renderClusters(message.clusters);
                 }
                 if (message.view === 'usage' && message.usage) {
                     renderUsage(message.usage);
                 }
+                if (message.view === 'tasks' && message.tasks) {
+                    renderTasks(message.tasks);
+                }
                 break;
                 
             case 'showAgentSettings':
                 showAgentSettings(message.agent);
                 break;
+
+            case 'showTaskEditor':
+                showTaskEditor(message.task || null);
+                break;
                 
             case 'broadcastResults':
-                state.lastSwarmRun = {
-                    kind: 'broadcast',
-                    clusterId: message.clusterId,
-                    responses: message.responses || {}
-                };
-                renderClusters(state.clusters);
+                appendSwarmConversationMessages(
+                    message.clusterId,
+                    'broadcast',
+                    buildBroadcastConversationMessages(message.responses || {})
+                );
                 break;
 
             case 'collaborationResults':
-                state.lastSwarmRun = {
-                    kind: 'collaboration',
-                    result: message.result || null
-                };
-                renderClusters(state.clusters);
+                appendSwarmConversationMessages(
+                    message.result?.clusterId || state.currentClusterId,
+                    'collaborate',
+                    buildCollaborationConversationMessages(message.result || null)
+                );
+                break;
+
+            case 'setClusterContextLoading':
+                setClusterConversationLoading(message.clusterId, message.agentId, message.loading);
+                break;
+
+            case 'replaceClusterMessages':
+                replaceClusterConversationMessages(message.clusterId, message.agentId, message.messages || []);
+                break;
+
+            case 'clusterAgentResponse':
+                appendClusterConversationMessage(message.clusterId, message.agentId, message.message);
+                break;
+
+            case 'clusterRunFailed':
+                clearSwarmConversationPending(message.clusterId, message.mode);
                 break;
 
             case 'agentsLoadFailed':
@@ -1374,6 +2821,9 @@
             case 'error':
                 showError(message.message);
                 resetTransientChatState();
+                if (state.viewMode === 'clusters') {
+                    clearCurrentClusterPendingState();
+                }
                 break;
         }
     });

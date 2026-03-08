@@ -109,7 +109,7 @@ npm run watch  # 监听文件变化
 - **状态栏按钮** —— 右下角 🚀 OpenClaw 按钮
 - **快捷键** —— `Ctrl+Shift+O` 打开面板
 - **命令面板** —— `Ctrl+Shift+P` → "Open OpenClaw Luna"
-- **右键菜单** —— 编辑器右键 → "Quick Chat"
+- **右键菜单** —— 编辑器右键 → "与智能体对话"
 - **选中代码** —— 选中文本后按 `Ctrl+Shift+C`
 
 ---

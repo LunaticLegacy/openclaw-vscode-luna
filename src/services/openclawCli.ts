@@ -186,6 +186,141 @@ export interface OpenClawUsageCostResult {
     totals?: OpenClawTokenTotals;
 }
 
+export type OpenClawCronSessionTarget = 'main' | 'isolated';
+export type OpenClawCronWakeMode = 'now' | 'next-heartbeat';
+export type OpenClawCronThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high';
+
+export type OpenClawCronSchedule =
+    | {
+        kind: 'at';
+        at: string;
+    }
+    | {
+        kind: 'every';
+        everyMs: number;
+        anchorMs?: number;
+    }
+    | {
+        kind: 'cron';
+        expr: string;
+        tz?: string;
+        staggerMs?: number;
+    };
+
+export type OpenClawCronPayload =
+    | {
+        kind: 'systemEvent';
+        text: string;
+    }
+    | {
+        kind: 'agentTurn';
+        message: string;
+        model?: string;
+        timeoutSeconds?: number;
+        thinking?: OpenClawCronThinkingLevel;
+    };
+
+export interface OpenClawCronJobState {
+    lastRunAtMs?: number;
+    nextRunAtMs?: number;
+    lastRunStatus?: string;
+    lastStatus?: string;
+    lastDurationMs?: number;
+    lastDeliveryStatus?: string;
+    consecutiveErrors?: number;
+    lastDelivered?: boolean;
+}
+
+export interface OpenClawCronJob {
+    id: string;
+    agentId?: string;
+    sessionKey?: string;
+    name: string;
+    description?: string;
+    enabled: boolean;
+    deleteAfterRun?: boolean;
+    createdAtMs: number;
+    updatedAtMs: number;
+    schedule: OpenClawCronSchedule;
+    sessionTarget: OpenClawCronSessionTarget;
+    wakeMode: OpenClawCronWakeMode;
+    payload: OpenClawCronPayload;
+    delivery?: Record<string, unknown>;
+    failureAlert?: false | Record<string, unknown>;
+    state?: OpenClawCronJobState;
+}
+
+export interface OpenClawCronRunRecord {
+    ts?: number;
+    jobId?: string;
+    action?: string;
+    status?: string;
+    summary?: string;
+    error?: string;
+    delivered?: boolean;
+    deliveryStatus?: string;
+    sessionId?: string;
+    sessionKey?: string;
+    runAtMs?: number;
+    durationMs?: number;
+    nextRunAtMs?: number;
+    model?: string;
+    provider?: string;
+}
+
+export type OpenClawCronCommandSchedule =
+    | {
+        kind: 'at';
+        at: string;
+    }
+    | {
+        kind: 'every';
+        every: string;
+    }
+    | {
+        kind: 'cron';
+        expr: string;
+        tz?: string;
+    };
+
+export type OpenClawCronCommandPayload =
+    | {
+        kind: 'systemEvent';
+        text: string;
+    }
+    | {
+        kind: 'agentTurn';
+        message: string;
+        model?: string;
+        timeoutSeconds?: number;
+        thinking?: OpenClawCronThinkingLevel;
+    };
+
+export interface OpenClawCronCreateParams {
+    agentId?: string;
+    name: string;
+    description?: string;
+    enabled?: boolean;
+    deleteAfterRun?: boolean;
+    schedule: OpenClawCronCommandSchedule;
+    sessionTarget: OpenClawCronSessionTarget;
+    wakeMode: OpenClawCronWakeMode;
+    payload: OpenClawCronCommandPayload;
+}
+
+export interface OpenClawCronEditParams {
+    agentId?: string;
+    name?: string;
+    description?: string;
+    enabled?: boolean;
+    clearAgent?: boolean;
+    deleteAfterRun?: boolean;
+    schedule?: OpenClawCronCommandSchedule;
+    sessionTarget?: OpenClawCronSessionTarget;
+    wakeMode?: OpenClawCronWakeMode;
+    payload?: OpenClawCronCommandPayload;
+}
+
 export class OpenClawCliRunner {
     private readonly timeoutMs: number;
 
@@ -277,6 +412,34 @@ export class OpenClawCliRunner {
         return this.execJson<Record<string, unknown>>(args);
     }
 
+    public async addCronJob(params: OpenClawCronCreateParams): Promise<Record<string, unknown> | undefined> {
+        const args = ['cron', 'add', '--json'];
+        appendCronAddArgs(args, params);
+        return this.execJson<Record<string, unknown>>(args);
+    }
+
+    public async editCronJob(jobId: string, params: OpenClawCronEditParams): Promise<void> {
+        const args = ['cron', 'edit', jobId];
+        appendCronEditArgs(args, params);
+        await this.execVoid(args);
+    }
+
+    public async enableCronJob(jobId: string): Promise<void> {
+        await this.execVoid(['cron', 'enable', jobId]);
+    }
+
+    public async disableCronJob(jobId: string): Promise<void> {
+        await this.execVoid(['cron', 'disable', jobId]);
+    }
+
+    public async runCronJob(jobId: string): Promise<void> {
+        await this.execVoid(['cron', 'run', jobId]);
+    }
+
+    public async removeCronJob(jobId: string): Promise<void> {
+        await this.execVoid(['cron', 'rm', jobId]);
+    }
+
     private async gatewayCall<T>(
         method: string,
         params: Record<string, unknown> = {},
@@ -300,18 +463,7 @@ export class OpenClawCliRunner {
     }
 
     private async execJson<T>(args: string[]): Promise<T> {
-        const { stdout, stderr } = await execFileAsync(
-            this.config.nodePath,
-            [this.config.cliEntryPath, ...args],
-            {
-                cwd: this.config.stateDir,
-                env: this.buildEnv(),
-                maxBuffer: 50 * 1024 * 1024,
-                timeout: this.timeoutMs,
-                windowsHide: true
-            }
-        );
-
+        const { stdout, stderr } = await this.exec(args);
         const output = stdout.trim();
         if (!output) {
             const errorOutput = stderr.trim();
@@ -328,6 +480,29 @@ export class OpenClawCliRunner {
             const message = stderr.trim() || `Invalid OpenClaw JSON output: ${output.slice(0, 500)}`;
             throw new Error(`${message}${error ? ` (${String(error)})` : ''}`);
         }
+    }
+
+    private async execVoid(args: string[]): Promise<void> {
+        await this.exec(args);
+    }
+
+    private async exec(args: string[]): Promise<{ stdout: string; stderr: string }> {
+        const { stdout, stderr } = await execFileAsync(
+            this.config.nodePath,
+            [this.config.cliEntryPath, ...args],
+            {
+                cwd: this.config.stateDir,
+                env: this.buildEnv(),
+                maxBuffer: 50 * 1024 * 1024,
+                timeout: this.timeoutMs,
+                windowsHide: true
+            }
+        );
+
+        return {
+            stdout,
+            stderr
+        };
     }
 
     private buildEnv(): NodeJS.ProcessEnv {
@@ -379,4 +554,92 @@ function sanitizeAgentId(value: string): string {
     const trimmed = value.trim().toLowerCase();
     const normalized = trimmed.replace(/[^a-z0-9-_]+/g, '-').replace(/-+/g, '-');
     return normalized.replace(/^-|-$/g, '') || 'agent';
+}
+
+function appendCronAddArgs(target: string[], params: OpenClawCronCreateParams): void {
+    appendFlagValue(target, '--agent', params.agentId);
+    appendFlagValue(target, '--name', params.name);
+    appendFlagValue(target, '--description', params.description);
+
+    if (params.enabled === false) {
+        target.push('--disabled');
+    }
+
+    if (params.deleteAfterRun !== undefined) {
+        target.push(params.deleteAfterRun ? '--delete-after-run' : '--keep-after-run');
+    }
+
+    appendCronScheduleArgs(target, params.schedule);
+    appendFlagValue(target, '--session', params.sessionTarget);
+    appendFlagValue(target, '--wake', params.wakeMode);
+    appendCronPayloadArgs(target, params.payload);
+}
+
+function appendCronEditArgs(target: string[], params: OpenClawCronEditParams): void {
+    if (params.clearAgent) {
+        target.push('--clear-agent');
+    }
+
+    appendFlagValue(target, '--agent', params.agentId);
+    appendFlagValue(target, '--name', params.name);
+    appendFlagValue(target, '--description', params.description);
+
+    if (params.enabled !== undefined) {
+        target.push(params.enabled ? '--enable' : '--disable');
+    }
+
+    if (params.deleteAfterRun !== undefined) {
+        target.push(params.deleteAfterRun ? '--delete-after-run' : '--keep-after-run');
+    }
+
+    if (params.schedule) {
+        appendCronScheduleArgs(target, params.schedule);
+    }
+
+    appendFlagValue(target, '--session', params.sessionTarget);
+    appendFlagValue(target, '--wake', params.wakeMode);
+    appendCronPayloadArgs(target, params.payload);
+}
+
+function appendCronScheduleArgs(target: string[], schedule: OpenClawCronCommandSchedule): void {
+    switch (schedule.kind) {
+        case 'at':
+            target.push('--at', schedule.at);
+            break;
+        case 'every':
+            target.push('--every', schedule.every);
+            break;
+        case 'cron':
+            target.push('--cron', schedule.expr);
+            appendFlagValue(target, '--tz', schedule.tz);
+            break;
+    }
+}
+
+function appendCronPayloadArgs(target: string[], payload: OpenClawCronCommandPayload | undefined): void {
+    if (!payload) {
+        return;
+    }
+
+    if (payload.kind === 'systemEvent') {
+        appendFlagValue(target, '--system-event', payload.text);
+        return;
+    }
+
+    appendFlagValue(target, '--message', payload.message);
+    appendFlagValue(target, '--model', payload.model);
+    appendFlagValue(target, '--thinking', payload.thinking);
+
+    if (typeof payload.timeoutSeconds === 'number' && Number.isFinite(payload.timeoutSeconds)) {
+        target.push('--timeout-seconds', String(Math.max(1, Math.round(payload.timeoutSeconds))));
+    }
+}
+
+function appendFlagValue(target: string[], flag: string, value: string | undefined): void {
+    const normalized = value?.trim();
+    if (!normalized) {
+        return;
+    }
+
+    target.push(flag, normalized);
 }
