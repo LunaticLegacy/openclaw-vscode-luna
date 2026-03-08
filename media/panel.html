@@ -15,8 +15,14 @@
     <div id="app">
         <aside class="sidebar">
             <div class="sidebar-header">
-                <h2>OpenClaw Luna</h2>
-                <span id="connection-status" class="status-indicator offline">&#9679;</span>
+                <div class="sidebar-brand">
+                    <h2>OpenClaw Luna</h2>
+                    <div id="connection-caption" class="connection-caption">Checking connection...</div>
+                </div>
+                <div id="connection-pill" class="connection-pill offline">
+                    <span id="connection-status" class="status-indicator offline">&#9679;</span>
+                    <span id="connection-label">Offline</span>
+                </div>
             </div>
 
             <nav class="nav-tabs">
@@ -63,11 +69,54 @@
         <main class="main-content">
             <div id="view-chat" class="view active">
                 <div class="chat-container">
+                    <div id="chat-home" class="chat-home">
+                        <section class="console-hero">
+                            <div class="console-hero-copy">
+                                <div class="console-eyebrow" data-i18n="welcome.eyebrow">Luna Console</div>
+                                <h3 data-i18n="welcome.title">Welcome to OpenClaw Luna</h3>
+                                <p id="console-summary" data-i18n="welcome.subtitle">Select an agent from the sidebar and start chatting!</p>
+                            </div>
+                            <div class="console-hero-actions">
+                                <button class="btn btn-primary" type="button" data-console-action="new-agent" data-i18n="sidebar.newAgent">New Agent</button>
+                                <button class="btn btn-secondary" type="button" data-console-action="clusters" data-i18n="sidebar.clusters">Clusters</button>
+                                <button class="btn btn-secondary" type="button" data-console-action="tasks" data-i18n="sidebar.tasks">Tasks</button>
+                                <button class="btn btn-secondary" type="button" data-console-action="settings" data-i18n="common.settings">Settings</button>
+                            </div>
+                        </section>
+
+                        <section class="console-overview-grid">
+                            <article class="console-card">
+                                <div class="console-card-label" data-i18n="console.connection">Connection</div>
+                                <div id="console-connection-value" class="console-card-value">-</div>
+                                <div id="console-connection-meta" class="console-card-meta">-</div>
+                            </article>
+                            <article class="console-card">
+                                <div class="console-card-label" data-i18n="console.mode">Mode</div>
+                                <div id="console-mode-value" class="console-card-value">-</div>
+                                <div id="console-mode-meta" class="console-card-meta">-</div>
+                            </article>
+                            <article class="console-card">
+                                <div class="console-card-label" data-i18n="console.agents">Agents</div>
+                                <div id="console-agents-value" class="console-card-value">0</div>
+                                <div id="console-agents-meta" class="console-card-meta">-</div>
+                            </article>
+                            <article class="console-card">
+                                <div class="console-card-label" data-i18n="console.tasks">Tasks</div>
+                                <div id="console-tasks-value" class="console-card-value">-</div>
+                                <div id="console-tasks-meta" class="console-card-meta">-</div>
+                            </article>
+                        </section>
+
+                        <section class="console-next-panel">
+                            <div class="console-next-header">
+                                <h4 data-i18n="console.nextSteps">Next Steps</h4>
+                                <button class="btn btn-secondary btn-small" type="button" data-console-action="usage" data-i18n="usage.title">API Usage Dashboard</button>
+                            </div>
+                            <div id="console-next-steps" class="console-next-steps"></div>
+                        </section>
+                    </div>
+
                     <div id="chat-messages" class="chat-messages">
-                        <div class="welcome-message">
-                            <h3 data-i18n="welcome.title">Welcome to OpenClaw Luna</h3>
-                            <p data-i18n="welcome.subtitle">Select an agent from the sidebar and start chatting!</p>
-                        </div>
                     </div>
 
                     <div class="chat-input-container">
