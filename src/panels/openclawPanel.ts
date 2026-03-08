@@ -22,6 +22,7 @@ export class OpenClawPanel {
     private _viewMode: 'chat' | 'clusters' | 'usage' = 'chat';
     private _contextLoadToken: number = 0;
     private _chatRunToken: number = 0;
+    private _sessionSyncToken: number = 0;
     private _isWebviewReady = false;
     private _initialDataLoaded = false;
     private _pendingMessages: Array<Record<string, unknown>> = [];
@@ -234,6 +235,7 @@ export class OpenClawPanel {
     ) {
         const normalizedContent = normalizeOutgoingMessageContent(content);
         const targetAgentId = agentId || this._currentAgentId;
+        this._stopActiveSessionSync();
         
         if (!targetAgentId) {
             this._postMessage({
@@ -358,6 +360,7 @@ export class OpenClawPanel {
             }
 
             await this._loadSessionHistory(session, loadToken);
+            this._startActiveSessionSync(session, agentId, loadToken);
         } catch (error) {
             if (loadToken === this._contextLoadToken) {
                 this._postMessage({
@@ -410,9 +413,63 @@ export class OpenClawPanel {
     }
 
     private _clearChat() {
+        this._stopActiveSessionSync();
         this._chatRunToken += 1;
         this._currentSessionId = null;
         this._postMessage({ type: 'clearChat' });
+    }
+
+    private _stopActiveSessionSync() {
+        this._sessionSyncToken += 1;
+    }
+
+    private _startActiveSessionSync(session: ChatSession, agentId: string, loadToken: number) {
+        if (!this._service.supportsLiveSessionSync()) {
+            return;
+        }
+
+        const syncToken = ++this._sessionSyncToken;
+        const sessionId = session.id;
+        let previousSignature = buildMessageSyncSignature(session.messages);
+
+        void (async () => {
+            while (this._isCurrentSessionSyncTarget(syncToken, agentId, sessionId, loadToken)) {
+                await delay(120);
+
+                if (!this._isCurrentSessionSyncTarget(syncToken, agentId, sessionId, loadToken)) {
+                    return;
+                }
+
+                const messages = await this._sessionManager.refreshSessionHistory(sessionId, {
+                    preferLiveState: true
+                });
+                const nextSignature = buildMessageSyncSignature(messages);
+                if (nextSignature === previousSignature) {
+                    continue;
+                }
+
+                previousSignature = nextSignature;
+                if (!this._isCurrentSessionSyncTarget(syncToken, agentId, sessionId, loadToken)) {
+                    return;
+                }
+
+                this._postMessage({
+                    type: 'replaceMessages',
+                    messages
+                });
+            }
+        })().catch(() => {
+            if (syncToken === this._sessionSyncToken) {
+                this._stopActiveSessionSync();
+            }
+        });
+    }
+
+    private _isCurrentSessionSyncTarget(syncToken: number, agentId: string, sessionId: string, loadToken: number): boolean {
+        return this._sessionSyncToken === syncToken
+            && this._currentAgentId === agentId
+            && this._currentSessionId === sessionId
+            && this._contextLoadToken === loadToken;
     }
 
     private _isCurrentChatRun(chatRunToken: number, agentId: string, sessionId: string | null): boolean {
@@ -678,6 +735,7 @@ export class OpenClawPanel {
     private _update() {
         const webview = this._panel.webview;
         this._panel.title = 'OpenClaw';
+        this._stopActiveSessionSync();
         this._isWebviewReady = false;
         this._initialDataLoaded = false;
         this._pendingMessages = [];
@@ -734,6 +792,7 @@ export class OpenClawPanel {
 
     public dispose() {
         OpenClawPanel.currentPanel = undefined;
+        this._stopActiveSessionSync();
 
         this._panel.dispose();
 
@@ -748,5 +807,26 @@ export class OpenClawPanel {
 
 function normalizeOutgoingMessageContent(content: string): string {
     return String(content ?? '').replace(/\r\n?/g, '\n');
+}
+
+function buildMessageSyncSignature(messages: ChatMessage[]): string {
+    return JSON.stringify(messages.map(message => ({
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        timestamp: message.timestamp,
+        tokenCount: message.tokenCount,
+        parts: message.parts,
+        toolCallId: message.toolCallId,
+        toolName: message.toolName,
+        toolArguments: message.toolArguments,
+        toolDetails: message.toolDetails,
+        isError: message.isError,
+        metadata: message.metadata
+    })));
+}
+
+function delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 

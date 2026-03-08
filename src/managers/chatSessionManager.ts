@@ -146,6 +146,33 @@ export class ChatSessionManager extends EventEmitter {
         return session.messages;
     }
 
+    public async refreshSessionHistory(
+        sessionId?: string,
+        options: { preferLiveState?: boolean } = {}
+    ): Promise<ChatMessage[]> {
+        const id = sessionId || this.currentSessionId;
+        if (!id) {
+            return [];
+        }
+
+        const session = this.sessions.get(id);
+        if (!session) {
+            return [];
+        }
+
+        const messages = options.preferLiveState && this.service.supportsLiveSessionSync()
+            ? await this.service.getLiveChatHistory(id)
+            : await this.service.getChatHistory(id);
+
+        if (options.preferLiveState && messages.length === 0 && session.messages.length > 0) {
+            return session.messages;
+        }
+
+        session.messages = messages;
+        session.updatedAt = messages[messages.length - 1]?.timestamp || session.updatedAt;
+        return session.messages;
+    }
+
     public async clearHistory(): Promise<void> {
         const session = this.getCurrentSession();
         if (!session) return;

@@ -338,10 +338,7 @@
         clearThinkingIndicator();
         document.querySelector('.message-streaming')?.remove();
         activeTraceContainer = null;
-        state.isStreaming = false;
-        if (elements.btnSend) {
-            elements.btnSend.disabled = false;
-        }
+        finalizeStreamingState();
     }
 
     // Update thinking content
@@ -372,6 +369,28 @@
             content,
             timestamp: new Date().toISOString()
         });
+    }
+
+    function finalizeStreamingState() {
+        state.isStreaming = false;
+        if (elements.btnSend) {
+            elements.btnSend.disabled = false;
+        }
+    }
+
+    function finalizeStreamingMessage() {
+        clearThinkingIndicator();
+
+        const streamingMsg = document.querySelector('.message-streaming');
+        if (streamingMsg) {
+            streamingMsg.classList.remove('message-streaming');
+            const indicator = streamingMsg.querySelector('.streaming-indicator');
+            if (indicator) {
+                indicator.remove();
+            }
+        }
+
+        finalizeStreamingState();
     }
 
     // Add message to chat
@@ -551,6 +570,7 @@
 
     function renderStructuredMessage(msg) {
         const parts = Array.isArray(msg.parts) ? msg.parts : [];
+        const fallbackContent = getDisplayContent(msg);
 
         if (msg.role === 'tool') {
             return renderToolMessage(msg, parts);
@@ -589,7 +609,7 @@
                 </div>
             `
             : '';
-        const mainContent = textParts.map(part => part.text).join('');
+        const mainContent = textParts.map(part => part.text).join('') || fallbackContent;
 
         return `
             ${thinkingHtml}
@@ -806,19 +826,11 @@
     function updateStreamingMessage(content, done) {
         if (!content) {
             if (done) {
-                resetTransientChatState();
+                finalizeStreamingMessage();
             }
             return;
         }
-        
-        // If we were showing thinking indicator and we're done, finalize
-        if (state.currentThinking && done) {
-            finalizeThinking(content);
-            state.isStreaming = false;
-            elements.btnSend.disabled = false;
-            return;
-        }
-        
+
         // Check if we're still in thinking phase (opening tag but no closing tag)
         const hasOpening = content.includes('<thinking>');
         const hasClosing = content.includes('</thinking>');
@@ -866,11 +878,7 @@
         streamingMsg.innerHTML = messageHtml;
         
         if (done) {
-            streamingMsg.classList.remove('message-streaming');
-            const indicator = streamingMsg.querySelector('.streaming-indicator');
-            if (indicator) indicator.remove();
-            state.isStreaming = false;
-            elements.btnSend.disabled = false;
+            finalizeStreamingMessage();
         }
     }
 
@@ -1287,6 +1295,12 @@
                 
             case 'updateStreamingMessage':
                 updateStreamingMessage(message.content, message.done);
+                break;
+
+            case 'replaceMessages':
+                resetTransientChatState();
+                elements.chatMessages.innerHTML = '';
+                (message.messages || []).forEach(item => addMessage(item));
                 break;
                 
             case 'clearChat':

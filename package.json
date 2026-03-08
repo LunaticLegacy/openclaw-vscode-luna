@@ -18,6 +18,7 @@
   "categories": [
     "Machine Learning",
     "Snippets",
+    "Chat",
     "Other"
   ],
   
@@ -38,17 +39,6 @@
   ],
   
   "main": "./out/extension.js",
-  
-  "files": [
-    "out/**/*.js",
-    "media/**/*",
-    "i18n/**/*",
-    "resources/**/*",
-    "LICENSE",
-    "CHANGELOG.md",
-    "package.nls.json",
-    "package.nls.zh-cn.json"
-  ],
   
   "contributes": {
     "commands": [

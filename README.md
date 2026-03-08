@@ -17,9 +17,9 @@
 [![VSCode](https://img.shields.io/badge/VSCode-%5E1.80.0-blue?logo=visualstudiocode&logoColor=white)](https://code.visualstudio.com)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.2+-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Stars](https://img.shields.io/github/stars/openclaw/openclaw-vscode-luna?style=social)](https://github.com/openclaw/openclaw-vscode-luna)
+[![Stars](https://img.shields.io/github/stars/LunaticLegacy/openclaw-vscode-luna?style=social)](https://github.com/LunaticLegacy/openclaw-vscode-luna.git)
 
-[🇨🇳 📖 文档](https://docs.openclaw.ai) · [💬 讨论区](https://github.com/openclaw/openclaw-vscode-luna/discussions) · [🐛 问题反馈](https://github.com/openclaw/openclaw-vscode-luna/issues)
+[🇨🇳 📖 文档](https://docs.openclaw.ai) · [💬 讨论区](https://github.com/LunaticLegacy/openclaw-vscode-luna/discussions) · [🐛 问题反馈](https://github.com/LunaticLegacy/openclaw-vscode-luna/issues)
 
 <br />
 

@@ -17,9 +17,9 @@
 [![VSCode](https://img.shields.io/badge/VSCode-%5E1.80.0-blue?logo=visualstudiocode&logoColor=white)](https://code.visualstudio.com)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.2+-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Stars](https://img.shields.io/github/stars/openclaw/openclaw-vscode-luna?style=social)](https://github.com/openclaw/openclaw-vscode-luna)
+[![Stars](https://img.shields.io/github/stars/LunaticLegacy/openclaw-vscode-luna?style=social)](https://github.com/LunaticLegacy/openclaw-vscode-luna)
 
-[🇺🇸 📖 Documentation](https://docs.openclaw.ai) · [💬 Discussions](https://github.com/openclaw/openclaw-vscode-luna/discussions) · [🐛 Issue Tracker](https://github.com/openclaw/openclaw-vscode-luna/issues)
+[🇺🇸 📖 Documentation](https://docs.openclaw.ai) · [💬 Discussions](https://github.com/LunaticLegacy/openclaw-vscode-luna/discussions) · [🐛 Issue Tracker](https://github.com/LunaticLegacy/openclaw-vscode-luna/issues)
 
 <br />
 
@@ -161,24 +161,44 @@ Multiple trigger methods:
 ```
 openclaw-vscode/
 ├── src/
-│   ├── extension.ts            # Extension entry point
-│   ├── managers/               # Core managers
-│   │   ├── agentManager.ts     # Agent management logic
-│   │   ├── clusterManager.ts   # Cluster management logic
-│   │   └── usageManager.ts     # Usage management logic
-│   ├── providers/              # Tree view providers
-│   │   ├── agentTreeProvider.ts # Agent tree view
-│   │   ├── clusterTreeProvider.ts # Cluster tree view
-│   │   └── usageTreeProvider.ts # Usage tree view
-│   └── services/               # Service layer
-│       └── openclawService.ts  # OpenClaw API service
-├── resources/                  # Resource files
-│   ├── icon.png                # Extension icon
-│   └── icon.svg                # SVG icon
-├── .vscode/                    # VSCode configuration
-│   └── launch.json             # Debug configuration
-├── package.json                # Extension metadata and scripts
-└── tsconfig.json               # TypeScript configuration
+│   ├── extension.ts                    # Extension entry and command registration
+│   ├── i18n.ts                         # Runtime i18n loading
+│   ├── managers/                       # Session / Agent / Cluster / Usage management
+│   │   ├── agentManager.ts
+│   │   ├── chatSessionManager.ts
+│   │   ├── clusterManager.ts
+│   │   └── usageManager.ts
+│   ├── panels/
+│   │   └── openclawPanel.ts            # Webview panel controller
+│   ├── providers/                      # Sidebar tree view providers
+│   │   ├── agentTreeProvider.ts
+│   │   ├── clusterTreeProvider.ts
+│   │   └── usageTreeProvider.ts
+│   ├── services/                       # OpenClaw integration layer
+│   │   ├── openclawCli.ts              # CLI / gateway call wrappers
+│   │   ├── openclawConfig.ts           # Local OpenClaw config resolution
+│   │   ├── openclawGatewayClient.ts    # Gateway WebSocket event-stream client
+│   │   └── openclawService.ts          # Unified service interface and message normalization
+│   └── types/
+│       └── ws.d.ts                     # Local type declaration for `ws`
+├── media/
+│   ├── panel.html                      # Webview template
+│   ├── panel.js                        # Main UI interaction logic
+│   ├── style.css                       # Webview styles
+│   ├── i18n.js                         # Frontend i18n
+│   └── markdownRenderer.js             # Markdown renderer
+├── i18n/
+│   ├── en.json                         # Runtime English strings
+│   └── zh-cn.json                      # Runtime Chinese strings
+├── docs/
+│   └── README_EN.md                    # English documentation
+├── resources/
+│   ├── icon.png
+│   └── icon.svg
+├── package.json                        # Extension manifest, commands, and configuration
+├── package.nls.json                    # English localization placeholders
+├── package.nls.zh-cn.json              # Chinese localization placeholders
+└── tsconfig.json                       # TypeScript configuration
 ```
 
 ---

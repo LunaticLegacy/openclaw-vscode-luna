@@ -713,6 +713,18 @@ export class OpenClawService extends EventEmitter {
         return response.data.messages || [];
     }
 
+    public supportsLiveSessionSync(): boolean {
+        return this.mode === 'openclaw';
+    }
+
+    public async getLiveChatHistory(sessionId: string): Promise<ChatMessage[]> {
+        if (this.mode !== 'openclaw') {
+            return this.getChatHistory(sessionId);
+        }
+
+        return this.readOpenClawSessionMessages(sessionId).catch(() => []);
+    }
+
     public async clearChatHistory(sessionId: string): Promise<void> {
         if (this.mode === 'local') {
             const session = this.localSessions.get(sessionId);
