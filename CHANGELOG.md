@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project follows Semantic Versioning.
 
+## [0.2.0] - 2026-03-08
+
+### Added
+- Added feature of scheduled mission for Agents.
+- Remade the frontend behaviour of cluster.
+
+## [0.1.1] - 2026-03-07
+
+### Fixed
+- Optimize frontend behaviour.
+
+
 ## [0.1.0] - 2026-03-07
 
 ### Added

@@ -4,17 +4,19 @@ import { t } from './i18n';
 import { OpenClawService } from './services/openclawService';
 import { resolveOpenClawServiceConfig } from './services/openclawConfig';
 import { OpenClawPanel } from './panels/openclawPanel';
-import { AgentTreeProvider } from './providers/agentTreeProvider';
-import { ClusterTreeProvider } from './providers/clusterTreeProvider';
+import { OpenClawSidebarProvider } from './providers/openclawSidebarProvider';
 import { UsageTreeProvider } from './providers/usageTreeProvider';
+import { TaskTreeProvider } from './providers/taskTreeProvider';
 import { AgentManager } from './managers/agentManager';
 import { ClusterManager } from './managers/clusterManager';
 import { UsageManager } from './managers/usageManager';
+import { ScheduledTaskManager } from './managers/scheduledTaskManager';
 
 let openclawService: OpenClawService;
 let agentManager: AgentManager;
 let clusterManager: ClusterManager;
 let usageManager: UsageManager;
+let taskManager: ScheduledTaskManager;
 let statusBarItem: vscode.StatusBarItem;
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -30,6 +32,7 @@ export async function activate(context: vscode.ExtensionContext) {
         path.join(context.globalStorageUri.fsPath, 'clusters.json')
     );
     usageManager = new UsageManager(openclawService);
+    taskManager = new ScheduledTaskManager(openclawService);
 
     // 设置上下文变量
     vscode.commands.executeCommand('setContext', 'openclaw.enabled', true);
@@ -46,19 +49,19 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(statusBarItem);
 
     // 注册 Tree View Providers
-    const agentTreeProvider = new AgentTreeProvider(agentManager);
-    const clusterTreeProvider = new ClusterTreeProvider(clusterManager);
+    const sidebarTreeProvider = new OpenClawSidebarProvider(agentManager, clusterManager);
     const usageTreeProvider = new UsageTreeProvider(usageManager);
+    const taskTreeProvider = new TaskTreeProvider(taskManager);
 
-    vscode.window.registerTreeDataProvider('openclawSidebar', agentTreeProvider);
-    vscode.window.registerTreeDataProvider('openclawClusters', clusterTreeProvider);
+    vscode.window.registerTreeDataProvider('openclawSidebar', sidebarTreeProvider);
     vscode.window.registerTreeDataProvider('openclawUsage', usageTreeProvider);
+    vscode.window.registerTreeDataProvider('openclawTasks', taskTreeProvider);
 
     // ==================== 命令注册 ====================
 
     // 1. 打开主面板
     const openPanelCmd = vscode.commands.registerCommand('openclaw.openPanel', () => {
-        OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager);
+        OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager, taskManager);
     });
     context.subscriptions.push(openPanelCmd);
 
@@ -107,7 +110,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // 发送消息
         try {
-            const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager);
+            const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager, taskManager);
             panel.setActiveAgent(selectedAgent.agentId);
             await panel.sendMessage(input, selectedAgent.agentId);
             
@@ -122,7 +125,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // 3. 与 Agent 聊天 (完整面板)
     const chatCmd = vscode.commands.registerCommand('openclaw.chat', async (agentArg?: any) => {
         const agentId = resolveAgentId(agentArg);
-        const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager);
+        const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager, taskManager);
         
         if (agentId) {
             panel.setActiveAgent(agentId);
@@ -202,7 +205,7 @@ export async function activate(context: vscode.ExtensionContext) {
             });
             
             vscode.window.showInformationMessage(t('newAgent.created', { name }));
-            agentTreeProvider.refresh();
+            sidebarTreeProvider.refresh();
         } catch (error) {
             vscode.window.showErrorMessage(t('newAgent.createFailed', { error: String(error) }));
         }
@@ -235,14 +238,15 @@ export async function activate(context: vscode.ExtensionContext) {
             });
 
             if (action) {
-                handleAgentAction(action.action as string, selected.agent, agentTreeProvider);
+                handleAgentAction(action.action as string, selected.agent);
             }
         }
     });
     context.subscriptions.push(manageAgentsCmd);
 
     // 6. 查看 Agent Clusters
-    const viewClustersCmd = vscode.commands.registerCommand('openclaw.viewClusters', async () => {
+    const viewClustersCmd = vscode.commands.registerCommand('openclaw.viewClusters', async (clusterArg?: any) => {
+        const selectedClusterId = resolveClusterId(clusterArg);
         const clusters = await clusterManager.getClusters();
         
         if (clusters.length === 0) {
@@ -258,14 +262,100 @@ export async function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-        const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager);
-        panel.showClusterView(clusters);
+        const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager, taskManager);
+        panel.showClusterView(clusters, selectedClusterId);
     });
     context.subscriptions.push(viewClustersCmd);
 
+    const manageTasksCmd = vscode.commands.registerCommand('openclaw.manageTasks', () => {
+        const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager, taskManager);
+        panel.showTaskView();
+    });
+    context.subscriptions.push(manageTasksCmd);
+
+    const createTaskCmd = vscode.commands.registerCommand('openclaw.createTask', async () => {
+        const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager, taskManager);
+        await panel.showTaskEditor();
+    });
+    context.subscriptions.push(createTaskCmd);
+
+    const editTaskCmd = vscode.commands.registerCommand('openclaw.editTask', async (taskArg: any) => {
+        const taskId = resolveTaskId(taskArg);
+        const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager, taskManager);
+        await panel.showTaskEditor(taskId);
+    });
+    context.subscriptions.push(editTaskCmd);
+
+    const toggleTaskCmd = vscode.commands.registerCommand('openclaw.toggleTask', async (taskArg: any) => {
+        const taskId = resolveTaskId(taskArg);
+        if (!taskId) {
+            vscode.window.showErrorMessage(t('tasks.selectionRequired'));
+            return;
+        }
+
+        try {
+            const task = await taskManager.toggleTask(taskId);
+            vscode.window.showInformationMessage(task.enabled ? t('tasks.enabled') : t('tasks.disabled'));
+            taskTreeProvider.refresh();
+        } catch (error) {
+            vscode.window.showErrorMessage(t('tasks.updateFailed', { error: String(error) }));
+        }
+    });
+    context.subscriptions.push(toggleTaskCmd);
+
+    const runTaskCmd = vscode.commands.registerCommand('openclaw.runTask', async (taskArg: any) => {
+        const taskId = resolveTaskId(taskArg);
+        if (!taskId) {
+            vscode.window.showErrorMessage(t('tasks.selectionRequired'));
+            return;
+        }
+
+        try {
+            await taskManager.runTask(taskId, 'manual');
+            vscode.window.showInformationMessage(t('tasks.runTriggered'));
+            taskTreeProvider.refresh();
+        } catch (error) {
+            vscode.window.showErrorMessage(t('tasks.runFailed', { error: String(error) }));
+        }
+    });
+    context.subscriptions.push(runTaskCmd);
+
+    const deleteTaskCmd = vscode.commands.registerCommand('openclaw.deleteTask', async (taskArg: any) => {
+        const taskId = resolveTaskId(taskArg);
+        if (!taskId) {
+            vscode.window.showErrorMessage(t('tasks.selectionRequired'));
+            return;
+        }
+
+        try {
+            const task = await taskManager.getTask(taskId);
+            if (!task) {
+                vscode.window.showErrorMessage(t('tasks.notFound', { taskId }));
+                return;
+            }
+
+            const confirm = await vscode.window.showWarningMessage(
+                t('tasks.deleteConfirm', { name: task.name }),
+                { modal: true },
+                t('common.delete')
+            );
+
+            if (confirm !== t('common.delete')) {
+                return;
+            }
+
+            await taskManager.deleteTask(taskId);
+            vscode.window.showInformationMessage(t('tasks.deleted'));
+            taskTreeProvider.refresh();
+        } catch (error) {
+            vscode.window.showErrorMessage(t('tasks.deleteFailed', { error: String(error) }));
+        }
+    });
+    context.subscriptions.push(deleteTaskCmd);
+
     // 7. API 用量仪表板
     const apiUsageCmd = vscode.commands.registerCommand('openclaw.apiUsage', async () => {
-        const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager);
+        const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager, taskManager);
         panel.showUsageDashboard();
     });
     context.subscriptions.push(apiUsageCmd);
@@ -278,7 +368,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // 9. 发送消息
     const sendMessageCmd = vscode.commands.registerCommand('openclaw.sendMessage', async (message: string, agentId?: string) => {
-        const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager);
+        const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager, taskManager);
         await panel.sendMessage(message, agentId);
     });
     context.subscriptions.push(sendMessageCmd);
@@ -295,7 +385,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // 11. 刷新 Agents
     const refreshAgentsCmd = vscode.commands.registerCommand('openclaw.refreshAgents', () => {
-        agentTreeProvider.refresh();
+        sidebarTreeProvider.refresh();
         vscode.window.showInformationMessage(t('agents.refreshed'));
     });
     context.subscriptions.push(refreshAgentsCmd);
@@ -318,7 +408,7 @@ export async function activate(context: vscode.ExtensionContext) {
             try {
                 await agentManager.deleteAgent(agentId);
                 vscode.window.showInformationMessage(t('agent.deleted'));
-                agentTreeProvider.refresh();
+                sidebarTreeProvider.refresh();
             } catch (error) {
                 vscode.window.showErrorMessage(t('agent.deleteFailed', { error: String(error) }));
             }
@@ -361,7 +451,7 @@ export async function activate(context: vscode.ExtensionContext) {
             });
 
             vscode.window.showInformationMessage(t('agent.updated'));
-            agentTreeProvider.refresh();
+            sidebarTreeProvider.refresh();
         } catch (error) {
             vscode.window.showErrorMessage(t('agent.editFailed', { error: String(error) }));
         }
@@ -400,7 +490,7 @@ export async function activate(context: vscode.ExtensionContext) {
             });
             
             vscode.window.showInformationMessage(t('clusters.created', { name }));
-            clusterTreeProvider.refresh();
+            sidebarTreeProvider.refresh();
         } catch (error) {
             vscode.window.showErrorMessage(t('clusters.createFailed', { error: String(error) }));
         }
@@ -453,7 +543,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
             await clusterManager.deleteCluster(clusterId);
             vscode.window.showInformationMessage(t('clusters.deleted', { name: cluster.name }));
-            clusterTreeProvider.refresh();
+            sidebarTreeProvider.refresh();
         } catch (error) {
             vscode.window.showErrorMessage(t('clusters.deleteFailed', { error: String(error) }));
         }
@@ -513,7 +603,7 @@ export async function activate(context: vscode.ExtensionContext) {
             }
 
             // 打开设置面板
-            const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager);
+            const panel = OpenClawPanel.createOrShow(context.extensionUri, openclawService, agentManager, clusterManager, taskManager);
             panel.showAgentSettings(agent);
             
         } catch (error) {
@@ -527,7 +617,7 @@ export async function activate(context: vscode.ExtensionContext) {
         try {
             await agentManager.updateAgent(agentId, settings);
             vscode.window.showInformationMessage(t('agentSettings.saved'));
-            agentTreeProvider.refresh();
+            sidebarTreeProvider.refresh();
         } catch (error) {
             vscode.window.showErrorMessage(t('agentSettings.saveFailed', { error: String(error) }));
         }
@@ -542,24 +632,26 @@ export async function activate(context: vscode.ExtensionContext) {
             void (async () => {
                 const nextConfig = await resolveOpenClawServiceConfig(context.extensionPath);
                 openclawService.updateConfig(nextConfig);
-                agentTreeProvider.refresh();
-                clusterTreeProvider.refresh();
+                sidebarTreeProvider.refresh();
                 usageTreeProvider.refresh();
+                taskTreeProvider.refresh();
             })();
         }
     });
     context.subscriptions.push(configChange);
 
     // 初始化时加载数据
-    agentTreeProvider.refresh();
-    clusterTreeProvider.refresh();
+    sidebarTreeProvider.refresh();
     usageTreeProvider.refresh();
+    taskTreeProvider.refresh();
+    void taskManager.refresh().catch(error => {
+        console.error('Failed to initialize scheduled tasks.', error);
+    });
 }
 
 async function handleAgentAction(
     action: string,
-    agent: any,
-    treeProvider: AgentTreeProvider
+    agent: any
 ) {
     switch (action) {
         case 'chat':
@@ -624,6 +716,26 @@ function resolveClusterId(clusterArg: any): string | undefined {
     return undefined;
 }
 
+function resolveTaskId(taskArg: any): string | undefined {
+    if (!taskArg) {
+        return undefined;
+    }
+
+    if (typeof taskArg === 'string') {
+        return taskArg;
+    }
+
+    if (typeof taskArg.id === 'string') {
+        return taskArg.id;
+    }
+
+    if (typeof taskArg.task?.id === 'string') {
+        return taskArg.task.id;
+    }
+
+    return undefined;
+}
+
 export function deactivate() {
     console.log('👋 OpenClaw Luna extension is now deactivated');
     
@@ -632,6 +744,10 @@ export function deactivate() {
     
     if (openclawService) {
         openclawService.dispose();
+    }
+
+    if (taskManager) {
+        taskManager.dispose();
     }
     
     if (statusBarItem) {

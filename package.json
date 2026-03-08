@@ -2,7 +2,7 @@
   "name": "openclaw-vscode-luna",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "publisher": "lunaticlegacy",
   "license": "MIT",
   "repository": {
@@ -33,8 +33,11 @@
   
   "activationEvents": [
     "onView:openclawSidebar",
+    "onView:openclawTasks",
     "onCommand:openclaw.openPanel",
     "onCommand:openclaw.chat",
+    "onCommand:openclaw.manageTasks",
+    "onCommand:openclaw.createTask",
     "onStartupFinished"
   ],
   
@@ -77,6 +80,42 @@
         "title": "%command.viewClusters.title%",
         "category": "%command.category%",
         "icon": "$(server)"
+      },
+      {
+        "command": "openclaw.manageTasks",
+        "title": "%command.manageTasks.title%",
+        "category": "%command.category%",
+        "icon": "$(clock)"
+      },
+      {
+        "command": "openclaw.createTask",
+        "title": "%command.createTask.title%",
+        "category": "%command.category%",
+        "icon": "$(add)"
+      },
+      {
+        "command": "openclaw.editTask",
+        "title": "%command.editTask.title%",
+        "category": "%command.category%",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "openclaw.toggleTask",
+        "title": "%command.toggleTask.title%",
+        "category": "%command.category%",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "openclaw.runTask",
+        "title": "%command.runTask.title%",
+        "category": "%command.category%",
+        "icon": "$(run)"
+      },
+      {
+        "command": "openclaw.deleteTask",
+        "title": "%command.deleteTask.title%",
+        "category": "%command.category%",
+        "icon": "$(trash)"
       },
       {
         "command": "openclaw.apiUsage",
@@ -174,13 +213,13 @@
           "when": "openclaw.enabled"
         },
         {
-          "id": "openclawClusters",
-          "name": "%view.openclawClusters.name%",
+          "id": "openclawUsage",
+          "name": "%view.openclawUsage.name%",
           "when": "openclaw.enabled"
         },
         {
-          "id": "openclawUsage",
-          "name": "%view.openclawUsage.name%",
+          "id": "openclawTasks",
+          "name": "%view.openclawTasks.name%",
           "when": "openclaw.enabled"
         }
       ]
@@ -205,6 +244,12 @@
         },
         {
           "command": "openclaw.viewClusters"
+        },
+        {
+          "command": "openclaw.manageTasks"
+        },
+        {
+          "command": "openclaw.createTask"
         },
         {
           "command": "openclaw.deleteCluster"
@@ -253,14 +298,24 @@
           "group": "navigation@2"
         },
         {
-          "command": "openclaw.openPanel",
+          "command": "openclaw.createCluster",
           "when": "view == openclawSidebar",
           "group": "navigation@3"
         },
         {
-          "command": "openclaw.createCluster",
-          "when": "view == openclawClusters",
+          "command": "openclaw.openPanel",
+          "when": "view == openclawSidebar",
+          "group": "navigation@4"
+        },
+        {
+          "command": "openclaw.createTask",
+          "when": "view == openclawTasks",
           "group": "navigation@1"
+        },
+        {
+          "command": "openclaw.manageTasks",
+          "when": "view == openclawTasks",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
@@ -296,8 +351,28 @@
         },
         {
           "command": "openclaw.deleteCluster",
-          "when": "view == openclawClusters && viewItem == cluster",
+          "when": "view == openclawSidebar && viewItem == cluster",
           "group": "inline@1"
+        },
+        {
+          "command": "openclaw.runTask",
+          "when": "view == openclawTasks && viewItem == taskEnabled",
+          "group": "inline@1"
+        },
+        {
+          "command": "openclaw.editTask",
+          "when": "view == openclawTasks && (viewItem == taskEnabled || viewItem == taskDisabled)",
+          "group": "inline@2"
+        },
+        {
+          "command": "openclaw.toggleTask",
+          "when": "view == openclawTasks && (viewItem == taskEnabled || viewItem == taskDisabled)",
+          "group": "inline@3"
+        },
+        {
+          "command": "openclaw.deleteTask",
+          "when": "view == openclawTasks && (viewItem == taskEnabled || viewItem == taskDisabled)",
+          "group": "inline@4"
         }
       ],
       "editor/context": [
@@ -397,6 +472,10 @@
       {
         "view": "openclawSidebar",
         "contents": "%viewsWelcome.openclawSidebar.contents%"
+      },
+      {
+        "view": "openclawTasks",
+        "contents": "%viewsWelcome.openclawTasks.contents%"
       }
     ]
   },

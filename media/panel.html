@@ -13,39 +13,54 @@
     <script src="{{panelScriptUri}}" defer></script>
 
     <div id="app">
-        <!-- Sidebar -->
         <aside class="sidebar">
             <div class="sidebar-header">
                 <h2>OpenClaw Luna</h2>
-                <span id="connection-status" class="status-indicator offline">●</span>
+                <span id="connection-status" class="status-indicator offline">&#9679;</span>
             </div>
-            
+
             <nav class="nav-tabs">
                 <button class="nav-tab active" data-view="chat">
-                    <span class="icon">💬</span> <span data-i18n="sidebar.chat">Chat</span>
+                    <span class="icon">&#128172;</span>
+                    <span data-i18n="sidebar.chat">Chat</span>
                 </button>
-                <button class="nav-tab" data-view="clusters">
-                    <span class="icon">🖥️</span> <span data-i18n="sidebar.clusters">Clusters</span>
+                <button class="nav-tab" data-view="tasks">
+                    <span class="icon">&#9200;</span>
+                    <span data-i18n="sidebar.tasks">Tasks</span>
                 </button>
                 <button class="nav-tab" data-view="usage">
-                    <span class="icon">📊</span> <span data-i18n="sidebar.usage">Usage</span>
+                    <span class="icon">&#128202;</span>
+                    <span data-i18n="sidebar.usage">Usage</span>
                 </button>
             </nav>
 
-            <div class="agent-section">
-                <h3 data-i18n="sidebar.agents">Agents</h3>
-                <div id="agent-list" class="agent-list">
-                    <div class="loading" data-i18n="common.loading">Loading...</div>
-                </div>
-                <button id="btn-new-agent" class="btn btn-secondary">
-                    <span class="icon">+</span> <span data-i18n="sidebar.newAgent">New Agent</span>
-                </button>
+            <div class="sidebar-sections">
+                <section class="sidebar-section">
+                    <div class="sidebar-section-header">
+                        <h3 data-i18n="sidebar.agents">Agents</h3>
+                    </div>
+                    <div id="agent-list" class="agent-list">
+                        <div class="loading" data-i18n="common.loading">Loading...</div>
+                    </div>
+                    <button id="btn-new-agent" class="btn btn-secondary">
+                        <span class="icon">+</span>
+                        <span data-i18n="sidebar.newAgent">New Agent</span>
+                    </button>
+                </section>
+
+                <section class="sidebar-section">
+                    <div class="sidebar-section-header">
+                        <h3 data-i18n="sidebar.clusters">Clusters</h3>
+                        <button id="btn-new-cluster" class="btn btn-secondary btn-small" data-i18n="clusters.create">Create Cluster</button>
+                    </div>
+                    <div id="cluster-sidebar-list" class="cluster-sidebar-list">
+                        <div class="loading" data-i18n="common.loading">Loading...</div>
+                    </div>
+                </section>
             </div>
         </aside>
 
-        <!-- Main Content -->
         <main class="main-content">
-            <!-- Chat View -->
             <div id="view-chat" class="view active">
                 <div class="chat-container">
                     <div id="chat-messages" class="chat-messages">
@@ -54,17 +69,17 @@
                             <p data-i18n="welcome.subtitle">Select an agent from the sidebar and start chatting!</p>
                         </div>
                     </div>
-                    
+
                     <div class="chat-input-container">
                         <div class="input-wrapper">
-                            <textarea 
-                                id="message-input" 
+                            <textarea
+                                id="message-input"
                                 data-i18n-placeholder="chat.placeholder"
-                                placeholder="Type your message... (Shift+Enter to send)"
+                                placeholder="Type your message..."
                                 rows="3"
                             ></textarea>
                             <div class="input-actions">
-                                <button id="btn-clear" class="btn-icon" title="Clear chat">🗑️</button>
+                                <button id="btn-clear" class="btn-icon" title="Clear chat">&#128465;</button>
                                 <button id="btn-send" class="btn btn-primary" data-i18n="chat.send">Send</button>
                             </div>
                         </div>
@@ -72,22 +87,83 @@
                 </div>
             </div>
 
-            <!-- Clusters View -->
             <div id="view-clusters" class="view">
-                <div class="clusters-header">
-                    <h2 data-i18n="sidebar.clusters">Clusters</h2>
-                    <button id="btn-create-cluster" class="btn btn-primary" data-i18n="clusters.create">Create Cluster</button>
+                <div id="clusters-empty-state" class="clusters-empty-state hidden">
+                    <div class="empty-state-card">
+                        <h2 data-i18n="sidebar.clusters">Clusters</h2>
+                        <p data-i18n="clusters.emptyWorkspace">Select or create a cluster to start a swarm conversation.</p>
+                        <button id="btn-create-cluster" class="btn btn-primary" data-i18n="clusters.create">Create Cluster</button>
+                    </div>
                 </div>
-                <div id="clusters-list" class="clusters-list">
+
+                <div id="cluster-workspace" class="cluster-workspace hidden">
+                    <div class="cluster-chat-header">
+                        <div class="cluster-chat-heading">
+                            <div class="cluster-chat-eyebrow" data-i18n="clusters.workspaceEyebrow">AI Swarm</div>
+                            <h2 id="cluster-title">Cluster</h2>
+                            <p id="cluster-subtitle" class="cluster-subtitle"></p>
+                        </div>
+                        <div class="cluster-header-actions">
+                            <button id="btn-add-cluster-agent" class="btn btn-secondary" data-i18n="clusters.addAgents">Add Agents</button>
+                            <button id="btn-remove-cluster-agent" class="btn btn-secondary" data-i18n="clusters.removeAgents">Remove Agents</button>
+                            <button id="btn-delete-current-cluster" class="btn btn-secondary" data-i18n="clusters.delete">Delete</button>
+                            <button id="btn-create-cluster-toolbar" class="btn btn-primary" data-i18n="clusters.create">Create Cluster</button>
+                        </div>
+                    </div>
+
+                    <div class="cluster-toolbar">
+                        <div id="cluster-target-tabs" class="cluster-target-tabs"></div>
+                        <div id="cluster-mode-tabs" class="cluster-mode-tabs"></div>
+                    </div>
+
+                    <div id="cluster-messages" class="chat-messages cluster-messages">
+                        <div class="loading" data-i18n="common.loading">Loading...</div>
+                    </div>
+
+                    <div class="chat-input-container cluster-input-container">
+                        <div id="cluster-target-hint" class="cluster-target-hint"></div>
+                        <div class="input-wrapper">
+                            <textarea
+                                id="cluster-message-input"
+                                data-i18n-placeholder="clusters.chatPlaceholder"
+                                placeholder="Send a message to the current cluster target..."
+                                rows="3"
+                            ></textarea>
+                            <div class="input-actions">
+                                <button id="btn-send-cluster" class="btn btn-primary" data-i18n="chat.send">Send</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-tasks" class="view">
+                <div class="tasks-header">
+                    <div class="tasks-header-copy">
+                        <h2 data-i18n="tasks.title">Scheduled Tasks</h2>
+                        <p data-i18n="tasks.note">Jobs are read from OpenClaw cron state and managed through the OpenClaw CLI.</p>
+                        <div id="tasks-source" class="tasks-source"></div>
+                    </div>
+                    <button id="btn-create-task" class="btn btn-primary" data-i18n="tasks.create">Create Task</button>
+                </div>
+                <div id="tasks-list" class="tasks-list">
                     <div class="loading" data-i18n="common.loading">Loading...</div>
                 </div>
             </div>
 
-            <!-- Usage View -->
             <div id="view-usage" class="view">
                 <div class="usage-header">
-                    <h2 data-i18n="usage.title">API Usage Dashboard</h2>
-                    <button id="btn-refresh-usage" class="btn btn-secondary" data-i18n="usage.refresh">Refresh</button>
+                    <div class="usage-header-copy">
+                        <h2 data-i18n="usage.title">API Usage Dashboard</h2>
+                        <p id="usage-period-caption" class="usage-period-caption"></p>
+                    </div>
+                    <div class="usage-header-actions">
+                        <div class="usage-period-toggle" role="tablist" aria-label="Usage period">
+                            <button id="btn-usage-period-7" class="usage-period-btn active" type="button" data-usage-period="7" data-i18n="usage.period7d">7D</button>
+                            <button id="btn-usage-period-30" class="usage-period-btn" type="button" data-usage-period="30" data-i18n="usage.period30d">30D</button>
+                        </div>
+                        <button id="btn-refresh-usage" class="btn btn-secondary" data-i18n="usage.refresh">Refresh</button>
+                    </div>
                 </div>
                 <div id="usage-content" class="usage-content">
                     <div class="usage-cards">
@@ -106,11 +182,11 @@
                     </div>
                     <div class="usage-charts">
                         <div class="chart-container">
-                            <h4>Daily Usage</h4>
+                            <h4 id="usage-chart-title">Daily Usage</h4>
                             <div id="usage-chart" class="chart"></div>
                         </div>
                         <div class="chart-container">
-                            <h4>By Model</h4>
+                            <h4 id="model-chart-title">By Model</h4>
                             <div id="model-chart"></div>
                         </div>
                     </div>
@@ -118,7 +194,6 @@
             </div>
         </main>
 
-        <!-- New Agent Modal -->
         <div id="modal-new-agent" class="modal">
             <div class="modal-content">
                 <span class="modal-close">&times;</span>
@@ -144,7 +219,6 @@
             </div>
         </div>
 
-        <!-- Agent Settings Modal -->
         <div id="modal-agent-settings" class="modal">
             <div class="modal-content">
                 <span class="modal-close">&times;</span>
@@ -169,6 +243,110 @@
                     <div class="form-group">
                         <label for="settings-agent-max-tokens" data-i18n="common.maxTokens">Max Tokens</label>
                         <input type="number" id="settings-agent-max-tokens" min="1" max="32768" value="4096">
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn modal-cancel" data-i18n="common.cancel">Cancel</button>
+                        <button type="submit" class="btn btn-primary" data-i18n="common.save">Save</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div id="modal-task" class="modal">
+            <div class="modal-content">
+                <span class="modal-close">&times;</span>
+                <h2 id="task-modal-title" data-i18n="tasks.form.createTitle">Create Scheduled Task</h2>
+                <form id="form-task">
+                    <input type="hidden" id="task-id">
+                    <div class="task-form-grid">
+                        <div class="form-group">
+                            <label for="task-name" data-i18n="tasks.form.name">Task Name</label>
+                            <input type="text" id="task-name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="task-agent-id" data-i18n="tasks.form.agentId">Agent</label>
+                            <select id="task-agent-id"></select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="task-description" data-i18n="tasks.form.description">Description</label>
+                        <input type="text" id="task-description">
+                    </div>
+                    <div class="task-form-grid">
+                        <div class="form-group">
+                            <label for="task-schedule-kind" data-i18n="tasks.form.scheduleType">Schedule Type</label>
+                            <select id="task-schedule-kind" required>
+                                <option value="every" data-i18n="tasks.form.scheduleEvery">Every</option>
+                                <option value="at" data-i18n="tasks.form.scheduleAt">At</option>
+                                <option value="cron" data-i18n="tasks.form.scheduleCron">Cron</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="task-schedule-every-group">
+                            <label for="task-schedule-every" data-i18n="tasks.form.everyValue">Every</label>
+                            <input type="text" id="task-schedule-every" placeholder="10m">
+                        </div>
+                        <div class="form-group" id="task-schedule-at-group">
+                            <label for="task-schedule-at" data-i18n="tasks.form.runAt">Run At</label>
+                            <input type="datetime-local" id="task-schedule-at">
+                        </div>
+                        <div class="form-group" id="task-schedule-cron-group">
+                            <label for="task-schedule-cron" data-i18n="tasks.form.cronExpression">Cron Expression</label>
+                            <input type="text" id="task-schedule-cron" placeholder="0 7 * * *">
+                        </div>
+                        <div class="form-group" id="task-schedule-timezone-group">
+                            <label for="task-schedule-timezone" data-i18n="tasks.form.timezone">Timezone</label>
+                            <input type="text" id="task-schedule-timezone" placeholder="Asia/Shanghai">
+                        </div>
+                    </div>
+                    <div class="form-hint" data-i18n="tasks.form.scheduleHint">Supports OpenClaw cron schedules: every, at, and cron.</div>
+                    <div class="task-form-grid">
+                        <div class="form-group">
+                            <label for="task-session-target" data-i18n="tasks.form.sessionTarget">Session</label>
+                            <select id="task-session-target">
+                                <option value="isolated" data-i18n="tasks.form.sessionTargetIsolated">Isolated</option>
+                                <option value="main" data-i18n="tasks.form.sessionTargetMain">Main</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="task-wake-mode" data-i18n="tasks.form.wakeMode">Wake Mode</label>
+                            <select id="task-wake-mode">
+                                <option value="now" data-i18n="tasks.form.wakeModeNow">Now</option>
+                                <option value="next-heartbeat" data-i18n="tasks.form.wakeModeNextHeartbeat">Next heartbeat</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="task-payload-kind" data-i18n="tasks.form.payloadKind">Payload</label>
+                            <select id="task-payload-kind">
+                                <option value="agentTurn" data-i18n="tasks.form.payloadAgentTurn">Agent turn</option>
+                                <option value="systemEvent" data-i18n="tasks.form.payloadSystemEvent">System event</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="task-content" id="task-content-label" data-i18n="tasks.form.content">Content</label>
+                        <textarea id="task-content" rows="6" required></textarea>
+                    </div>
+                    <div class="task-form-grid">
+                        <div class="form-group" id="task-model-group">
+                            <label for="task-model" data-i18n="tasks.form.model">Model Override</label>
+                            <input type="text" id="task-model">
+                        </div>
+                        <div class="form-group" id="task-timeout-group">
+                            <label for="task-timeout-seconds" data-i18n="tasks.form.timeoutSeconds">Timeout (seconds)</label>
+                            <input type="number" id="task-timeout-seconds" min="1" step="1">
+                        </div>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="task-enabled" checked>
+                            <span data-i18n="tasks.form.enabled">Enable immediately after saving</span>
+                        </label>
+                    </div>
+                    <div class="form-group checkbox-group" id="task-delete-after-run-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="task-delete-after-run">
+                            <span data-i18n="tasks.form.deleteAfterRun">Delete after successful run</span>
+                        </label>
                     </div>
                     <div class="form-actions">
                         <button type="button" class="btn modal-cancel" data-i18n="common.cancel">Cancel</button>

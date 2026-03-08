@@ -22,6 +22,11 @@ export class ClusterTreeItem extends vscode.TreeItem {
         }
 
         this.contextValue = 'cluster';
+        this.command = {
+            command: 'openclaw.viewClusters',
+            title: t('sidebar.clusters'),
+            arguments: [cluster.id]
+        };
     }
 }
 
