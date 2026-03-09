@@ -1,4 +1,6 @@
 import {
+    OpenClawSessionsUsageEntry,
+    OpenClawSessionsListEntry,
     OpenClawSessionsUsageResult,
     OpenClawUsageCostResult
 } from '../openclawCli';
@@ -118,13 +120,19 @@ export function cloneUsage(usage: APIUsage): APIUsage {
 export function mapOpenClawUsage(
     sessionsUsage: OpenClawSessionsUsageResult,
     usageCost: OpenClawUsageCostResult | null,
-    agentId?: string
+    agentId?: string,
+    modelHints: {
+        sessionModels?: Map<string, string>;
+        agentModels?: Map<string, string>;
+        defaultModel?: string;
+    } = {}
 ): APIUsage {
     const sessions = (sessionsUsage.sessions || []).filter(session => !agentId || session.agentId === agentId);
     const currency = inferCurrencyFromHints(
         sessions.flatMap(session => [session.modelProvider || '', session.model || ''])
     );
     const usage = createEmptyUsage(currency);
+    const fallbackWindowModel = resolveFallbackWindowModel(sessionsUsage, modelHints.defaultModel);
 
     for (const session of sessions) {
         const sessionUsage = session.usage;
@@ -135,7 +143,7 @@ export function mapOpenClawUsage(
         const requestCount = sessionUsage?.messageCounts?.user
             || sessionUsage?.messageCounts?.total
             || 0;
-        const modelKey = session.model || session.modelProvider || 'unknown';
+        const modelKey = resolveUsageModelKey(session, modelHints, fallbackWindowModel);
 
         usage.totalRequests += requestCount;
         usage.promptTokens += promptTokens;
@@ -235,6 +243,29 @@ export function mapOpenClawUsage(
     return usage;
 }
 
+export function buildSessionModelHints(sessions: OpenClawSessionsListEntry[]): Map<string, string> {
+    const hints = new Map<string, string>();
+
+    for (const session of sessions) {
+        const model = normalizeUsageModelName(session.model);
+        if (!model) {
+            continue;
+        }
+
+        const sessionKey = session.key?.trim();
+        if (sessionKey) {
+            hints.set(sessionKey, model);
+        }
+
+        const sessionId = session.sessionId?.trim();
+        if (sessionId) {
+            hints.set(sessionId, model);
+        }
+    }
+
+    return hints;
+}
+
 export function inferCurrencyFromHints(hints: string[]): { code: string; symbol: string } | undefined {
     const normalized = hints
         .map(hint => hint.trim().toLowerCase())
@@ -266,6 +297,83 @@ export function uniqueModelNames(values: Array<string | undefined | null>): stri
 
 function estimateFallbackCost(promptTokens: number, completionTokens: number): number {
     return ((promptTokens + completionTokens) / 1000) * 0.002;
+}
+
+function resolveUsageModelKey(
+    session: OpenClawSessionsUsageEntry,
+    modelHints: {
+        sessionModels?: Map<string, string>;
+        agentModels?: Map<string, string>;
+        defaultModel?: string;
+    },
+    fallbackWindowModel?: string
+): string {
+    const sessionKey = session.key?.trim() || '';
+    const sessionId = session.sessionId?.trim() || '';
+    const agentId = session.agentId?.trim() || '';
+    const directModel = normalizeUsageModelName(session.model);
+    const hintedModel = directModel
+        || modelHints.sessionModels?.get(sessionKey)
+        || modelHints.sessionModels?.get(sessionId)
+        || modelHints.agentModels?.get(agentId)
+        || fallbackWindowModel
+        || normalizeUsageModelName(modelHints.defaultModel);
+
+    return hintedModel || 'unknown';
+}
+
+function resolveFallbackWindowModel(
+    sessionsUsage: OpenClawSessionsUsageResult,
+    defaultModel?: string
+): string | undefined {
+    const aggregateModels = collectKnownUsageModels(sessionsUsage);
+    if (aggregateModels.length === 1) {
+        return aggregateModels[0];
+    }
+
+    return normalizeUsageModelName(defaultModel);
+}
+
+function collectKnownUsageModels(sessionsUsage: OpenClawSessionsUsageResult): string[] {
+    const seen = new Set<string>();
+    const result: string[] = [];
+
+    const pushModel = (value: string | undefined) => {
+        const normalized = normalizeUsageModelName(value);
+        if (!normalized || seen.has(normalized)) {
+            return;
+        }
+
+        seen.add(normalized);
+        result.push(normalized);
+    };
+
+    for (const session of sessionsUsage.sessions || []) {
+        pushModel(session.model);
+    }
+
+    for (const entry of sessionsUsage.aggregates?.byModel || []) {
+        pushModel(entry.model);
+    }
+
+    for (const entry of sessionsUsage.aggregates?.modelDaily || []) {
+        pushModel(entry.model);
+    }
+
+    return result;
+}
+
+function normalizeUsageModelName(value: string | undefined | null): string | undefined {
+    const normalized = value?.trim();
+    if (!normalized) {
+        return undefined;
+    }
+
+    if (normalized.toLowerCase() === 'unknown') {
+        return undefined;
+    }
+
+    return normalized;
 }
 
 function updateUsageAggregate(

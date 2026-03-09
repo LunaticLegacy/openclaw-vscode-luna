@@ -6,6 +6,7 @@
     const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:18789';
     const INSTALL_COMMAND = 'npm install -g openclaw@latest';
     const ONBOARD_COMMAND = 'openclaw onboard --install-daemon';
+    const START_OPENCLAW_COMMAND = 'openclaw gateway start';
     const CUSTOM_AGENT_PRESET_ID = 'custom';
     
     // State
@@ -38,10 +39,19 @@
             sourceDescription: '',
             supportsTasks: false,
             supportsLiveSync: false,
-            diagnostics: null
+            capabilities: null,
+            capabilityMatrix: [],
+            diagnostics: null,
+            openClawConfig: null
         },
         connectionFormDirty: false,
-        connectionSettingsStatus: null
+        connectionSettingsStatus: null,
+        openClawConfigFormDirty: false,
+        openClawConfigStatus: null,
+        chatHomePinned: false,
+        forceSetupPanel: false,
+        installGuideStatus: null,
+        installGuideBusy: false
     };
     let activeTraceContainer = null;
 
@@ -108,9 +118,13 @@
         elements.consoleAgentsMeta = document.getElementById('console-agents-meta');
         elements.consoleTasksValue = document.getElementById('console-tasks-value');
         elements.consoleTasksMeta = document.getElementById('console-tasks-meta');
+        elements.consoleCapabilityTitle = document.getElementById('console-capability-title');
+        elements.consoleCapabilityBody = document.getElementById('console-capability-body');
+        elements.consoleCapabilityMatrix = document.getElementById('console-capability-matrix');
         elements.consoleSetupPanel = document.getElementById('console-setup-panel');
         elements.consoleNextSteps = document.getElementById('console-next-steps');
         elements.consoleActionButtons = document.querySelectorAll('[data-console-action]');
+        elements.btnOpenClawConfigEntry = document.getElementById('btn-openclaw-config-entry');
         elements.formConnectionSettings = document.getElementById('form-connection-settings');
         elements.connectionConfigMode = document.getElementById('connection-config-mode');
         elements.connectionGatewayUrl = document.getElementById('connection-gateway-url');
@@ -119,11 +133,30 @@
         elements.connectionSettingsStatus = document.getElementById('connection-settings-status');
         elements.btnRetryConnection = document.getElementById('btn-retry-connection');
         elements.btnUseDetectedGateway = document.getElementById('btn-use-detected-gateway');
+        elements.consoleOpenClawConfigPanel = document.getElementById('console-openclaw-config-panel');
+        elements.formOpenClawConfig = document.getElementById('form-openclaw-config');
+        elements.openclawStateDir = document.getElementById('openclaw-state-dir');
+        elements.openclawConfigPath = document.getElementById('openclaw-config-path');
+        elements.openclawGatewayPort = document.getElementById('openclaw-gateway-port');
+        elements.openclawGatewayToken = document.getElementById('openclaw-gateway-token');
+        elements.openclawDefaultWorkspace = document.getElementById('openclaw-default-workspace');
+        elements.openclawDefaultModel = document.getElementById('openclaw-default-model');
+        elements.openclawConfigHint = document.getElementById('openclaw-config-hint');
+        elements.openclawConfigStatus = document.getElementById('openclaw-config-status');
+        elements.btnRefreshOpenclawConfig = document.getElementById('btn-refresh-openclaw-config');
         elements.consoleInstallGuide = document.getElementById('console-install-guide');
+        elements.installGuideTitle = document.getElementById('install-guide-title');
         elements.installGuideSummary = document.getElementById('install-guide-summary');
         elements.installGuideState = document.getElementById('install-guide-state');
+        elements.installCommandBlock = document.getElementById('install-command-block');
         elements.installCommand = document.getElementById('install-command');
+        elements.onboardCommandBlock = document.getElementById('onboard-command-block');
         elements.onboardCommand = document.getElementById('onboard-command');
+        elements.startCommandBlock = document.getElementById('start-command-block');
+        elements.startCommand = document.getElementById('start-command');
+        elements.installGuideStatus = document.getElementById('install-guide-status');
+        elements.installGuideFootnote = document.getElementById('install-guide-footnote');
+        elements.btnStartOpenClaw = document.getElementById('btn-start-openclaw');
         elements.copyCommandButtons = document.querySelectorAll('[data-copy-command]');
         elements.clusterEmptyState = document.getElementById('clusters-empty-state');
         elements.clusterWorkspace = document.getElementById('cluster-workspace');
@@ -245,6 +278,35 @@
 
         elements.btnUseDetectedGateway?.addEventListener('click', () => {
             applyDetectedGatewayValues();
+        });
+
+        elements.formOpenClawConfig?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            saveOpenClawConfig();
+        });
+
+        [
+            elements.openclawGatewayPort,
+            elements.openclawGatewayToken,
+            elements.openclawDefaultWorkspace,
+            elements.openclawDefaultModel
+        ].forEach(input => {
+            input?.addEventListener('input', () => {
+                state.openClawConfigFormDirty = true;
+                state.openClawConfigStatus = null;
+                renderOpenClawConfigStatus();
+            });
+        });
+
+        elements.btnRefreshOpenclawConfig?.addEventListener('click', () => {
+            state.openClawConfigFormDirty = false;
+            state.openClawConfigStatus = null;
+            renderOpenClawConfigStatus();
+            vscode.postMessage({ type: 'refreshOpenClawConfig' });
+        });
+
+        elements.btnStartOpenClaw?.addEventListener('click', () => {
+            startOpenClaw();
         });
 
         elements.copyCommandButtons?.forEach(button => {
@@ -516,6 +578,8 @@
         updateConnectionBadge();
         renderConsoleOverview();
         renderConnectionSetup();
+        renderOpenClawConfig();
+        updateOpenClawConfigEntryState();
         renderClusterWorkspace();
         if (state.latestUsage) {
             renderUsage(state.latestUsage);
@@ -527,9 +591,22 @@
     // View switching
     function applyView(view) {
         state.viewMode = view;
+
+        if (view !== 'chat') {
+            state.chatHomePinned = false;
+            state.forceSetupPanel = false;
+        }
         
         elements.navTabs.forEach(t => t.classList.toggle('active', t.dataset.view === view));
         elements.views.forEach(v => v.classList.toggle('active', v.id === `view-${view}`));
+
+        if (view === 'chat') {
+            renderConnectionSetup();
+            renderOpenClawConfig();
+            updateChatHomeVisibility();
+        }
+
+        updateOpenClawConfigEntryState();
     }
 
     function switchView(view) {
@@ -551,14 +628,79 @@
             case 'usage':
                 switchView('usage');
                 break;
+            case 'console-home':
+                openConsoleHome();
+                break;
+            case 'openclaw-config':
+                toggleOpenClawConfigEntry();
+                break;
             case 'settings':
                 vscode.postMessage({ type: 'openSettings' });
                 break;
         }
     }
 
+    function hasChatContent() {
+        return Boolean(elements.chatMessages?.querySelector('.message, .context-loading'));
+    }
+
+    function updateOpenClawConfigEntryState() {
+        if (!elements.btnOpenClawConfigEntry) {
+            return;
+        }
+
+        elements.btnOpenClawConfigEntry.classList.toggle('active', hasChatContent() && state.chatHomePinned);
+    }
+
+    function focusOpenClawConfig() {
+        window.setTimeout(() => {
+            if (elements.openclawGatewayPort && !elements.consoleOpenClawConfigPanel?.classList.contains('hidden')) {
+                elements.openclawGatewayPort.focus();
+                if (typeof elements.openclawGatewayPort.select === 'function') {
+                    elements.openclawGatewayPort.select();
+                }
+            }
+        }, 0);
+    }
+
+    function openConsoleHome() {
+        const hadChatContent = hasChatContent();
+        switchView('chat');
+        state.forceSetupPanel = true;
+        state.chatHomePinned = hadChatContent;
+        renderConnectionSetup();
+        renderOpenClawConfig();
+        updateChatHomeVisibility();
+
+        if (elements.chatHome) {
+            elements.chatHome.scrollTop = 0;
+        }
+
+        window.setTimeout(() => {
+            elements.connectionConfigMode?.focus();
+        }, 0);
+    }
+
+    function toggleOpenClawConfigEntry() {
+        const hadChatContent = hasChatContent();
+        switchView('chat');
+        state.forceSetupPanel = false;
+        state.chatHomePinned = hadChatContent ? !state.chatHomePinned : false;
+        renderConnectionSetup();
+        renderOpenClawConfig();
+        updateChatHomeVisibility();
+
+        if (!hadChatContent || state.chatHomePinned) {
+            focusOpenClawConfig();
+        }
+    }
+
     function getRuntimeDiagnostics() {
         return state.runtime.diagnostics || null;
+    }
+
+    function getOpenClawConfigState() {
+        return state.runtime.openClawConfig || null;
     }
 
     function hasDetectedGateway(diagnostics) {
@@ -637,20 +779,28 @@
     }
 
     function setConnectionSetupStatus(kind, text) {
-        state.connectionSettingsStatus = text ? { kind, text } : null;
-        renderConnectionSetupStatus();
+        window.OpenClawPanelFeedback.setConnectionSetupStatus(state, elements, kind, text);
     }
 
     function renderConnectionSetupStatus() {
-        if (!elements.connectionSettingsStatus) {
+        window.OpenClawPanelFeedback.renderConnectionSetupStatus(state, elements);
+    }
+
+    function setInstallGuideStatus(kind, text) {
+        state.installGuideStatus = text ? { kind, text } : null;
+        renderInstallGuideStatus();
+    }
+
+    function renderInstallGuideStatus() {
+        if (!elements.installGuideStatus) {
             return;
         }
 
-        const status = state.connectionSettingsStatus;
-        elements.connectionSettingsStatus.classList.toggle('hidden', !status);
-        elements.connectionSettingsStatus.classList.toggle('success', status?.kind === 'success');
-        elements.connectionSettingsStatus.classList.toggle('error', status?.kind === 'error');
-        elements.connectionSettingsStatus.textContent = status?.text || '';
+        const status = state.installGuideStatus;
+        elements.installGuideStatus.classList.toggle('hidden', !status);
+        elements.installGuideStatus.classList.toggle('success', status?.kind === 'success');
+        elements.installGuideStatus.classList.toggle('error', status?.kind === 'error');
+        elements.installGuideStatus.textContent = status?.text || '';
     }
 
     function resolveConnectionHint(t, diagnostics) {
@@ -689,6 +839,61 @@
         return t('setup.installStateNotDetected');
     }
 
+    function renderInstallGuideCard(t, diagnostics, showSetupPanel) {
+        const isInstalled = Boolean(diagnostics?.openClawInstalled);
+
+        if (elements.consoleInstallGuide) {
+            elements.consoleInstallGuide.classList.toggle('hidden', !showSetupPanel);
+        }
+        if (!showSetupPanel) {
+            return;
+        }
+
+        if (elements.installGuideTitle) {
+            elements.installGuideTitle.textContent = t(isInstalled ? 'setup.startTitle' : 'setup.installTitle');
+        }
+        if (elements.installGuideSummary) {
+            elements.installGuideSummary.textContent = t(isInstalled ? 'setup.startSummary' : 'setup.installSummary');
+        }
+        if (elements.installGuideState) {
+            elements.installGuideState.textContent = resolveInstallGuideState(t, diagnostics);
+        }
+        if (elements.installCommand) {
+            elements.installCommand.textContent = INSTALL_COMMAND;
+        }
+        if (elements.onboardCommand) {
+            elements.onboardCommand.textContent = ONBOARD_COMMAND;
+        }
+        if (elements.startCommand) {
+            elements.startCommand.textContent = START_OPENCLAW_COMMAND;
+        }
+        if (elements.installCommandBlock) {
+            elements.installCommandBlock.classList.toggle('hidden', isInstalled);
+        }
+        if (elements.onboardCommandBlock) {
+            elements.onboardCommandBlock.classList.toggle('hidden', isInstalled);
+        }
+        if (elements.startCommandBlock) {
+            elements.startCommandBlock.classList.toggle('hidden', !isInstalled);
+        }
+        if (elements.btnStartOpenClaw) {
+            elements.btnStartOpenClaw.classList.toggle('hidden', !isInstalled);
+            elements.btnStartOpenClaw.disabled = !isInstalled || state.installGuideBusy;
+        }
+        if (elements.installGuideFootnote) {
+            elements.installGuideFootnote.textContent = t(isInstalled ? 'setup.startStepRetry' : 'setup.installStepRetry');
+        }
+
+        renderInstallGuideStatus();
+    }
+
+    function startOpenClaw() {
+        state.installGuideBusy = true;
+        setInstallGuideStatus(null, '');
+        renderConnectionSetup();
+        vscode.postMessage({ type: 'startOpenClaw' });
+    }
+
     function renderConnectionSetup() {
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key, vars) => {
             if (!vars) {
@@ -697,7 +902,7 @@
             return Object.entries(vars).reduce((text, [name, value]) => text.replace(`{${name}}`, String(value)), key);
         };
         const diagnostics = getRuntimeDiagnostics();
-        const showSetupPanel = !state.runtime.connected || state.agents.length === 0;
+        const showSetupPanel = state.forceSetupPanel || !state.runtime.connected || state.agents.length === 0;
 
         if (elements.consoleSetupPanel) {
             elements.consoleSetupPanel.classList.toggle('hidden', !showSetupPanel);
@@ -709,26 +914,170 @@
             elements.connectionSettingsHint.textContent = resolveConnectionHint(t, diagnostics);
         }
 
-        if (elements.installCommand) {
-            elements.installCommand.textContent = INSTALL_COMMAND;
-        }
-        if (elements.onboardCommand) {
-            elements.onboardCommand.textContent = ONBOARD_COMMAND;
-        }
-
-        if (elements.consoleInstallGuide) {
-            const shouldShowInstallGuide = showSetupPanel && !diagnostics?.openClawInstalled;
-            elements.consoleInstallGuide.classList.toggle('hidden', !shouldShowInstallGuide);
-        }
-        if (elements.installGuideState) {
-            elements.installGuideState.textContent = resolveInstallGuideState(t, diagnostics);
-        }
+        renderInstallGuideCard(t, diagnostics, showSetupPanel);
 
         renderConnectionSetupStatus();
     }
 
+    function shouldShowOpenClawConfigPanel() {
+        const diagnostics = getRuntimeDiagnostics();
+        return Boolean(
+            getOpenClawConfigState()
+            || diagnostics?.configMode === 'openclaw'
+            || diagnostics?.configuredStateDir
+            || diagnostics?.detectedStateDir
+            || diagnostics?.openClawInstalled
+        );
+    }
+
+    function resolveOpenClawConfigFormState() {
+        const openClawConfig = getOpenClawConfigState();
+        const diagnostics = getRuntimeDiagnostics();
+        return {
+            stateDir: openClawConfig?.stateDir || diagnostics?.configuredStateDir || diagnostics?.detectedStateDir || '',
+            configPath: openClawConfig?.configPath || diagnostics?.detectedConfigPath || '',
+            gatewayPort: String(openClawConfig?.gatewayPort || 18789),
+            gatewayToken: openClawConfig?.gatewayToken || '',
+            defaultWorkspace: openClawConfig?.defaultWorkspace || '',
+            defaultModel: openClawConfig?.defaultModel || ''
+        };
+    }
+
+    function syncOpenClawConfigForm(force = false) {
+        if (
+            !elements.openclawStateDir
+            || !elements.openclawConfigPath
+            || !elements.openclawGatewayPort
+            || !elements.openclawGatewayToken
+            || !elements.openclawDefaultWorkspace
+            || !elements.openclawDefaultModel
+        ) {
+            return;
+        }
+
+        if (state.openClawConfigFormDirty && !force) {
+            return;
+        }
+
+        const formState = resolveOpenClawConfigFormState();
+        elements.openclawStateDir.value = formState.stateDir;
+        elements.openclawConfigPath.value = formState.configPath;
+        elements.openclawGatewayPort.value = formState.gatewayPort;
+        elements.openclawGatewayToken.value = formState.gatewayToken;
+        elements.openclawDefaultWorkspace.value = formState.defaultWorkspace;
+        elements.openclawDefaultModel.value = formState.defaultModel;
+    }
+
+    function collectOpenClawConfigSettings() {
+        return {
+            gatewayPort: elements.openclawGatewayPort?.value?.trim() || '',
+            gatewayToken: elements.openclawGatewayToken?.value?.trim() || '',
+            defaultWorkspace: elements.openclawDefaultWorkspace?.value?.trim() || '',
+            defaultModel: elements.openclawDefaultModel?.value?.trim() || ''
+        };
+    }
+
+    function validateOpenClawConfigSettings(settings) {
+        const gatewayPort = Number(settings.gatewayPort);
+        if (!Number.isInteger(gatewayPort) || gatewayPort <= 0 || gatewayPort > 65535) {
+            return {
+                ok: false,
+                message: window.OpenClawI18n ? window.OpenClawI18n.t('setup.openclawConfig.invalidPort') : 'Gateway port must be an integer between 1 and 65535.'
+            };
+        }
+
+        return {
+            ok: true,
+            settings: {
+                gatewayPort,
+                gatewayToken: settings.gatewayToken,
+                defaultWorkspace: settings.defaultWorkspace,
+                defaultModel: settings.defaultModel
+            }
+        };
+    }
+
+    function saveOpenClawConfig() {
+        state.openClawConfigStatus = null;
+        renderOpenClawConfigStatus();
+        const validation = validateOpenClawConfigSettings(collectOpenClawConfigSettings());
+        if (!validation.ok) {
+            setOpenClawConfigStatus('error', validation.message);
+            return;
+        }
+
+        vscode.postMessage({
+            type: 'saveOpenClawConfig',
+            settings: validation.settings
+        });
+    }
+
+    function setOpenClawConfigStatus(kind, text) {
+        state.openClawConfigStatus = text ? { kind, text } : null;
+        renderOpenClawConfigStatus();
+    }
+
+    function renderOpenClawConfigStatus() {
+        if (!elements.openclawConfigStatus) {
+            return;
+        }
+
+        const status = state.openClawConfigStatus;
+        elements.openclawConfigStatus.classList.toggle('hidden', !status);
+        elements.openclawConfigStatus.classList.toggle('success', status?.kind === 'success');
+        elements.openclawConfigStatus.classList.toggle('error', status?.kind === 'error');
+        elements.openclawConfigStatus.textContent = status?.text || '';
+    }
+
+    function resolveOpenClawConfigHint(t, openClawConfig) {
+        if (!openClawConfig) {
+            return t('setup.openclawConfig.hintUnavailable');
+        }
+
+        if (openClawConfig.exists) {
+            return t('setup.openclawConfig.hintExisting', {
+                path: openClawConfig.configPath
+            });
+        }
+
+        return t('setup.openclawConfig.hintCreate', {
+            path: openClawConfig.configPath
+        });
+    }
+
+    function renderOpenClawConfig() {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key, vars) => {
+            if (!vars) {
+                return key;
+            }
+            return Object.entries(vars).reduce((text, [name, value]) => text.replace(`{${name}}`, String(value)), key);
+        };
+        const shouldShow = shouldShowOpenClawConfigPanel();
+        const openClawConfig = getOpenClawConfigState();
+
+        if (elements.consoleOpenClawConfigPanel) {
+            elements.consoleOpenClawConfigPanel.classList.toggle('hidden', !shouldShow);
+        }
+
+        if (!shouldShow) {
+            return;
+        }
+
+        syncOpenClawConfigForm();
+
+        if (elements.openclawConfigHint) {
+            elements.openclawConfigHint.textContent = resolveOpenClawConfigHint(t, openClawConfig);
+        }
+
+        renderOpenClawConfigStatus();
+    }
+
     async function copySetupCommand(kind) {
-        const command = kind === 'onboard' ? ONBOARD_COMMAND : INSTALL_COMMAND;
+        const command = kind === 'onboard'
+            ? ONBOARD_COMMAND
+            : kind === 'start'
+                ? START_OPENCLAW_COMMAND
+                : INSTALL_COMMAND;
 
         try {
             await copyTextToClipboard(command);
@@ -798,6 +1147,77 @@
         elements.connectionCaption.textContent = state.runtime.sourceDescription || modeLabel;
     }
 
+    function supportsRuntimeCapability(capabilityId) {
+        return Boolean(state.runtime.capabilities?.supports?.[capabilityId]);
+    }
+
+    function resolveCapabilityUnavailableMessage(capabilityId) {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        switch (capabilityId) {
+            case 'agentEditing':
+                return t('capability.unavailable.agentEditing');
+            case 'scheduledTasks':
+                return t('capability.unavailable.scheduledTasks');
+            case 'liveSessionSync':
+                return t('capability.unavailable.liveSessionSync');
+            case 'swarmWorkspace':
+                return t('capability.unavailable.swarmWorkspace');
+            default:
+                return t('capability.unavailable.generic', { capability: capabilityId });
+        }
+    }
+
+    function renderCapabilityMatrix() {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        const capabilities = state.runtime.capabilities || null;
+        const matrix = Array.isArray(state.runtime.capabilityMatrix) ? state.runtime.capabilityMatrix : [];
+        const currentMode = state.runtime.mode || 'gateway';
+
+        if (elements.consoleCapabilityTitle) {
+            elements.consoleCapabilityTitle.textContent = capabilities?.currentModeTitleKey
+                ? t(capabilities.currentModeTitleKey)
+                : resolveRuntimeModeLabel(t);
+        }
+
+        if (elements.consoleCapabilityBody) {
+            elements.consoleCapabilityBody.textContent = capabilities?.currentModeBodyKey
+                ? t(capabilities.currentModeBodyKey)
+                : resolveRuntimeModeLabel(t);
+        }
+
+        if (!elements.consoleCapabilityMatrix) {
+            return;
+        }
+
+        elements.consoleCapabilityMatrix.innerHTML = matrix.map(row => {
+            const title = t(row.titleKey);
+            const summary = t(row.summaryKey);
+            const cells = ['gateway', 'openclaw', 'local'].map(mode => {
+                const cell = row.modes?.[mode] || { support: 'unavailable', noteKey: '' };
+                const supportLabel = t(`capability.support.${cell.support}`);
+                const note = cell.noteKey ? t(cell.noteKey) : '';
+                return `
+                    <td class="console-capability-cell ${escapeHtml(cell.support)}${mode === currentMode ? ' current' : ''}">
+                        <span class="capability-support-badge ${escapeHtml(cell.support)}">${escapeHtml(supportLabel)}</span>
+                        <div class="capability-support-note">${escapeHtml(note)}</div>
+                    </td>
+                `;
+            }).join('');
+
+            return `
+                <tr>
+                    <th scope="row">
+                        <div class="capability-row-title">${escapeHtml(title)}</div>
+                    </th>
+                    <td>
+                        <div class="capability-row-summary">${escapeHtml(summary)}</div>
+                    </td>
+                    ${cells}
+                </tr>
+            `;
+        }).join('');
+    }
+
     function renderConsoleOverview() {
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
         const modeLabel = resolveRuntimeModeLabel(t);
@@ -824,7 +1244,9 @@
             elements.consoleModeValue.textContent = modeLabel;
         }
         if (elements.consoleModeMeta) {
-            elements.consoleModeMeta.textContent = t(state.runtime.supportsLiveSync ? 'console.liveSync' : 'console.liveSyncDisabled');
+            elements.consoleModeMeta.textContent = state.runtime.capabilities?.currentModeTitleKey
+                ? t(state.runtime.capabilities.currentModeTitleKey)
+                : t(state.runtime.supportsLiveSync ? 'console.liveSync' : 'console.liveSyncDisabled');
         }
 
         if (elements.consoleAgentsValue) {
@@ -869,7 +1291,9 @@
             `).join('');
         }
 
+        renderCapabilityMatrix();
         renderConnectionSetup();
+        renderOpenClawConfig();
         updateChatHomeVisibility();
     }
 
@@ -923,8 +1347,13 @@
             return;
         }
 
-        const hasMessages = Boolean(elements.chatMessages.querySelector('.message, .context-loading'));
-        elements.chatHome.classList.toggle('hidden', hasMessages);
+        const hasMessages = hasChatContent();
+        if (!hasMessages) {
+            state.chatHomePinned = false;
+        }
+
+        elements.chatHome.classList.toggle('hidden', hasMessages && !state.chatHomePinned);
+        updateOpenClawConfigEntryState();
     }
 
     // Send message
@@ -1612,9 +2041,7 @@
     }
 
     function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        return window.OpenClawPanelCommon.escapeHtml(text);
     }
 
     function scrollToBottom() {
@@ -1623,12 +2050,7 @@
     }
 
     function showError(msg) {
-        const div = document.createElement('div');
-        div.className = 'error-message';
-        div.textContent = msg;
-        elements.chatMessages.appendChild(div);
-        scrollToBottom();
-        setTimeout(() => div.remove(), 5000);
+        window.OpenClawPanelFeedback.showChatError(elements.chatMessages, msg, scrollToBottom);
     }
 
     // Render agents
@@ -1642,6 +2064,10 @@
         }
         
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (k) => k;
+        const canEditAgentSettings = supportsRuntimeCapability('agentEditing');
+        const settingsTitle = canEditAgentSettings
+            ? t('common.settings')
+            : resolveCapabilityUnavailableMessage('agentEditing');
         
         elements.agentList.innerHTML = state.agents.map(agent => `
             <div class="agent-item ${agent.id === state.currentAgentId ? 'active' : ''}" data-id="${agent.id}">
@@ -1651,7 +2077,7 @@
                     <div class="agent-model">${escapeHtml(agent.model)}</div>
                 </div>
                 <div class="agent-actions">
-                    <button class="agent-action-btn" data-action="settings" title="${t('common.settings')}">⚙️</button>
+                    <button class="agent-action-btn" data-action="settings" title="${escapeHtml(settingsTitle)}" ${canEditAgentSettings ? '' : 'disabled aria-disabled="true"'}>⚙️</button>
                     <button class="agent-action-btn" data-action="folder" title="${t('common.openInExplorer')}">📁</button>
                 </div>
             </div>
@@ -1669,6 +2095,10 @@
         document.querySelectorAll('.agent-action-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
+                if (btn.disabled) {
+                    showError(btn.title || resolveCapabilityUnavailableMessage('agentEditing'));
+                    return;
+                }
                 const agentId = btn.closest('.agent-item').dataset.id;
                 const action = btn.dataset.action;
                 
@@ -1801,7 +2231,21 @@
                 <div class="new-agent-preset-summary-title">${escapeHtml(preset.label)}</div>
                 <span class="new-agent-preset-summary-badge">${escapeHtml(preset.badge || preset.defaultName)}</span>
             </div>
-            <div class="new-agent-preset-summary-text">${escapeHtml(preset.description)}</div>
+            <div class="new-agent-preset-summary-grid">
+                ${renderPresetSummaryDetail(t('newAgent.preset.useWhen'), preset.description)}
+                ${renderPresetSummaryDetail(t('newAgent.preset.recommendedModel'), preset.recommendedModel)}
+                ${renderPresetSummaryDetail(t('newAgent.preset.failureSignals'), preset.failureSignals)}
+                ${renderPresetSummaryDetail(t('newAgent.preset.outputStandard'), preset.outputStandard)}
+            </div>
+        `;
+    }
+
+    function renderPresetSummaryDetail(label, value) {
+        return `
+            <div class="new-agent-preset-detail">
+                <div class="new-agent-preset-detail-label">${escapeHtml(label)}</div>
+                <div class="new-agent-preset-detail-value">${escapeHtml(value || '-')}</div>
+            </div>
         `;
     }
 
@@ -1910,6 +2354,11 @@
 
     // Show agent settings
     function showAgentSettings(agent) {
+        if (!supportsRuntimeCapability('agentEditing')) {
+            showError(resolveCapabilityUnavailableMessage('agentEditing'));
+            return;
+        }
+
         const modal = document.getElementById('modal-agent-settings');
         if (!modal) return;
         
@@ -1938,6 +2387,11 @@
 
     // Save agent settings
     function saveAgentSettings() {
+        if (!supportsRuntimeCapability('agentEditing')) {
+            showError(resolveCapabilityUnavailableMessage('agentEditing'));
+            return;
+        }
+
         const agentIdField = document.getElementById('settings-agent-id');
         const nameField = document.getElementById('settings-agent-name');
         const promptField = document.getElementById('settings-agent-prompt');
@@ -1957,8 +2411,13 @@
     }
 
     function showTaskEditor(task) {
+        if (!supportsRuntimeCapability('scheduledTasks')) {
+            showError(resolveCapabilityUnavailableMessage('scheduledTasks'));
+            return;
+        }
+
         if (state.tasksAvailable === false) {
-            showError(state.tasksMessage || (window.OpenClawI18n ? window.OpenClawI18n.t('tasks.unavailable') : 'OpenClaw cron is unavailable.'));
+            showError(state.tasksMessage || resolveCapabilityUnavailableMessage('scheduledTasks'));
             return;
         }
 
@@ -2120,6 +2579,11 @@
     }
 
     function saveTask() {
+        if (!supportsRuntimeCapability('scheduledTasks')) {
+            showError(resolveCapabilityUnavailableMessage('scheduledTasks'));
+            return;
+        }
+
         const idField = document.getElementById('task-id');
         const nameField = document.getElementById('task-name');
         const descriptionField = document.getElementById('task-description');
@@ -3044,6 +3508,13 @@
         state.tasksSourcePath = sourcePath || '';
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
 
+        if (elements.btnCreateTask) {
+            elements.btnCreateTask.disabled = !state.tasksAvailable;
+            elements.btnCreateTask.title = state.tasksAvailable
+                ? ''
+                : resolveCapabilityUnavailableMessage('scheduledTasks');
+        }
+
         if (elements.tasksSource) {
             elements.tasksSource.textContent = state.tasksSourcePath
                 ? `${t('tasks.source')}: ${state.tasksSourcePath}`
@@ -3253,7 +3724,12 @@
             if (hasUsageData) {
                 chartContainer.innerHTML = usageWindow.days.map(([date, data]) => `
                     <div class="bar-item">
-                        <div class="bar" style="height: ${computeUsageBarHeight(data.tokens || 0, maxTokens)}px"></div>
+                        <div
+                            class="bar"
+                            style="height: ${computeUsageBarHeight(data.tokens || 0, maxTokens)}px"
+                            title="${escapeHtml(buildDailyUsageBarTooltip(t, date, data, usageWindow.currencySymbol))}"
+                            aria-label="${escapeHtml(buildDailyUsageBarTooltip(t, date, data, usageWindow.currencySymbol))}"
+                        ></div>
                         <div class="bar-label">${date.slice(5)}</div>
                     </div>
                 `).join('');
@@ -3281,6 +3757,15 @@
         }
     }
 
+    function buildDailyUsageBarTooltip(t, date, data, currencySymbol) {
+        return [
+            date,
+            `${t('usage.totalTokens')}: ${(data.tokens || 0).toLocaleString()}`,
+            `${t('usage.totalRequests')}: ${(data.requests || 0).toLocaleString()}`,
+            `${t('usage.estimatedCost')}: ${formatUsageCurrency(data.cost || 0, currencySymbol)}`
+        ].join(' • ');
+    }
+
     function setUsagePeriod(days) {
         if ((days !== 7 && days !== 30) || state.usagePeriodDays === days) {
             return;
@@ -3293,99 +3778,19 @@
     }
 
     function buildUsageWindow(usage, days) {
-        const safeUsage = usage || {
-            totalRequests: 0,
-            totalTokens: 0,
-            cost: 0,
-            currencySymbol: '$',
-            byDay: {},
-            byModel: {},
-            byModelByDay: {}
-        };
-        const dayKeys = buildRecentDateKeys(days);
-        const dayEntries = dayKeys.map(date => {
-            const data = safeUsage.byDay?.[date] || { requests: 0, tokens: 0, cost: 0 };
-            return [date, data];
-        });
-
-        const totals = dayEntries.reduce((acc, [, data]) => {
-            acc.totalRequests += data.requests || 0;
-            acc.totalTokens += data.tokens || 0;
-            acc.totalCost += data.cost || 0;
-            return acc;
-        }, {
-            totalRequests: 0,
-            totalTokens: 0,
-            totalCost: 0
-        });
-
-        return {
-            days: dayEntries,
-            byModel: aggregateUsageModelsByWindow(safeUsage, dayKeys),
-            currencySymbol: safeUsage.currencySymbol || '$',
-            ...totals
-        };
-    }
-
-    function aggregateUsageModelsByWindow(usage, dayKeys) {
-        const aggregated = {};
-        const byModelByDay = usage?.byModelByDay;
-
-        if (byModelByDay && Object.keys(byModelByDay).length > 0) {
-            dayKeys.forEach(date => {
-                const dayModels = byModelByDay[date] || {};
-                Object.entries(dayModels).forEach(([model, data]) => {
-                    if (!aggregated[model]) {
-                        aggregated[model] = { requests: 0, tokens: 0, cost: 0 };
-                    }
-
-                    aggregated[model].requests += data.requests || 0;
-                    aggregated[model].tokens += data.tokens || 0;
-                    aggregated[model].cost += data.cost || 0;
-                });
-            });
-
-            return aggregated;
-        }
-
-        return usage?.byModel || {};
-    }
-
-    function buildRecentDateKeys(days) {
-        const result = [];
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        for (let offset = days - 1; offset >= 0; offset -= 1) {
-            const date = new Date(today);
-            date.setDate(today.getDate() - offset);
-            result.push(formatLocalDateKey(date));
-        }
-
-        return result;
-    }
-
-    function formatLocalDateKey(date) {
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
+        return window.OpenClawPanelCommon.buildUsageWindow(usage, days);
     }
 
     function computeUsageBarHeight(value, maxValue) {
-        if (!maxValue || value <= 0) {
-            return 4;
-        }
-
-        return Math.max(4, Math.min((value / maxValue) * 120, 120));
+        return window.OpenClawPanelCommon.computeUsageBarHeight(value, maxValue);
     }
 
     function formatCompactNumber(n) {
-        return n >= 1000000 ? (n / 1000000).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'K' : String(n);
+        return window.OpenClawPanelCommon.formatCompactNumber(n);
     }
 
     function formatUsageCurrency(value, symbol) {
-        return `${symbol || '$'}${Number(value || 0).toFixed(4)}`;
+        return window.OpenClawPanelCommon.formatUsageCurrency(value, symbol);
     }
 
     // Message handling from extension
@@ -3400,7 +3805,10 @@
                     sourceDescription: message.sourceDescription || '',
                     supportsTasks: Boolean(message.supportsTasks),
                     supportsLiveSync: Boolean(message.supportsLiveSync),
-                    diagnostics: message.diagnostics || null
+                    capabilities: message.capabilities || null,
+                    capabilityMatrix: Array.isArray(message.capabilityMatrix) ? message.capabilityMatrix : [],
+                    diagnostics: message.diagnostics || null,
+                    openClawConfig: message.openClawConfig || null
                 };
                 updateConnectionBadge();
                 renderConsoleOverview();
@@ -3554,6 +3962,42 @@
                     'error',
                     message.message || (window.OpenClawI18n ? window.OpenClawI18n.t('setup.statusSaveFailed') : 'Failed to save connection settings.')
                 );
+                break;
+
+            case 'openClawConfigSaved':
+                state.openClawConfigFormDirty = false;
+                syncOpenClawConfigForm(true);
+                setOpenClawConfigStatus(
+                    'success',
+                    window.OpenClawI18n ? window.OpenClawI18n.t('setup.openclawConfig.statusSaved') : 'OpenClaw config saved.'
+                );
+                renderConsoleOverview();
+                break;
+
+            case 'openClawConfigSaveFailed':
+                state.openClawConfigFormDirty = true;
+                setOpenClawConfigStatus(
+                    'error',
+                    message.message || (window.OpenClawI18n ? window.OpenClawI18n.t('setup.openclawConfig.statusSaveFailed') : 'Failed to save OpenClaw config.')
+                );
+                break;
+
+            case 'openClawStartSucceeded':
+                state.installGuideBusy = false;
+                setInstallGuideStatus(
+                    'success',
+                    window.OpenClawI18n ? window.OpenClawI18n.t('setup.startStatusStarted') : 'OpenClaw started. Luna is reconnecting.'
+                );
+                renderConnectionSetup();
+                break;
+
+            case 'openClawStartFailed':
+                state.installGuideBusy = false;
+                setInstallGuideStatus(
+                    'error',
+                    message.message || (window.OpenClawI18n ? window.OpenClawI18n.t('setup.startStatusFailed', { error: 'unknown error' }) : 'Failed to start OpenClaw.')
+                );
+                renderConnectionSetup();
                 break;
         }
     });

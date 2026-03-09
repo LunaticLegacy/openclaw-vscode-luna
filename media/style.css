@@ -61,6 +61,24 @@ body {
     min-width: 0;
 }
 
+.sidebar-brand-button {
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.sidebar-brand-button:hover h2 {
+    color: var(--accent-strong);
+}
+
+.sidebar-brand-button:hover .connection-caption {
+    color: var(--text-primary);
+}
+
 .connection-caption {
     margin-top: 4px;
     color: var(--text-secondary);
@@ -141,6 +159,38 @@ body {
 
 .nav-tab .icon {
     font-size: 14px;
+}
+
+.sidebar-utility {
+    padding: 8px;
+    border-bottom: 1px solid var(--border);
+}
+
+.sidebar-utility-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    cursor: pointer;
+    border-radius: 8px;
+    transition: all 0.2s;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.sidebar-utility-btn:hover {
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary));
+}
+
+.sidebar-utility-btn.active {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    background: color-mix(in srgb, var(--accent) 16%, var(--bg-primary));
+    color: var(--accent-strong);
 }
 
 /* Sidebar Sections */
@@ -369,6 +419,8 @@ body {
     display: flex;
     flex-direction: column;
     gap: 16px;
+    min-height: 0;
+    overflow-y: auto;
     border-bottom: 1px solid var(--border);
     background:
         radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 18%, transparent) 0%, transparent 48%),
@@ -449,6 +501,104 @@ body {
     line-height: 1.5;
 }
 
+.console-capability-panel {
+    padding: 14px 16px 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--bg-primary) 94%, transparent);
+}
+
+.console-capability-copy h4 {
+    font-size: 18px;
+    line-height: 1.25;
+}
+
+.console-capability-body {
+    margin-top: 8px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    max-width: 860px;
+}
+
+.console-capability-table-wrap {
+    overflow-x: auto;
+    margin-top: 14px;
+    border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--bg-secondary) 48%, transparent);
+}
+
+.console-capability-table {
+    width: 100%;
+    min-width: 980px;
+    border-collapse: collapse;
+}
+
+.console-capability-table th,
+.console-capability-table td {
+    padding: 12px 14px;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+    vertical-align: top;
+    text-align: left;
+}
+
+.console-capability-table thead th {
+    background: color-mix(in srgb, var(--bg-tertiary) 88%, transparent);
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.console-capability-table tbody tr:last-child th,
+.console-capability-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.capability-row-title {
+    font-weight: 700;
+}
+
+.capability-row-summary,
+.capability-support-note {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+.capability-support-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 24px;
+    padding: 4px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.capability-support-badge.full {
+    background: color-mix(in srgb, var(--success) 15%, transparent);
+    color: var(--success);
+}
+
+.capability-support-badge.limited {
+    background: color-mix(in srgb, var(--warning) 18%, transparent);
+    color: var(--warning);
+}
+
+.capability-support-badge.unavailable {
+    background: color-mix(in srgb, var(--error) 12%, transparent);
+    color: var(--error);
+}
+
+.console-capability-cell.current {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
 .console-next-panel {
     padding: 14px 16px 16px;
     border: 1px solid var(--border);
@@ -486,6 +636,13 @@ body {
     display: grid;
     grid-template-columns: minmax(180px, 0.85fr) minmax(0, 1.15fr);
     gap: 0 16px;
+}
+
+#openclaw-state-dir,
+#openclaw-config-path {
+    font-family: var(--vscode-editor-font-family);
+    font-size: 12px;
+    background: color-mix(in srgb, var(--bg-tertiary) 86%, transparent);
 }
 
 .console-setup-status {
@@ -1617,8 +1774,8 @@ body {
 
 .usage-charts {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-    gap: 20px;
+    grid-template-columns: 1fr;
+    gap: 16px;
 }
 
 .chart-container {
@@ -1654,6 +1811,11 @@ body {
     border-radius: 4px 4px 0 0;
     min-height: 4px;
     transition: height 0.3s ease;
+    cursor: help;
+}
+
+.bar:hover {
+    filter: brightness(1.08);
 }
 
 .bar-label {
@@ -2023,6 +2185,35 @@ form {
     line-height: 1.6;
 }
 
+.new-agent-preset-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.new-agent-preset-detail {
+    padding: 12px 13px;
+    border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--bg-secondary) 52%, transparent);
+}
+
+.new-agent-preset-detail-label {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.new-agent-preset-detail-value {
+    margin-top: 8px;
+    font-size: 13px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+}
+
 .new-agent-preset-empty {
     grid-column: 1 / -1;
     padding: 28px 20px;
@@ -2255,6 +2446,15 @@ form {
     background: var(--bg-primary);
 }
 
+.agent-action-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.agent-action-btn:disabled:hover {
+    background: transparent;
+}
+
 .agent-item.active .agent-action-btn:hover {
     background: rgba(255, 255, 255, 0.15);
 }
@@ -2325,10 +2525,6 @@ form {
         flex-direction: column;
     }
     
-    .usage-charts {
-        grid-template-columns: 1fr;
-    }
-
     .tasks-list {
         grid-template-columns: 1fr;
     }
@@ -2361,6 +2557,10 @@ form {
     .new-agent-preset-summary-head {
         flex-direction: column;
         align-items: flex-start;
+    }
+
+    .new-agent-preset-summary-grid {
+        grid-template-columns: 1fr;
     }
 
     .cluster-chat-header {

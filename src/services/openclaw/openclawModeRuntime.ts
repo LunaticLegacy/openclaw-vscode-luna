@@ -34,6 +34,7 @@ import {
     withTimeout
 } from './helpers';
 import {
+    buildSessionModelHints,
     mapOpenClawUsage,
     uniqueModelNames
 } from './usageService';
@@ -827,8 +828,26 @@ export class OpenClawModeRuntime {
         const costPromise = agentId
             ? Promise.resolve<OpenClawUsageCostResult | null>(null)
             : this.runner.getUsageCost({}).then(result => result).catch(() => null);
-        const [sessionsUsage, usageCost] = await Promise.all([sessionsUsagePromise, costPromise]);
-        return mapOpenClawUsage(sessionsUsage, usageCost, agentId);
+        const sessionListPromise = this.runner.listSessions().catch(() => ({ sessions: [] as OpenClawSessionsListEntry[] }));
+        const agentsPromise = this.getAgents().catch(() => [] as Agent[]);
+        const [sessionsUsage, usageCost, sessionList, agents] = await Promise.all([
+            sessionsUsagePromise,
+            costPromise,
+            sessionListPromise,
+            agentsPromise
+        ]);
+        const sessionModels = buildSessionModelHints(sessionList.sessions || []);
+        const agentModels = new Map(
+            agents
+                .filter(agent => agent.id && agent.model)
+                .map(agent => [agent.id, agent.model] as const)
+        );
+
+        return mapOpenClawUsage(sessionsUsage, usageCost, agentId, {
+            sessionModels,
+            agentModels,
+            defaultModel: this.config.defaultModel
+        });
     }
 
     private invalidateSnapshotCache(): void {

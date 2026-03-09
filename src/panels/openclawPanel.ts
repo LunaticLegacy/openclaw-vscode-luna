@@ -4,9 +4,16 @@ import { getCurrentLocale, t, MESSAGES } from '../i18n';
 import { OpenClawService, ChatMessage, ChatSession, AgentCluster, APIUsage } from '../services/openclawService';
 import {
     inspectOpenClawEnvironment,
+    loadOpenClawConfigEditorState,
+    OpenClawConfigEditorState,
     OpenClawRuntimeDiagnostics,
-    resolveOpenClawServiceConfig
+    resolveOpenClawServiceConfig,
+    saveOpenClawConfigEditorState,
+    startOpenClawGateway
 } from '../services/openclawConfig';
+import type { OpenClawBooleanCapabilityId } from '../services/openclawService';
+import { showSuccessStatus } from '../utils/statusFeedback';
+import { getCapabilityUnavailableMessage } from '../utils/capabilitySupport';
 import { AgentManager } from '../managers/agentManager';
 import { ChatSessionManager } from '../managers/chatSessionManager';
 import { ClusterManager } from '../managers/clusterManager';
@@ -36,6 +43,7 @@ export class OpenClawPanel {
     private _initialDataLoaded = false;
     private _pendingMessages: Array<Record<string, unknown>> = [];
     private _runtimeDiagnostics: OpenClawRuntimeDiagnostics | null = null;
+    private _openClawConfigState: OpenClawConfigEditorState | null = null;
 
     public static createOrShow(
         extensionUri: vscode.Uri,
@@ -359,22 +367,35 @@ export class OpenClawPanel {
             case 'retryConnection':
                 await this._handleRetryConnection();
                 break;
+            case 'startOpenClaw':
+                await this._handleStartOpenClaw();
+                break;
+            case 'refreshOpenClawConfig':
+                await this._refreshRuntimeState();
+                break;
             case 'saveConnectionSettings':
                 await this._handleSaveConnectionSettings(message.settings);
+                break;
+            case 'saveOpenClawConfig':
+                await this._handleSaveOpenClawConfig(message.settings);
                 break;
         }
     }
 
     private _postRuntimeState() {
         const mode = this._service.getMode();
+        const capabilities = this._service.getModeCapabilities();
         this._postMessage({
             type: 'runtimeState',
             connected: this._service.isConnected(),
             mode,
             sourceDescription: this._service.getSourceDescription(),
-            supportsTasks: this._service.supportsScheduledTasks(),
-            supportsLiveSync: this._service.supportsLiveSessionSync(),
-            diagnostics: this._runtimeDiagnostics
+            supportsTasks: capabilities.supports.scheduledTasks,
+            supportsLiveSync: capabilities.supports.liveSessionSync,
+            capabilities,
+            capabilityMatrix: this._service.getModeCapabilityMatrix(),
+            diagnostics: this._runtimeDiagnostics,
+            openClawConfig: this._openClawConfigState
         });
     }
 
@@ -389,6 +410,12 @@ export class OpenClawPanel {
             this._runtimeDiagnostics = await inspectOpenClawEnvironment(this._extensionUri.fsPath);
         } catch {
             // Ignore diagnostics failures and keep the last known values.
+        }
+
+        try {
+            this._openClawConfigState = await loadOpenClawConfigEditorState(this._extensionUri.fsPath);
+        } catch {
+            // Ignore config editor failures and keep the last known values.
         } finally {
             this._postRuntimeState();
         }
@@ -863,10 +890,15 @@ export class OpenClawPanel {
     }
 
     private async _handleSaveAgentSettings(agentId: string, settings: any) {
+        if (!this._ensureCapability('agentEditing')) {
+            vscode.window.showErrorMessage(getCapabilityUnavailableMessage('agentEditing'));
+            return;
+        }
+
         try {
             await this._agentManager.updateAgent(agentId, settings);
             await this._loadAgents();
-            vscode.window.showInformationMessage(t('agentSettings.saved'));
+            showSuccessStatus(t('agentSettings.saved'));
         } catch (error) {
             vscode.window.showErrorMessage(t('agentSettings.saveFailed', { error: String(error) }));
         }
@@ -928,6 +960,76 @@ export class OpenClawPanel {
         }
     }
 
+    private async _handleSaveOpenClawConfig(settings: {
+        gatewayPort?: number | string;
+        gatewayToken?: string;
+        defaultWorkspace?: string;
+        defaultModel?: string;
+    }) {
+        const gatewayPort = Number(settings.gatewayPort);
+        if (!Number.isInteger(gatewayPort) || gatewayPort <= 0 || gatewayPort > 65535) {
+            this._postMessage({
+                type: 'openClawConfigSaveFailed',
+                message: t('setup.openclawConfig.invalidPort')
+            });
+            return;
+        }
+
+        try {
+            this._openClawConfigState = await saveOpenClawConfigEditorState(this._extensionUri.fsPath, {
+                gatewayPort,
+                gatewayToken: settings.gatewayToken,
+                defaultWorkspace: settings.defaultWorkspace,
+                defaultModel: settings.defaultModel
+            });
+
+            const nextConfig = await resolveOpenClawServiceConfig(this._extensionUri.fsPath);
+            this._service.updateConfig(nextConfig);
+            await this._refreshRuntimeState();
+            await Promise.all([
+                this._loadAgents(),
+                this._loadClusters(),
+                this._loadTasks()
+            ]);
+
+            this._postMessage({
+                type: 'openClawConfigSaved'
+            });
+        } catch (error) {
+            console.error('Failed to save OpenClaw config.', error);
+            this._postMessage({
+                type: 'openClawConfigSaveFailed',
+                message: t('setup.openclawConfig.statusSaveFailed')
+            });
+        }
+    }
+
+    private async _handleStartOpenClaw() {
+        try {
+            await startOpenClawGateway(this._extensionUri.fsPath);
+            await delay(800);
+
+            const nextConfig = await resolveOpenClawServiceConfig(this._extensionUri.fsPath);
+            this._service.updateConfig(nextConfig);
+            await this._refreshRuntimeState();
+            await Promise.all([
+                this._loadAgents(),
+                this._loadClusters(),
+                this._loadTasks()
+            ]);
+
+            this._postMessage({
+                type: 'openClawStartSucceeded'
+            });
+        } catch (error) {
+            console.error('Failed to start OpenClaw gateway.', error);
+            this._postMessage({
+                type: 'openClawStartFailed',
+                message: t('setup.startStatusFailed', { error: String(error) })
+            });
+        }
+    }
+
     private async _handleCreateCluster() {
         await vscode.commands.executeCommand('openclaw.createCluster');
         await this._loadClusters();
@@ -951,7 +1053,7 @@ export class OpenClawPanel {
 
             const availableAgents = agents.filter(agent => !cluster.agentIds.includes(agent.id));
             if (availableAgents.length === 0) {
-                vscode.window.showInformationMessage(t('clusters.noAvailableAgentsToAdd'));
+                showSuccessStatus(t('clusters.noAvailableAgentsToAdd'));
                 return;
             }
 
@@ -975,7 +1077,7 @@ export class OpenClawPanel {
                 agentIds: [...cluster.agentIds, ...selectedAgents.map(agent => agent.agentId)]
             });
             await this._loadClusters(clusterId);
-            vscode.window.showInformationMessage(t('clusters.agentsAdded', { count: selectedAgents.length }));
+            showSuccessStatus(t('clusters.agentsAdded', { count: selectedAgents.length }));
         } catch (error) {
             vscode.window.showErrorMessage(t('clusters.updateFailed', { error: String(error) }));
         }
@@ -1031,33 +1133,48 @@ export class OpenClawPanel {
                 agentIds: remainingAgentIds
             });
             await this._loadClusters(clusterId);
-            vscode.window.showInformationMessage(t('clusters.agentsRemoved', { count: selectedAgents.length }));
+            showSuccessStatus(t('clusters.agentsRemoved', { count: selectedAgents.length }));
         } catch (error) {
             vscode.window.showErrorMessage(t('clusters.updateFailed', { error: String(error) }));
         }
     }
 
     private async _handleCreateTask(data: any) {
+        if (!this._ensureCapability('scheduledTasks')) {
+            vscode.window.showErrorMessage(getCapabilityUnavailableMessage('scheduledTasks'));
+            return;
+        }
+
         try {
             await this._taskManager.createTask(data);
             await this._loadTasks();
-            vscode.window.showInformationMessage(t('tasks.created'));
+            showSuccessStatus(t('tasks.created'));
         } catch (error) {
             vscode.window.showErrorMessage(t('tasks.createFailed', { error: String(error) }));
         }
     }
 
     private async _handleUpdateTask(taskId: string, data: any) {
+        if (!this._ensureCapability('scheduledTasks')) {
+            vscode.window.showErrorMessage(getCapabilityUnavailableMessage('scheduledTasks'));
+            return;
+        }
+
         try {
             await this._taskManager.updateTask(taskId, data);
             await this._loadTasks();
-            vscode.window.showInformationMessage(t('tasks.updated'));
+            showSuccessStatus(t('tasks.updated'));
         } catch (error) {
             vscode.window.showErrorMessage(t('tasks.updateFailed', { error: String(error) }));
         }
     }
 
     private async _handleDeleteTask(taskId: string) {
+        if (!this._ensureCapability('scheduledTasks')) {
+            vscode.window.showErrorMessage(getCapabilityUnavailableMessage('scheduledTasks'));
+            return;
+        }
+
         try {
             const task = await this._taskManager.getTask(taskId);
             if (!task) {
@@ -1077,29 +1194,37 @@ export class OpenClawPanel {
 
             await this._taskManager.deleteTask(taskId);
             await this._loadTasks();
-            vscode.window.showInformationMessage(t('tasks.deleted'));
+            showSuccessStatus(t('tasks.deleted'));
         } catch (error) {
             vscode.window.showErrorMessage(t('tasks.deleteFailed', { error: String(error) }));
         }
     }
 
     private async _handleToggleTask(taskId: string, enabled?: boolean) {
+        if (!this._ensureCapability('scheduledTasks')) {
+            vscode.window.showErrorMessage(getCapabilityUnavailableMessage('scheduledTasks'));
+            return;
+        }
+
         try {
             const task = await this._taskManager.toggleTask(taskId, enabled);
             await this._loadTasks();
-            vscode.window.showInformationMessage(
-                task.enabled ? t('tasks.enabled') : t('tasks.disabled')
-            );
+            showSuccessStatus(task.enabled ? t('tasks.enabled') : t('tasks.disabled'));
         } catch (error) {
             vscode.window.showErrorMessage(t('tasks.updateFailed', { error: String(error) }));
         }
     }
 
     private async _handleRunTask(taskId: string) {
+        if (!this._ensureCapability('scheduledTasks')) {
+            vscode.window.showErrorMessage(getCapabilityUnavailableMessage('scheduledTasks'));
+            return;
+        }
+
         try {
             await this._taskManager.runTask(taskId, 'manual');
             await this._loadTasks();
-            vscode.window.showInformationMessage(t('tasks.runTriggered'));
+            showSuccessStatus(t('tasks.runTriggered'));
         } catch (error) {
             vscode.window.showErrorMessage(t('tasks.runFailed', { error: String(error) }));
         }
@@ -1214,6 +1339,11 @@ export class OpenClawPanel {
     }
 
     public showAgentSettings(agent: any) {
+        if (!this._ensureCapability('agentEditing')) {
+            vscode.window.showErrorMessage(getCapabilityUnavailableMessage('agentEditing'));
+            return;
+        }
+
         this._postMessage({
             type: 'showAgentSettings',
             agent
@@ -1230,6 +1360,11 @@ export class OpenClawPanel {
     }
 
     public async showTaskEditor(taskId?: string) {
+        if (!this._ensureCapability('scheduledTasks')) {
+            vscode.window.showErrorMessage(getCapabilityUnavailableMessage('scheduledTasks'));
+            return;
+        }
+
         const viewState = await this._taskManager.getTaskViewState();
         if (!viewState.available) {
             vscode.window.showErrorMessage(viewState.message || t('tasks.unavailable'));
@@ -1270,6 +1405,12 @@ export class OpenClawPanel {
         const markdownRendererScriptUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this._extensionUri, 'media', 'markdownRenderer.js')
         );
+        const panelCommonScriptUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(this._extensionUri, 'media', 'panelCommon.js')
+        );
+        const panelFeedbackScriptUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(this._extensionUri, 'media', 'panelFeedback.js')
+        );
         const panelScriptUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this._extensionUri, 'media', 'panel.js')
         );
@@ -1288,6 +1429,8 @@ export class OpenClawPanel {
             styleUri: styleUri.toString(),
             i18nScriptUri: i18nScriptUri.toString(),
             markdownRendererScriptUri: markdownRendererScriptUri.toString(),
+            panelCommonScriptUri: panelCommonScriptUri.toString(),
+            panelFeedbackScriptUri: panelFeedbackScriptUri.toString(),
             panelScriptUri: panelScriptUri.toString(),
             translationsBase64
         });
@@ -1321,6 +1464,10 @@ export class OpenClawPanel {
                 x.dispose();
             }
         }
+    }
+
+    private _ensureCapability(capabilityId: OpenClawBooleanCapabilityId): boolean {
+        return this._service.supportsCapability(capabilityId);
     }
 }
 

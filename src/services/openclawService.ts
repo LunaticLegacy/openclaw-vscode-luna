@@ -6,6 +6,12 @@ import {
 } from './openclawConfig';
 import { GatewayTransport } from './openclaw/gatewayTransport';
 import { LocalModeRuntime } from './openclaw/localModeRuntime';
+import {
+    getModeCapabilities,
+    getModeCapabilityMatrix,
+    isCapabilitySupported
+} from './openclaw/modeCapabilities';
+import type { OpenClawBooleanCapabilityId } from './openclaw/modeCapabilities';
 import { OpenClawModeRuntime } from './openclaw/openclawModeRuntime';
 import { uniqueModelNames } from './openclaw/usageService';
 import type {
@@ -41,6 +47,12 @@ export type {
     UpdateAgentParams,
     UpdateClusterParams
 } from './openclaw/types';
+export type {
+    OpenClawBooleanCapabilityId,
+    OpenClawCapabilityId,
+    OpenClawCapabilityMatrixRow,
+    OpenClawModeCapabilities
+} from './openclaw/modeCapabilities';
 
 export class OpenClawService extends EventEmitter {
     private transport: GatewayTransport | null = null;
@@ -71,7 +83,19 @@ export class OpenClawService extends EventEmitter {
     }
 
     public supportsRemoteClusters(): boolean {
-        return this.mode === 'gateway';
+        return this.getModeCapabilities().clusterTransport === 'remote';
+    }
+
+    public getModeCapabilities() {
+        return getModeCapabilities(this.mode);
+    }
+
+    public getModeCapabilityMatrix() {
+        return getModeCapabilityMatrix();
+    }
+
+    public supportsCapability(capabilityId: OpenClawBooleanCapabilityId): boolean {
+        return isCapabilitySupported(this.mode, capabilityId);
     }
 
     public async getPreferredAgentId(): Promise<string | null> {
@@ -268,7 +292,7 @@ export class OpenClawService extends EventEmitter {
     }
 
     public supportsLiveSessionSync(): boolean {
-        return this.openClawRuntime !== null;
+        return this.supportsCapability('liveSessionSync');
     }
 
     public getMode(): ResolvedServiceConfig['mode'] {
@@ -280,7 +304,7 @@ export class OpenClawService extends EventEmitter {
     }
 
     public supportsScheduledTasks(): boolean {
-        return this.openClawRuntime !== null;
+        return this.supportsCapability('scheduledTasks');
     }
 
     public getOpenClawConfig(): OpenClawCliServiceConfig | null {
@@ -312,21 +336,21 @@ export class OpenClawService extends EventEmitter {
     }
 
     public async getClusters(): Promise<AgentCluster[]> {
-        if (this.mode !== 'gateway') {
+        if (!this.supportsRemoteClusters()) {
             return [];
         }
 
-        const response = await this.requireTransport().get<{ clusters?: AgentCluster[] }>('/api/clusters');
+        const response = await this.requireRemoteClusterTransport().get<{ clusters?: AgentCluster[] }>('/api/clusters');
         return response.clusters || [];
     }
 
     public async getCluster(clusterId: string): Promise<AgentCluster | null> {
-        if (this.mode !== 'gateway') {
+        if (!this.supportsRemoteClusters()) {
             return null;
         }
 
         try {
-            return await this.requireTransport().get<AgentCluster>(`/api/clusters/${clusterId}`);
+            return await this.requireRemoteClusterTransport().get<AgentCluster>(`/api/clusters/${clusterId}`);
         } catch (error) {
             if ((error as { status?: number }).status === 404) {
                 return null;
@@ -336,40 +360,26 @@ export class OpenClawService extends EventEmitter {
     }
 
     public async createCluster(params: CreateClusterParams): Promise<AgentCluster> {
-        if (this.mode !== 'gateway') {
-            throw new Error(t('service.clustersUnavailable'));
-        }
-
-        const response = await this.requireTransport().post<AgentCluster>('/api/clusters', params);
+        const response = await this.requireRemoteClusterTransport('service.clustersUnavailable')
+            .post<AgentCluster>('/api/clusters', params);
         this.emit('clusterCreated', response);
         return response;
     }
 
     public async updateCluster(clusterId: string, params: UpdateClusterParams): Promise<AgentCluster> {
-        if (this.mode !== 'gateway') {
-            throw new Error(t('service.clustersUnavailable'));
-        }
-
-        const response = await this.requireTransport().patch<AgentCluster>(`/api/clusters/${clusterId}`, params);
+        const response = await this.requireRemoteClusterTransport('service.clustersUnavailable')
+            .patch<AgentCluster>(`/api/clusters/${clusterId}`, params);
         this.emit('clusterUpdated', response);
         return response;
     }
 
     public async deleteCluster(clusterId: string): Promise<void> {
-        if (this.mode !== 'gateway') {
-            throw new Error(t('service.clustersUnavailable'));
-        }
-
-        await this.requireTransport().delete(`/api/clusters/${clusterId}`);
+        await this.requireRemoteClusterTransport('service.clustersUnavailable').delete(`/api/clusters/${clusterId}`);
         this.emit('clusterDeleted', clusterId);
     }
 
     public async sendToCluster(clusterId: string, message: string): Promise<Record<string, ChatMessage>> {
-        if (this.mode !== 'gateway') {
-            throw new Error(t('service.clusterBroadcastUnavailable'));
-        }
-
-        const response = await this.requireTransport().post<{ responses?: Record<string, ChatMessage> }>(
+        const response = await this.requireRemoteClusterTransport('service.clusterBroadcastUnavailable').post<{ responses?: Record<string, ChatMessage> }>(
             `/api/clusters/${clusterId}/broadcast`,
             { content: message }
         );
@@ -465,5 +475,15 @@ export class OpenClawService extends EventEmitter {
         }
 
         return this.transport;
+    }
+
+    private requireRemoteClusterTransport(
+        errorKey: 'service.clustersUnavailable' | 'service.clusterBroadcastUnavailable' = 'service.clustersUnavailable'
+    ): GatewayTransport {
+        if (!this.supportsRemoteClusters()) {
+            throw new Error(t(errorKey));
+        }
+
+        return this.requireTransport();
     }
 }
