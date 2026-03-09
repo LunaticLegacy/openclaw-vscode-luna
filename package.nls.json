@@ -1,6 +1,6 @@
 {
   "displayName": "OpenClaw Luna",
-  "description": "OpenClaw Luna - Use OpenClaw AI agents in VSCode with agent management, clusters, scheduled tasks, and API usage monitoring.",
+  "description": "The OpenClaw console for VS Code. Manage agents, swarm workspaces, scheduled tasks, and usage across gateway, OpenClaw CLI, and local model modes.",
   "command.category": "OpenClaw",
   "command.openPanel.title": "Open OpenClaw Luna",
   "command.quickChat.title": "Quick Chat",

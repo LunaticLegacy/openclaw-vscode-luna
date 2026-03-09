@@ -1,7 +1,9 @@
+import { execFile } from 'child_process';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { promisify } from 'util';
 import * as vscode from 'vscode';
 
 export interface LocalModelConfig {
@@ -59,10 +61,31 @@ export interface OpenClawRuntimeDiagnostics {
     openClawInstalled: boolean;
 }
 
+export interface OpenClawConfigEditorState {
+    stateDir: string;
+    configPath: string;
+    exists: boolean;
+    gatewayPort: number;
+    gatewayToken: string;
+    defaultWorkspace: string;
+    defaultModel: string;
+    sourceDescription: string;
+}
+
+export interface OpenClawConfigEditorUpdate {
+    gatewayPort: number;
+    gatewayToken?: string;
+    defaultWorkspace?: string;
+    defaultModel?: string;
+}
+
 export type ResolvedServiceConfig =
     | GatewayServiceConfig
     | OpenClawCliServiceConfig
     | LocalServiceConfig;
+
+const DEFAULT_OPENCLAW_GATEWAY_PORT = 18789;
+const execFileAsync = promisify(execFile);
 
 interface AuthProfilesFile {
     profiles?: Record<string, {
@@ -100,6 +123,8 @@ interface OpenClawConfigFile {
         };
     };
 }
+
+type JsonRecord = Record<string, unknown>;
 
 export async function resolveOpenClawServiceConfig(extensionPath: string): Promise<ResolvedServiceConfig> {
     const config = vscode.workspace.getConfiguration('openclaw');
@@ -180,6 +205,92 @@ export async function inspectOpenClawEnvironment(extensionPath: string): Promise
     };
 }
 
+export async function loadOpenClawConfigEditorState(extensionPath: string): Promise<OpenClawConfigEditorState> {
+    const config = vscode.workspace.getConfiguration('openclaw');
+    const stateDir = await resolveOpenClawConfigStateDir(config, extensionPath);
+    const configPath = path.join(stateDir, 'openclaw.json');
+    const openClawConfig = await readJsonFile<OpenClawConfigFile>(configPath);
+    const exists = await pathExists(configPath);
+
+    return buildOpenClawConfigEditorState(stateDir, configPath, openClawConfig, exists);
+}
+
+export async function saveOpenClawConfigEditorState(
+    extensionPath: string,
+    update: OpenClawConfigEditorUpdate
+): Promise<OpenClawConfigEditorState> {
+    const config = vscode.workspace.getConfiguration('openclaw');
+    const stateDir = await resolveOpenClawConfigStateDir(config, extensionPath);
+    const configPath = path.join(stateDir, 'openclaw.json');
+    const existing = await readJsonFile<JsonRecord>(configPath);
+    const nextConfig = mergeOpenClawConfigForSave(existing, update);
+
+    await fs.mkdir(stateDir, { recursive: true });
+    await fs.writeFile(configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, 'utf8');
+
+    return buildOpenClawConfigEditorState(
+        stateDir,
+        configPath,
+        nextConfig as OpenClawConfigFile,
+        true
+    );
+}
+
+export async function startOpenClawGateway(extensionPath: string): Promise<void> {
+    const config = vscode.workspace.getConfiguration('openclaw');
+    const stateDir = await resolveOpenClawConfigStateDir(config, extensionPath);
+    const configPath = path.join(stateDir, 'openclaw.json');
+    const cliEntryPath = await resolveCliEntryPath(config);
+    if (!cliEntryPath) {
+        throw new Error('OpenClaw CLI was not detected.');
+    }
+
+    const nodePath = resolveNodePath(config, cliEntryPath);
+    if (!nodePath) {
+        throw new Error('Node.js executable for OpenClaw CLI was not detected.');
+    }
+
+    await execFileAsync(
+        nodePath,
+        [cliEntryPath, 'gateway', 'start', '--json'],
+        {
+            cwd: stateDir,
+            env: {
+                ...process.env,
+                OPENCLAW_STATE_DIR: stateDir,
+                OPENCLAW_CONFIG_PATH: configPath
+            },
+            maxBuffer: 10 * 1024 * 1024,
+            timeout: 60000,
+            windowsHide: true
+        }
+    );
+}
+
+export function mergeOpenClawConfigForSave(
+    existing: JsonRecord | null,
+    update: OpenClawConfigEditorUpdate
+): JsonRecord {
+    const nextConfig = cloneJsonRecord(existing);
+    const gateway = ensureJsonRecord(nextConfig, 'gateway');
+    const auth = ensureJsonRecord(gateway, 'auth');
+    const agents = ensureJsonRecord(nextConfig, 'agents');
+    const defaults = ensureJsonRecord(agents, 'defaults');
+    const model = ensureJsonRecord(defaults, 'model');
+
+    gateway.port = normalizeGatewayPort(update.gatewayPort);
+    setOptionalString(auth, 'token', update.gatewayToken);
+    setOptionalString(defaults, 'workspace', update.defaultWorkspace, { trimAsPath: true });
+    setOptionalString(model, 'primary', update.defaultModel);
+
+    pruneEmptyObject(gateway, 'auth');
+    pruneEmptyObject(defaults, 'model');
+    pruneEmptyObject(agents, 'defaults');
+    pruneEmptyObject(nextConfig, 'agents');
+
+    return nextConfig;
+}
+
 async function resolveGatewayConfig(
     config: vscode.WorkspaceConfiguration,
     extensionPath: string
@@ -250,7 +361,7 @@ async function resolveOpenClawCliConfig(
 
     const configuredGatewayUrl = trimConfigPath(config.get<string>('gatewayUrl', ''));
     const configuredGatewayToken = config.get<string>('gatewayToken', '').trim();
-    const gatewayPort = openClawConfig.gateway?.port ?? 18789;
+    const gatewayPort = normalizeGatewayPort(openClawConfig.gateway?.port);
     const gatewayToken = configuredGatewayToken || openClawConfig.gateway?.auth?.token?.trim();
 
     return {
@@ -288,7 +399,7 @@ async function resolveDetectedGatewayConfig(
     const configPath = stateDir ? path.join(stateDir, 'openclaw.json') : null;
     const openClawConfig = configPath ? await readJsonFile<OpenClawConfigFile>(configPath) : null;
     const detectedGatewayUrl = openClawConfig
-        ? `http://127.0.0.1:${openClawConfig.gateway?.port ?? 18789}`
+        ? `http://127.0.0.1:${normalizeGatewayPort(openClawConfig.gateway?.port)}`
         : undefined;
     const detectedGatewayToken = trimConfigPath(openClawConfig?.gateway?.auth?.token);
 
@@ -448,6 +559,93 @@ async function resolveCliEntryPath(config: vscode.WorkspaceConfiguration): Promi
     }
 
     return null;
+}
+
+async function resolveOpenClawConfigStateDir(
+    config: vscode.WorkspaceConfiguration,
+    extensionPath: string
+): Promise<string> {
+    const configuredStateDir = trimConfigPath(config.get<string>('stateDir', '') || process.env.OPENCLAW_STATE_DIR);
+    if (configuredStateDir) {
+        return configuredStateDir;
+    }
+
+    const detectedStateDir = await findFirstExistingPath(getStateDirCandidates(config, extensionPath));
+    if (detectedStateDir) {
+        return detectedStateDir;
+    }
+
+    return path.join(os.homedir(), '.openclaw');
+}
+
+function buildOpenClawConfigEditorState(
+    stateDir: string,
+    configPath: string,
+    openClawConfig: OpenClawConfigFile | null,
+    exists: boolean
+): OpenClawConfigEditorState {
+    return {
+        stateDir,
+        configPath,
+        exists,
+        gatewayPort: normalizeGatewayPort(openClawConfig?.gateway?.port),
+        gatewayToken: openClawConfig?.gateway?.auth?.token?.trim() || '',
+        defaultWorkspace: trimConfigPath(openClawConfig?.agents?.defaults?.workspace) || '',
+        defaultModel: openClawConfig?.agents?.defaults?.model?.primary?.trim() || '',
+        sourceDescription: exists ? configPath : `Will create ${configPath}`
+    };
+}
+
+function normalizeGatewayPort(value: number | undefined): number {
+    if (Number.isInteger(value) && value! > 0 && value! <= 65535) {
+        return value!;
+    }
+
+    return DEFAULT_OPENCLAW_GATEWAY_PORT;
+}
+
+function cloneJsonRecord(value: JsonRecord | null): JsonRecord {
+    return JSON.parse(JSON.stringify(value || {})) as JsonRecord;
+}
+
+function ensureJsonRecord(parent: JsonRecord, key: string): JsonRecord {
+    const current = parent[key];
+    if (current && typeof current === 'object' && !Array.isArray(current)) {
+        return current as JsonRecord;
+    }
+
+    const next: JsonRecord = {};
+    parent[key] = next;
+    return next;
+}
+
+function setOptionalString(
+    parent: JsonRecord,
+    key: string,
+    value: string | undefined,
+    options: { trimAsPath?: boolean } = {}
+): void {
+    const normalized = options.trimAsPath
+        ? trimConfigPath(value)
+        : value?.trim();
+
+    if (normalized) {
+        parent[key] = normalized;
+        return;
+    }
+
+    delete parent[key];
+}
+
+function pruneEmptyObject(parent: JsonRecord, key: string): void {
+    const current = parent[key];
+    if (!current || typeof current !== 'object' || Array.isArray(current)) {
+        return;
+    }
+
+    if (Object.keys(current as JsonRecord).length === 0) {
+        delete parent[key];
+    }
 }
 
 function getCliCandidates(): string[] {

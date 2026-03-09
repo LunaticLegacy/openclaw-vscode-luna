@@ -1,6 +1,6 @@
 {
   "displayName": "OpenClaw Luna",
-  "description": "OpenClaw Luna - 在 VSCode 中使用 OpenClaw AI Agent，支持 Agent 管理、集群、定时任务和 API 用量监控。",
+  "description": "OpenClaw 的 VS Code 控制台，统一管理 Gateway、OpenClaw CLI 与本地模型模式下的 Agent、Swarm、定时任务和用量。",
   "command.category": "OpenClaw",
   "command.openPanel.title": "打开 OpenClaw Luna",
   "command.quickChat.title": "快速聊天",

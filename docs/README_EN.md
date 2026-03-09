@@ -3,9 +3,9 @@
 <div align="center">
   <img src="../resources/icon.png" width="120" alt="OpenClaw Luna Logo" />
 
-  ### Use OpenClaw Agents, AI Swarms, and cron tasks directly inside VS Code
+  ### The OpenClaw console for VS Code
 
-  **A VS Code extension for agent management, AI Swarm workspaces, OpenClaw cron tasks, 7/30-day usage monitoring, and multi-mode connections**
+  **Keep agents, AI Swarms, OpenClaw cron jobs, and 7/30-day usage in one console instead of scattering them across separate entry points.**
 
   [中文](../README.md) | [English](README_EN.md)
 </div>
@@ -50,6 +50,20 @@
 
 The main console includes connection setup and install guidance, so switching and retrying can stay inside Luna.
 
+### Capability Matrix
+
+| Capability | Gateway | OpenClaw CLI | Local Models |
+| --- | --- | --- | --- |
+| Agent chat | Native | Native | Native |
+| Agent settings editing | Yes | No | Yes |
+| Swarm workspace | Remote cluster transport | Luna-managed workspace | Luna-managed workspace |
+| Cluster persistence | Gateway storage | Luna storage | Luna storage |
+| Scheduled tasks | No | Yes | No |
+| Live session sync | No | Yes | No |
+| Usage dashboard | Yes | Yes | Yes |
+
+This is not just documentation. The extension now routes service, command, and panel guards through the same capability matrix, instead of scattering `if mode` checks across the UI.
+
 ---
 
 ## Quick Start
@@ -57,7 +71,7 @@ The main console includes connection setup and install guidance, so switching an
 ### Install
 
 ```bash
-git clone https://github.com/openclaw/openclaw-vscode-luna.git
+git clone https://github.com/LunaticLegacy/openclaw-vscode-luna.git
 cd openclaw-vscode-luna
 npm install
 npm run compile
@@ -70,6 +84,24 @@ npm run watch
 ```
 
 Then press `F5` to launch the Extension Development Host.
+
+### Tests
+
+```bash
+npm test
+```
+
+The current smoke integration test covers:
+
+- extension activation and command registration
+- creating an agent, sending a message, and reading usage in `Local Models` mode
+- switching to `OpenClaw CLI` mode and creating, editing, toggling, running, and deleting a task
+
+To exercise the real VS Code extension host activation path, run:
+
+```bash
+npm run test:host
+```
 
 ### Common Settings
 
@@ -99,24 +131,28 @@ Then press `F5` to launch the Extension Development Host.
 - `New Agent`: blank form
 - `Use Preset Agent`: card-based preset gallery
 
-Built-in presets currently include:
+Built-in presets now carry actual guidance, not just labels:
 
-- `algorithm-helper`
-- `quantative-recorder`
-- `code-review-guard`
-- `bug-hunter`
-- `refactor-planner`
-- `api-contract-writer`
+| Preset | Use when | Recommended model | Output standard |
+| --- | --- | --- | --- |
+| `algorithm-helper` | algorithm problems, complexity analysis, edge cases | long-context reasoning or coding model | constraints first, approaches second, implementation last |
+| `quantative-recorder` | ledgers, PnL breakdowns, fee and accounting checks | numerically stable reasoning model | balances/PnL/fees/anomalies before conclusions |
+| `code-review-guard` | bugs, regressions, security, performance, test gaps | model that handles diffs and behavior well | findings first, with evidence and impact |
+| `bug-hunter` | triage, minimal repro, debugging plans | log/trace-friendly debugging model | hypotheses, fastest repro, next probe |
+| `refactor-planner` | staged refactors and migrations | long-context migration planning model | phased plan with rollback points and validation |
+| `api-contract-writer` | schemas, error models, versioning, examples | schema- and compatibility-disciplined reasoning model | request/response/error/example set delivered together |
 
 ---
 
 ## Project Structure
 
 ```text
-openclaw-vscode/
+openclaw-vscode-luna/
 ├── src/
 │   ├── extension.ts
 │   ├── i18n.ts
+│   ├── commands/
+│   ├── extension/
 │   ├── config/
 │   │   └── agentPresets.ts
 │   ├── managers/
@@ -130,14 +166,20 @@ openclaw-vscode/
 │   │   ├── openclawSidebarProvider.ts
 │   │   └── taskTreeProvider.ts
 │   ├── services/
+│   │   ├── openclaw/
 │   │   ├── openclawCli.ts
 │   │   ├── openclawConfig.ts
 │   │   ├── openclawGatewayClient.ts
 │   │   └── openclawService.ts
+│   ├── test/
+│   │   ├── fixtures/
+│   │   └── suite/
 │   └── types/
 │       └── ws.d.ts
 ├── media/
 │   ├── panel.html
+│   ├── panelCommon.js
+│   ├── panelFeedback.js
 │   ├── panel.js
 │   ├── style.css
 │   ├── i18n.js
@@ -162,7 +204,7 @@ openclaw-vscode/
 - [x] OpenClaw cron task management
 - [x] 7-day / 30-day API usage dashboard
 - [x] Preset-based agent creation flow
-- [ ] More end-to-end UI tests
+- [x] Primary smoke integration test
 - [ ] More scenario-specific presets
 - [ ] Continuous README and screenshot updates
 

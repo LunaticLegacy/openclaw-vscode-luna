@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { t } from '../i18n';
 import { OpenClawExtensionRuntime } from '../extension/runtime';
+import { showSuccessStatus } from '../utils/statusFeedback';
 import { resolveAgentId } from './helpers';
 
 export function registerPanelCommands(
@@ -59,7 +60,7 @@ export function registerPanelCommands(
                 const panel = runtime.showPanel();
                 panel.setActiveAgent(selectedAgent.agentId);
                 await panel.sendMessage(input, selectedAgent.agentId);
-                vscode.window.showInformationMessage(t('quickChat.sent'));
+                showSuccessStatus(t('quickChat.sent'));
             } catch (error) {
                 vscode.window.showErrorMessage(t('quickChat.sendFailed', { error: String(error) }));
             }
@@ -93,7 +94,7 @@ export function registerPanelCommands(
             const panel = runtime.getPanel();
             if (panel) {
                 panel.clearChat();
-                vscode.window.showInformationMessage(t('clearChat.cleared'));
+                showSuccessStatus(t('clearChat.cleared'));
             }
         }),
         vscode.commands.registerCommand('openclaw.refreshAgents', async () => {
@@ -104,7 +105,7 @@ export function registerPanelCommands(
                 if (panel) {
                     await panel.refreshAgents(false);
                 }
-                vscode.window.showInformationMessage(t('agents.refreshed'));
+                showSuccessStatus(t('agents.refreshed'));
             } catch (error) {
                 vscode.window.showErrorMessage(t('agents.refreshFailed', { error: String(error) }));
             }

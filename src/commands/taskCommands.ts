@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { t } from '../i18n';
 import { OpenClawExtensionRuntime } from '../extension/runtime';
+import { getCapabilityUnavailableMessage, isServiceCapabilityAvailable } from '../utils/capabilitySupport';
+import { showSuccessStatus } from '../utils/statusFeedback';
 import { resolveTaskId } from './helpers';
 
 export function registerTaskCommands(
@@ -12,13 +14,28 @@ export function registerTaskCommands(
             runtime.showPanel().showTaskView();
         }),
         vscode.commands.registerCommand('openclaw.createTask', async () => {
+            if (!isServiceCapabilityAvailable(runtime.service, 'scheduledTasks')) {
+                vscode.window.showErrorMessage(getCapabilityUnavailableMessage('scheduledTasks'));
+                return;
+            }
+
             await runtime.showPanel().showTaskEditor();
         }),
         vscode.commands.registerCommand('openclaw.editTask', async (taskArg: any) => {
+            if (!isServiceCapabilityAvailable(runtime.service, 'scheduledTasks')) {
+                vscode.window.showErrorMessage(getCapabilityUnavailableMessage('scheduledTasks'));
+                return;
+            }
+
             const taskId = resolveTaskId(taskArg);
             await runtime.showPanel().showTaskEditor(taskId);
         }),
         vscode.commands.registerCommand('openclaw.toggleTask', async (taskArg: any) => {
+            if (!isServiceCapabilityAvailable(runtime.service, 'scheduledTasks')) {
+                vscode.window.showErrorMessage(getCapabilityUnavailableMessage('scheduledTasks'));
+                return;
+            }
+
             const taskId = resolveTaskId(taskArg);
             if (!taskId) {
                 vscode.window.showErrorMessage(t('tasks.selectionRequired'));
@@ -27,13 +44,18 @@ export function registerTaskCommands(
 
             try {
                 const task = await runtime.taskManager.toggleTask(taskId);
-                vscode.window.showInformationMessage(task.enabled ? t('tasks.enabled') : t('tasks.disabled'));
+                showSuccessStatus(task.enabled ? t('tasks.enabled') : t('tasks.disabled'));
                 runtime.taskTreeProvider.refresh();
             } catch (error) {
                 vscode.window.showErrorMessage(t('tasks.updateFailed', { error: String(error) }));
             }
         }),
         vscode.commands.registerCommand('openclaw.runTask', async (taskArg: any) => {
+            if (!isServiceCapabilityAvailable(runtime.service, 'scheduledTasks')) {
+                vscode.window.showErrorMessage(getCapabilityUnavailableMessage('scheduledTasks'));
+                return;
+            }
+
             const taskId = resolveTaskId(taskArg);
             if (!taskId) {
                 vscode.window.showErrorMessage(t('tasks.selectionRequired'));
@@ -42,13 +64,18 @@ export function registerTaskCommands(
 
             try {
                 await runtime.taskManager.runTask(taskId, 'manual');
-                vscode.window.showInformationMessage(t('tasks.runTriggered'));
+                showSuccessStatus(t('tasks.runTriggered'));
                 runtime.taskTreeProvider.refresh();
             } catch (error) {
                 vscode.window.showErrorMessage(t('tasks.runFailed', { error: String(error) }));
             }
         }),
         vscode.commands.registerCommand('openclaw.deleteTask', async (taskArg: any) => {
+            if (!isServiceCapabilityAvailable(runtime.service, 'scheduledTasks')) {
+                vscode.window.showErrorMessage(getCapabilityUnavailableMessage('scheduledTasks'));
+                return;
+            }
+
             const taskId = resolveTaskId(taskArg);
             if (!taskId) {
                 vscode.window.showErrorMessage(t('tasks.selectionRequired'));
@@ -73,17 +100,22 @@ export function registerTaskCommands(
                 }
 
                 await runtime.taskManager.deleteTask(taskId);
-                vscode.window.showInformationMessage(t('tasks.deleted'));
+                showSuccessStatus(t('tasks.deleted'));
                 runtime.taskTreeProvider.refresh();
             } catch (error) {
                 vscode.window.showErrorMessage(t('tasks.deleteFailed', { error: String(error) }));
             }
         }),
         vscode.commands.registerCommand('openclaw.refreshTasks', async () => {
+            if (!isServiceCapabilityAvailable(runtime.service, 'scheduledTasks')) {
+                vscode.window.showErrorMessage(getCapabilityUnavailableMessage('scheduledTasks'));
+                return;
+            }
+
             try {
                 await runtime.taskManager.refresh();
                 runtime.taskTreeProvider.refresh();
-                vscode.window.showInformationMessage(t('tasks.refreshed'));
+                showSuccessStatus(t('tasks.refreshed'));
             } catch (error) {
                 vscode.window.showErrorMessage(t('tasks.refreshFailed', { error: String(error) }));
             }
