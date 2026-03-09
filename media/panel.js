@@ -3,6 +3,9 @@
     'use strict';
 
     const vscode = acquireVsCodeApi();
+    const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:18789';
+    const INSTALL_COMMAND = 'npm install -g openclaw@latest';
+    const ONBOARD_COMMAND = 'openclaw onboard --install-daemon';
     
     // State
     let state = {
@@ -30,8 +33,11 @@
             mode: 'gateway',
             sourceDescription: '',
             supportsTasks: false,
-            supportsLiveSync: false
-        }
+            supportsLiveSync: false,
+            diagnostics: null
+        },
+        connectionFormDirty: false,
+        connectionSettingsStatus: null
     };
     let activeTraceContainer = null;
 
@@ -98,8 +104,23 @@
         elements.consoleAgentsMeta = document.getElementById('console-agents-meta');
         elements.consoleTasksValue = document.getElementById('console-tasks-value');
         elements.consoleTasksMeta = document.getElementById('console-tasks-meta');
+        elements.consoleSetupPanel = document.getElementById('console-setup-panel');
         elements.consoleNextSteps = document.getElementById('console-next-steps');
         elements.consoleActionButtons = document.querySelectorAll('[data-console-action]');
+        elements.formConnectionSettings = document.getElementById('form-connection-settings');
+        elements.connectionConfigMode = document.getElementById('connection-config-mode');
+        elements.connectionGatewayUrl = document.getElementById('connection-gateway-url');
+        elements.connectionGatewayToken = document.getElementById('connection-gateway-token');
+        elements.connectionSettingsHint = document.getElementById('connection-settings-hint');
+        elements.connectionSettingsStatus = document.getElementById('connection-settings-status');
+        elements.btnRetryConnection = document.getElementById('btn-retry-connection');
+        elements.btnUseDetectedGateway = document.getElementById('btn-use-detected-gateway');
+        elements.consoleInstallGuide = document.getElementById('console-install-guide');
+        elements.installGuideSummary = document.getElementById('install-guide-summary');
+        elements.installGuideState = document.getElementById('install-guide-state');
+        elements.installCommand = document.getElementById('install-command');
+        elements.onboardCommand = document.getElementById('onboard-command');
+        elements.copyCommandButtons = document.querySelectorAll('[data-copy-command]');
         elements.clusterEmptyState = document.getElementById('clusters-empty-state');
         elements.clusterWorkspace = document.getElementById('cluster-workspace');
         elements.clusterTitle = document.getElementById('cluster-title');
@@ -182,6 +203,41 @@
             button.addEventListener('click', () => {
                 const action = button.getAttribute('data-console-action');
                 handleConsoleAction(action);
+            });
+        });
+
+        elements.formConnectionSettings?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            saveConnectionSettings();
+        });
+
+        elements.connectionConfigMode?.addEventListener('change', () => {
+            state.connectionFormDirty = true;
+            state.connectionSettingsStatus = null;
+            renderConnectionSetup();
+        });
+
+        [elements.connectionGatewayUrl, elements.connectionGatewayToken].forEach(input => {
+            input?.addEventListener('input', () => {
+                state.connectionFormDirty = true;
+                state.connectionSettingsStatus = null;
+                renderConnectionSetupStatus();
+            });
+        });
+
+        elements.btnRetryConnection?.addEventListener('click', () => {
+            state.connectionSettingsStatus = null;
+            renderConnectionSetupStatus();
+            vscode.postMessage({ type: 'retryConnection' });
+        });
+
+        elements.btnUseDetectedGateway?.addEventListener('click', () => {
+            applyDetectedGatewayValues();
+        });
+
+        elements.copyCommandButtons?.forEach(button => {
+            button.addEventListener('click', () => {
+                void copySetupCommand(button.getAttribute('data-copy-command'));
             });
         });
 
@@ -425,6 +481,7 @@
 
         updateConnectionBadge();
         renderConsoleOverview();
+        renderConnectionSetup();
         renderClusterWorkspace();
         if (state.latestUsage) {
             renderUsage(state.latestUsage);
@@ -461,6 +518,217 @@
             case 'settings':
                 vscode.postMessage({ type: 'openSettings' });
                 break;
+        }
+    }
+
+    function getRuntimeDiagnostics() {
+        return state.runtime.diagnostics || null;
+    }
+
+    function hasDetectedGateway(diagnostics) {
+        return Boolean(diagnostics?.detectedGatewayUrl || diagnostics?.detectedGatewayToken);
+    }
+
+    function resolveConnectionFormState(diagnostics) {
+        return {
+            configMode: diagnostics?.configMode || 'auto',
+            gatewayUrl: diagnostics?.configuredGatewayUrl || diagnostics?.detectedGatewayUrl || DEFAULT_GATEWAY_URL,
+            gatewayToken: diagnostics?.configuredGatewayToken || diagnostics?.detectedGatewayToken || ''
+        };
+    }
+
+    function syncConnectionForm(force = false) {
+        if (!elements.connectionConfigMode || !elements.connectionGatewayUrl || !elements.connectionGatewayToken) {
+            return;
+        }
+
+        if (state.connectionFormDirty && !force) {
+            updateDetectedGatewayButton();
+            return;
+        }
+
+        const formState = resolveConnectionFormState(getRuntimeDiagnostics());
+        elements.connectionConfigMode.value = formState.configMode;
+        elements.connectionGatewayUrl.value = formState.gatewayUrl;
+        elements.connectionGatewayToken.value = formState.gatewayToken;
+        updateDetectedGatewayButton();
+    }
+
+    function updateDetectedGatewayButton() {
+        if (!elements.btnUseDetectedGateway) {
+            return;
+        }
+
+        elements.btnUseDetectedGateway.disabled = !hasDetectedGateway(getRuntimeDiagnostics());
+    }
+
+    function collectConnectionSettings() {
+        return {
+            configMode: elements.connectionConfigMode?.value || 'auto',
+            gatewayUrl: elements.connectionGatewayUrl?.value?.trim() || '',
+            gatewayToken: elements.connectionGatewayToken?.value?.trim() || ''
+        };
+    }
+
+    function saveConnectionSettings() {
+        state.connectionSettingsStatus = null;
+        renderConnectionSetupStatus();
+        vscode.postMessage({
+            type: 'saveConnectionSettings',
+            settings: collectConnectionSettings()
+        });
+    }
+
+    function applyDetectedGatewayValues() {
+        const diagnostics = getRuntimeDiagnostics();
+        if (!hasDetectedGateway(diagnostics)) {
+            return;
+        }
+
+        if (elements.connectionConfigMode) {
+            elements.connectionConfigMode.value = 'gateway';
+        }
+        if (elements.connectionGatewayUrl && diagnostics?.detectedGatewayUrl) {
+            elements.connectionGatewayUrl.value = diagnostics.detectedGatewayUrl;
+        }
+        if (elements.connectionGatewayToken) {
+            elements.connectionGatewayToken.value = diagnostics?.detectedGatewayToken || '';
+        }
+
+        state.connectionFormDirty = true;
+        state.connectionSettingsStatus = null;
+        renderConnectionSetup();
+    }
+
+    function setConnectionSetupStatus(kind, text) {
+        state.connectionSettingsStatus = text ? { kind, text } : null;
+        renderConnectionSetupStatus();
+    }
+
+    function renderConnectionSetupStatus() {
+        if (!elements.connectionSettingsStatus) {
+            return;
+        }
+
+        const status = state.connectionSettingsStatus;
+        elements.connectionSettingsStatus.classList.toggle('hidden', !status);
+        elements.connectionSettingsStatus.classList.toggle('success', status?.kind === 'success');
+        elements.connectionSettingsStatus.classList.toggle('error', status?.kind === 'error');
+        elements.connectionSettingsStatus.textContent = status?.text || '';
+    }
+
+    function resolveConnectionHint(t, diagnostics) {
+        if (diagnostics?.detectedGatewayUrl) {
+            const source = diagnostics.detectedConfigPath || diagnostics.detectedStateDir || '';
+            if (source) {
+                return t('setup.hintDetectedGatewayWithSource', {
+                    url: diagnostics.detectedGatewayUrl,
+                    source
+                });
+            }
+
+            return t('setup.hintDetectedGateway', {
+                url: diagnostics.detectedGatewayUrl
+            });
+        }
+
+        if (diagnostics?.configuredGatewayUrl) {
+            return t('setup.hintConfiguredGateway', {
+                url: diagnostics.configuredGatewayUrl
+            });
+        }
+
+        return t('setup.hintNoGatewayDetected', {
+            defaultUrl: DEFAULT_GATEWAY_URL
+        });
+    }
+
+    function resolveInstallGuideState(t, diagnostics) {
+        if (diagnostics?.openClawInstalled) {
+            return t('setup.installStateDetected', {
+                path: diagnostics.detectedCliEntryPath || diagnostics.detectedNodePath || ''
+            });
+        }
+
+        return t('setup.installStateNotDetected');
+    }
+
+    function renderConnectionSetup() {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key, vars) => {
+            if (!vars) {
+                return key;
+            }
+            return Object.entries(vars).reduce((text, [name, value]) => text.replace(`{${name}}`, String(value)), key);
+        };
+        const diagnostics = getRuntimeDiagnostics();
+        const showSetupPanel = !state.runtime.connected || state.agents.length === 0;
+
+        if (elements.consoleSetupPanel) {
+            elements.consoleSetupPanel.classList.toggle('hidden', !showSetupPanel);
+        }
+
+        syncConnectionForm();
+
+        if (elements.connectionSettingsHint) {
+            elements.connectionSettingsHint.textContent = resolveConnectionHint(t, diagnostics);
+        }
+
+        if (elements.installCommand) {
+            elements.installCommand.textContent = INSTALL_COMMAND;
+        }
+        if (elements.onboardCommand) {
+            elements.onboardCommand.textContent = ONBOARD_COMMAND;
+        }
+
+        if (elements.consoleInstallGuide) {
+            const shouldShowInstallGuide = showSetupPanel && !diagnostics?.openClawInstalled;
+            elements.consoleInstallGuide.classList.toggle('hidden', !shouldShowInstallGuide);
+        }
+        if (elements.installGuideState) {
+            elements.installGuideState.textContent = resolveInstallGuideState(t, diagnostics);
+        }
+
+        renderConnectionSetupStatus();
+    }
+
+    async function copySetupCommand(kind) {
+        const command = kind === 'onboard' ? ONBOARD_COMMAND : INSTALL_COMMAND;
+
+        try {
+            await copyTextToClipboard(command);
+            setConnectionSetupStatus(
+                'success',
+                (window.OpenClawI18n ? window.OpenClawI18n.t('setup.statusCopied') : 'Copied command to clipboard.')
+            );
+        } catch (error) {
+            setConnectionSetupStatus(
+                'error',
+                String(error instanceof Error ? error.message : error)
+            );
+        }
+    }
+
+    async function copyTextToClipboard(text) {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+            return;
+        }
+
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', 'readonly');
+        textarea.style.position = 'absolute';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+
+        try {
+            const copied = document.execCommand('copy');
+            if (!copied) {
+                throw new Error('Copy command failed.');
+            }
+        } finally {
+            textarea.remove();
         }
     }
 
@@ -565,6 +833,7 @@
             `).join('');
         }
 
+        renderConnectionSetup();
         updateChatHomeVisibility();
     }
 
@@ -2927,7 +3196,8 @@
                     mode: message.mode || 'gateway',
                     sourceDescription: message.sourceDescription || '',
                     supportsTasks: Boolean(message.supportsTasks),
-                    supportsLiveSync: Boolean(message.supportsLiveSync)
+                    supportsLiveSync: Boolean(message.supportsLiveSync),
+                    diagnostics: message.diagnostics || null
                 };
                 updateConnectionBadge();
                 renderConsoleOverview();
@@ -3062,6 +3332,24 @@
                 if (state.viewMode === 'clusters') {
                     clearCurrentClusterPendingState();
                 }
+                break;
+
+            case 'connectionSettingsSaved':
+                state.connectionFormDirty = false;
+                syncConnectionForm(true);
+                setConnectionSetupStatus(
+                    'success',
+                    window.OpenClawI18n ? window.OpenClawI18n.t('setup.statusSaved') : 'Connection settings saved.'
+                );
+                renderConsoleOverview();
+                break;
+
+            case 'connectionSettingsSaveFailed':
+                state.connectionFormDirty = true;
+                setConnectionSetupStatus(
+                    'error',
+                    message.message || (window.OpenClawI18n ? window.OpenClawI18n.t('setup.statusSaveFailed') : 'Failed to save connection settings.')
+                );
                 break;
         }
     });

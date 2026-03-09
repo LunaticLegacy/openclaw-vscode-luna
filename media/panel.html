@@ -107,6 +107,69 @@
                             </article>
                         </section>
 
+                        <section id="console-setup-panel" class="console-setup-panel hidden">
+                            <div class="console-setup-grid">
+                                <article class="console-setup-card">
+                                    <div class="console-next-header">
+                                        <h4 data-i18n="setup.connectionTitle">Connection Setup</h4>
+                                        <button id="btn-retry-connection" class="btn btn-secondary btn-small" type="button" data-i18n="common.refresh">Refresh</button>
+                                    </div>
+                                    <p id="connection-settings-body" class="console-setup-lead" data-i18n="setup.connectionBody">Configure a gateway or switch modes without leaving Luna.</p>
+                                    <form id="form-connection-settings" class="connection-settings-form">
+                                        <div class="connection-settings-grid">
+                                            <div class="form-group">
+                                                <label for="connection-config-mode" data-i18n="setup.modeLabel">Connection Mode</label>
+                                                <select id="connection-config-mode">
+                                                    <option value="auto" data-i18n="setup.mode.auto">Auto Detect</option>
+                                                    <option value="gateway" data-i18n="setup.mode.gateway">Gateway</option>
+                                                    <option value="openclaw" data-i18n="setup.mode.openclaw">OpenClaw CLI</option>
+                                                    <option value="local" data-i18n="setup.mode.local">Local Models</option>
+                                                </select>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="connection-gateway-url" data-i18n="setup.gatewayUrlLabel">Gateway URL</label>
+                                                <input type="text" id="connection-gateway-url" placeholder="http://127.0.0.1:18789">
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="connection-gateway-token" data-i18n="setup.gatewayTokenLabel">Gateway Token</label>
+                                            <input type="password" id="connection-gateway-token" autocomplete="off" placeholder="Optional token">
+                                        </div>
+                                        <div id="connection-settings-hint" class="form-hint"></div>
+                                        <div id="connection-settings-status" class="console-setup-status hidden"></div>
+                                        <div class="form-actions">
+                                            <button id="btn-use-detected-gateway" type="button" class="btn btn-secondary" data-i18n="setup.useDetected">Use Detected Values</button>
+                                            <button type="button" class="btn btn-secondary" data-console-action="settings" data-i18n="common.settings">Settings</button>
+                                            <button type="submit" class="btn btn-primary" data-i18n="setup.saveAndRetry">Save & Retry</button>
+                                        </div>
+                                    </form>
+                                </article>
+
+                                <article id="console-install-guide" class="console-setup-card hidden">
+                                    <div class="console-next-header">
+                                        <h4 data-i18n="setup.installTitle">Install OpenClaw</h4>
+                                    </div>
+                                    <p id="install-guide-summary" class="console-setup-lead" data-i18n="setup.installSummary">No local OpenClaw CLI was detected. Install it locally, or connect Luna to a remote gateway using the form.</p>
+                                    <div id="install-guide-state" class="console-card-meta"></div>
+                                    <div class="console-command-block">
+                                        <div class="console-command-label" data-i18n="setup.installStepInstall">Install the CLI</div>
+                                        <div class="console-command-row">
+                                            <pre id="install-command" class="console-command-pre"></pre>
+                                            <button type="button" class="btn btn-secondary btn-small" data-copy-command="install" data-i18n="common.copy">Copy</button>
+                                        </div>
+                                    </div>
+                                    <div class="console-command-block">
+                                        <div class="console-command-label" data-i18n="setup.installStepOnboard">Run the onboarding wizard</div>
+                                        <div class="console-command-row">
+                                            <pre id="onboard-command" class="console-command-pre"></pre>
+                                            <button type="button" class="btn btn-secondary btn-small" data-copy-command="onboard" data-i18n="common.copy">Copy</button>
+                                        </div>
+                                    </div>
+                                    <p class="console-card-meta" data-i18n="setup.installStepRetry">After install and onboarding finish, come back here and click Refresh.</p>
+                                </article>
+                            </div>
+                        </section>
+
                         <section class="console-next-panel">
                             <div class="console-next-header">
                                 <h4 data-i18n="console.nextSteps">Next Steps</h4>
