@@ -131,17 +131,6 @@
         "icon": "$(gear)"
       },
       {
-        "command": "openclaw.sendMessage",
-        "title": "%command.sendMessage.title%",
-        "category": "%command.category%"
-      },
-      {
-        "command": "openclaw.clearChat",
-        "title": "%command.clearChat.title%",
-        "category": "%command.category%",
-        "icon": "$(clear-all)"
-      },
-      {
         "command": "openclaw.refreshAgents",
         "title": "%command.refreshAgents.title%",
         "category": "%command.category%",
@@ -178,11 +167,6 @@
         "icon": "$(settings-gear)"
       },
       {
-        "command": "openclaw.saveAgentSettings",
-        "title": "%command.saveAgentSettings.title%",
-        "category": "%command.category%"
-      },
-      {
         "command": "openclaw.createCluster",
         "title": "%command.createCluster.title%",
         "category": "%command.category%",
@@ -193,12 +177,6 @@
         "title": "%command.deleteCluster.title%",
         "category": "%command.category%",
         "icon": "$(trash)"
-      },
-      {
-        "command": "openclaw.statusBarClick",
-        "title": "%command.statusBarClick.title%",
-        "category": "%command.category%",
-        "icon": "$(rocket)"
       }
     ],
     
