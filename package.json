@@ -2,7 +2,7 @@
   "name": "openclaw-vscode-luna",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "publisher": "lunaticlegacy",
   "license": "MIT",
   "repository": {
@@ -148,6 +148,12 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "openclaw.refreshTasks",
+        "title": "%command.refreshTasks.title%",
+        "category": "%command.category%",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "openclaw.deleteAgent",
         "title": "%command.deleteAgent.title%",
         "category": "%command.category%",
@@ -253,6 +259,9 @@
           "command": "openclaw.createTask"
         },
         {
+          "command": "openclaw.refreshTasks"
+        },
+        {
           "command": "openclaw.deleteCluster"
         },
         {
@@ -317,6 +326,11 @@
           "command": "openclaw.manageTasks",
           "when": "view == openclawTasks",
           "group": "navigation@2"
+        },
+        {
+          "command": "openclaw.refreshTasks",
+          "when": "view == openclawTasks",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [

@@ -1,10 +1,12 @@
 import { OpenClawService, Agent } from '../services/openclawService';
 import { EventEmitter } from 'events';
+import { AgentPresetScaffolder } from '../services/agentPresetScaffolder';
 
 export interface CreateAgentParams {
     name: string;
     model: string;
     systemPrompt?: string;
+    presetId?: string;
 }
 
 export interface UpdateAgentParams {
@@ -15,12 +17,14 @@ export interface UpdateAgentParams {
 
 export class AgentManager extends EventEmitter {
     private service: OpenClawService;
+    private presetScaffolder?: AgentPresetScaffolder;
     private agents: Map<string, Agent> = new Map();
     private activeAgentId: string | null = null;
 
-    constructor(service: OpenClawService) {
+    constructor(service: OpenClawService, presetScaffolder?: AgentPresetScaffolder) {
         super();
         this.service = service;
+        this.presetScaffolder = presetScaffolder;
         this.setupListeners();
     }
 
@@ -69,6 +73,23 @@ export class AgentManager extends EventEmitter {
 
     public async createAgent(params: CreateAgentParams): Promise<Agent> {
         const agent = await this.service.createAgent(params);
+        if (params.presetId && this.presetScaffolder) {
+            try {
+                await this.presetScaffolder.applyPresetFiles(agent, {
+                    presetId: params.presetId,
+                    requestedName: params.name,
+                    requestedModel: params.model,
+                    systemPrompt: params.systemPrompt
+                });
+            } catch (error) {
+                try {
+                    await this.service.deleteAgent(agent.id);
+                } catch {
+                    // Ignore rollback failures and surface the preset scaffold error.
+                }
+                throw error;
+            }
+        }
         this.agents.set(agent.id, agent);
         return agent;
     }

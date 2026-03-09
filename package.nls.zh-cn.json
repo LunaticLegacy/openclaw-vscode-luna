@@ -19,6 +19,7 @@
   "command.sendMessage.title": "发送消息",
   "command.clearChat.title": "清空聊天记录",
   "command.refreshAgents.title": "刷新 Agent",
+  "command.refreshTasks.title": "刷新任务",
   "command.deleteAgent.title": "删除 Agent",
   "command.editAgent.title": "编辑 Agent",
   "command.openAgentFolder.title": "打开 Agent 文件夹",

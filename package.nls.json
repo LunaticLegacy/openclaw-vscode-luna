@@ -19,6 +19,7 @@
   "command.sendMessage.title": "Send Message",
   "command.clearChat.title": "Clear Chat History",
   "command.refreshAgents.title": "Refresh Agents",
+  "command.refreshTasks.title": "Refresh Tasks",
   "command.deleteAgent.title": "Delete Agent",
   "command.editAgent.title": "Edit Agent",
   "command.openAgentFolder.title": "Open Agent Folder",

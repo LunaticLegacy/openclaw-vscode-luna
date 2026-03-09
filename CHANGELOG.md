@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project follows Semantic Versioning.
 
+## [0.3.0] - 2026-03-09
+
+### Added
+- NEW FEAT: Added preset agents.
+
+### Fixed
+- Let refreshing can be used in main panel.
+- Let refreshing can be used in scheduled mission in the side-panel.
+
 ## [0.2.2] - 2026-03-09
 
 ### Fixed
