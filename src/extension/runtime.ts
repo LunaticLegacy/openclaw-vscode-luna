@@ -126,6 +126,7 @@ export class OpenClawExtensionRuntime {
     public async handleConfigurationChange(): Promise<void> {
         const nextConfig = await resolveOpenClawServiceConfig(this.context.extensionPath);
         this.service.updateConfig(nextConfig);
+        this.usageManager.invalidate();
         this.refreshAllViews();
     }
 

@@ -4,6 +4,7 @@ import type {
     OpenClawCliCommandExecutor,
     OpenClawCronRunRecord
 } from '../../services/openclawCli';
+import { formatLocalDateKey } from '../../utils/dateKey';
 
 type CronSchedule =
     | { kind: 'every'; everyMs: number }
@@ -539,7 +540,7 @@ async function readSessionMessages(
 }
 
 function buildSessionsUsagePayload(sessions: FakeSessionRecord[]): Record<string, unknown> {
-    const date = new Date().toISOString().slice(0, 10);
+    const date = formatLocalDateKey();
     const totalUserMessages = sessions.reduce((sum, session) => sum + session.messageCountUser, 0);
     const totalAssistantMessages = sessions.reduce((sum, session) => sum + session.messageCountAssistant, 0);
 
@@ -590,7 +591,7 @@ function buildSessionsUsagePayload(sessions: FakeSessionRecord[]): Record<string
 }
 
 function buildUsageCostPayload(sessions: FakeSessionRecord[]): Record<string, unknown> {
-    const date = new Date().toISOString().slice(0, 10);
+    const date = formatLocalDateKey();
     const totals = sessions.reduce((accumulator, session) => {
         accumulator.input += session.inputTokens;
         accumulator.output += session.outputTokens;

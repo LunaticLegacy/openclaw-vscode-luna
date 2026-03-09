@@ -278,7 +278,7 @@ suite('OpenClaw Main Path', () => {
             assert.equal(openClawResponse.role, 'assistant');
             assert.match(openClawResponse.content, /fake openclaw reply/i);
 
-            const openClawUsage = await usageManager.getUsage(true);
+            const openClawUsage = await usageManager.getUsage();
             assert.equal(openClawUsage.totalRequests, 1);
             assert.equal(openClawUsage.byModel['fake-openclaw-model']?.requests, 1);
 

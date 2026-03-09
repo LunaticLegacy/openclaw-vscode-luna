@@ -230,17 +230,23 @@ export class OpenClawService extends EventEmitter {
         options?: SendMessageOptions
     ): Promise<ChatMessage> {
         if (this.localRuntime) {
-            return this.localRuntime.sendMessage(sessionId, message, options);
+            const response = await this.localRuntime.sendMessage(sessionId, message, options);
+            this.emit('usageChanged');
+            return response;
         }
 
         if (this.openClawRuntime) {
-            return this.openClawRuntime.sendMessage(sessionId, message, options);
+            const response = await this.openClawRuntime.sendMessage(sessionId, message, options);
+            this.emit('usageChanged');
+            return response;
         }
 
-        return this.requireTransport().post<ChatMessage>(`/api/sessions/${sessionId}/messages`, {
+        const response = await this.requireTransport().post<ChatMessage>(`/api/sessions/${sessionId}/messages`, {
             content: message,
             ...options
         });
+        this.emit('usageChanged');
+        return response;
     }
 
     public async *streamMessage(
@@ -249,32 +255,44 @@ export class OpenClawService extends EventEmitter {
         options?: StreamMessageOptions
     ): AsyncGenerator<StreamChunk, void, unknown> {
         if (this.localRuntime) {
-            yield* this.localRuntime.streamMessage(sessionId, message, options);
+            try {
+                yield* this.localRuntime.streamMessage(sessionId, message, options);
+            } finally {
+                this.emit('usageChanged');
+            }
             return;
         }
 
         if (this.openClawRuntime) {
-            yield* this.openClawRuntime.streamMessage(sessionId, message);
+            try {
+                yield* this.openClawRuntime.streamMessage(sessionId, message);
+            } finally {
+                this.emit('usageChanged');
+            }
             return;
         }
 
-        const stream = await this.requireTransport().postStream(
-            `/api/sessions/${sessionId}/messages/stream`,
-            {
-                content: message,
-                ...options
-            }
-        );
-
-        for await (const chunk of stream) {
-            const lines = chunk.toString().split('\n');
-            for (const line of lines) {
-                if (!line.startsWith('data: ')) {
-                    continue;
+        try {
+            const stream = await this.requireTransport().postStream(
+                `/api/sessions/${sessionId}/messages/stream`,
+                {
+                    content: message,
+                    ...options
                 }
+            );
 
-                yield JSON.parse(line.slice(6)) as StreamChunk;
+            for await (const chunk of stream) {
+                const lines = chunk.toString().split('\n');
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) {
+                        continue;
+                    }
+
+                    yield JSON.parse(line.slice(6)) as StreamChunk;
+                }
             }
+        } finally {
+            this.emit('usageChanged');
         }
     }
 

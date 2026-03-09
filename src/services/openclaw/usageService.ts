@@ -4,6 +4,7 @@ import {
     OpenClawSessionsUsageResult,
     OpenClawUsageCostResult
 } from '../openclawCli';
+import { formatLocalDateKey } from '../../utils/dateKey';
 import {
     APIUsage,
     LocalAgent,
@@ -69,7 +70,7 @@ export class LocalUsageService {
         const completionTokens = usage?.completion_tokens || 0;
         const totalTokens = usage?.total_tokens || promptTokens + completionTokens;
         const cost = estimateFallbackCost(promptTokens, completionTokens);
-        const today = new Date().toISOString().split('T')[0];
+        const today = formatLocalDateKey();
 
         updateUsageAggregate(this.usage, agent.model, today, promptTokens, completionTokens, totalTokens, cost);
 
