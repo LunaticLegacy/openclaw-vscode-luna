@@ -62,7 +62,7 @@ npm run compile
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
-| `openclaw.gatewayUrl` | OpenClaw Gateway 地址 | `http://localhost:3344` |
+| `openclaw.gatewayUrl` | OpenClaw Gateway 地址 | `http://127.0.0.1:18789` |
 | `openclaw.gatewayToken` | Gateway 认证 Token | - |
 | `openclaw.defaultAgent` | 默认 Agent ID | `default` |
 

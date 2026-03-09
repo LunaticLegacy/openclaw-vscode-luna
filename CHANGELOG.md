@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project follows Semantic Versioning.
 
+## [0.2.2] - 2026-03-09
+
+### Fixed
+- Added the guiding method to user, optimize first-using experience.
+
 ## [0.2.1] - 2026-03-09
 
 ### Fixed

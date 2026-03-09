@@ -62,7 +62,7 @@ npm run compile
 
 | Setting | Description | Default Value |
 |--------|------|--------|
-| `openclaw.gatewayUrl` | OpenClaw Gateway URL | `http://localhost:3344` |
+| `openclaw.gatewayUrl` | OpenClaw Gateway URL | `http://127.0.0.1:18789` |
 | `openclaw.gatewayToken` | Gateway Authentication Token | - |
 | `openclaw.defaultAgent` | Default Agent ID | `default` |
 

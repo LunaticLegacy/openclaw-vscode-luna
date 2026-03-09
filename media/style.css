@@ -456,6 +456,94 @@ body {
     background: color-mix(in srgb, var(--bg-primary) 94%, transparent);
 }
 
+.console-setup-panel {
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--bg-primary) 94%, transparent);
+}
+
+.console-setup-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.9fr);
+    gap: 14px;
+}
+
+.console-setup-card {
+    padding: 14px 16px 16px;
+    border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--bg-secondary) 52%, transparent);
+}
+
+.console-setup-lead {
+    margin-bottom: 14px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+}
+
+.connection-settings-grid {
+    display: grid;
+    grid-template-columns: minmax(180px, 0.85fr) minmax(0, 1.15fr);
+    gap: 0 16px;
+}
+
+.console-setup-status {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.console-setup-status.success {
+    color: var(--success);
+    border-color: color-mix(in srgb, var(--success) 36%, var(--border));
+    background: color-mix(in srgb, var(--success) 10%, transparent);
+}
+
+.console-setup-status.error {
+    color: var(--error);
+    border-color: color-mix(in srgb, var(--error) 36%, var(--border));
+    background: color-mix(in srgb, var(--error) 10%, transparent);
+}
+
+.console-command-block + .console-command-block {
+    margin-top: 14px;
+}
+
+.console-command-label {
+    margin-bottom: 8px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    font-weight: 700;
+}
+
+.console-command-row {
+    display: flex;
+    align-items: stretch;
+    gap: 10px;
+}
+
+.console-command-pre {
+    margin: 0;
+    flex: 1;
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-tertiary);
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: var(--vscode-editor-font-family);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
 .console-next-header {
     display: flex;
     align-items: center;
@@ -2000,6 +2088,15 @@ form {
     .console-next-steps {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+
+    .console-setup-grid,
+    .connection-settings-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .console-command-row {
+        flex-direction: column;
+    }
     
     .usage-charts {
         grid-template-columns: 1fr;
@@ -2051,7 +2148,13 @@ form {
 
 @media (max-width: 560px) {
     .console-overview-grid,
-    .console-next-steps {
+    .console-next-steps,
+    .console-setup-grid {
         grid-template-columns: 1fr;
+    }
+
+    .console-setup-panel,
+    .console-setup-card {
+        padding: 12px;
     }
 }

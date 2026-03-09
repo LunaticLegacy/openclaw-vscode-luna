@@ -2,8 +2,13 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "type": "npm",
-      "script": "watch",
+      "label": "npm: watch",
+      "type": "shell",
+      "command": "npm.cmd",
+      "args": [
+        "run",
+        "watch"
+      ],
       "problemMatcher": "$tsc-watch",
       "isBackground": true,
       "presentation": {
@@ -15,8 +20,13 @@
       }
     },
     {
-      "type": "npm",
-      "script": "compile",
+      "label": "npm: compile",
+      "type": "shell",
+      "command": "npm.cmd",
+      "args": [
+        "run",
+        "compile"
+      ],
       "problemMatcher": "$tsc",
       "presentation": {
         "reveal": "never"

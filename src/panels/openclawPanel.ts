@@ -2,6 +2,11 @@
 import * as vscode from 'vscode';
 import { getCurrentLocale, t, MESSAGES } from '../i18n';
 import { OpenClawService, ChatMessage, ChatSession, AgentCluster, APIUsage } from '../services/openclawService';
+import {
+    inspectOpenClawEnvironment,
+    OpenClawRuntimeDiagnostics,
+    resolveOpenClawServiceConfig
+} from '../services/openclawConfig';
 import { AgentManager } from '../managers/agentManager';
 import { ChatSessionManager } from '../managers/chatSessionManager';
 import { ClusterManager } from '../managers/clusterManager';
@@ -29,6 +34,7 @@ export class OpenClawPanel {
     private _isWebviewReady = false;
     private _initialDataLoaded = false;
     private _pendingMessages: Array<Record<string, unknown>> = [];
+    private _runtimeDiagnostics: OpenClawRuntimeDiagnostics | null = null;
 
     public static createOrShow(
         extensionUri: vscode.Uri,
@@ -90,7 +96,7 @@ export class OpenClawPanel {
         this._update();
 
         const handleConnectionChange = () => {
-            this._postRuntimeState();
+            void this._refreshRuntimeState();
         };
         this._service.on('connectionChange', handleConnectionChange);
         this._disposables.push(new vscode.Disposable(() => {
@@ -308,6 +314,12 @@ export class OpenClawPanel {
             case 'openSettings':
                 await vscode.commands.executeCommand('openclaw.settings');
                 break;
+            case 'retryConnection':
+                await this._handleRetryConnection();
+                break;
+            case 'saveConnectionSettings':
+                await this._handleSaveConnectionSettings(message.settings);
+                break;
         }
     }
 
@@ -319,7 +331,8 @@ export class OpenClawPanel {
             mode,
             sourceDescription: this._service.getSourceDescription(),
             supportsTasks: this._service.supportsScheduledTasks(),
-            supportsLiveSync: this._service.supportsLiveSessionSync()
+            supportsLiveSync: this._service.supportsLiveSessionSync(),
+            diagnostics: this._runtimeDiagnostics
         });
     }
 
@@ -328,6 +341,12 @@ export class OpenClawPanel {
             await this._service.checkConnection();
         } catch {
             // Ignore transient connection probe errors. The panel already renders the current status.
+        }
+
+        try {
+            this._runtimeDiagnostics = await inspectOpenClawEnvironment(this._extensionUri.fsPath);
+        } catch {
+            // Ignore diagnostics failures and keep the last known values.
         } finally {
             this._postRuntimeState();
         }
@@ -808,6 +827,62 @@ export class OpenClawPanel {
             vscode.window.showInformationMessage(t('agentSettings.saved'));
         } catch (error) {
             vscode.window.showErrorMessage(t('agentSettings.saveFailed', { error: String(error) }));
+        }
+    }
+
+    private async _handleRetryConnection() {
+        try {
+            const nextConfig = await resolveOpenClawServiceConfig(this._extensionUri.fsPath);
+            this._service.updateConfig(nextConfig);
+            await this._refreshRuntimeState();
+            await Promise.all([
+                this._loadAgents(),
+                this._loadClusters(),
+                this._loadTasks()
+            ]);
+        } catch (error) {
+            console.error('Failed to retry OpenClaw connection.', error);
+            this._postMessage({
+                type: 'error',
+                message: t('service.connectFailed')
+            });
+        }
+    }
+
+    private async _handleSaveConnectionSettings(settings: {
+        configMode?: 'auto' | 'gateway' | 'local' | 'openclaw';
+        gatewayUrl?: string;
+        gatewayToken?: string;
+    }) {
+        const config = vscode.workspace.getConfiguration('openclaw');
+        const hasWorkspaceTarget = Boolean(vscode.workspace.workspaceFile) || (vscode.workspace.workspaceFolders?.length || 0) > 0;
+        const target = hasWorkspaceTarget
+            ? vscode.ConfigurationTarget.Workspace
+            : vscode.ConfigurationTarget.Global;
+
+        try {
+            await config.update('configMode', settings.configMode || 'auto', target);
+            await config.update('gatewayUrl', settings.gatewayUrl?.trim() || '', target);
+            await config.update('gatewayToken', settings.gatewayToken?.trim() || '', target);
+
+            const nextConfig = await resolveOpenClawServiceConfig(this._extensionUri.fsPath);
+            this._service.updateConfig(nextConfig);
+            await this._refreshRuntimeState();
+            await Promise.all([
+                this._loadAgents(),
+                this._loadClusters(),
+                this._loadTasks()
+            ]);
+
+            this._postMessage({
+                type: 'connectionSettingsSaved'
+            });
+        } catch (error) {
+            console.error('Failed to save OpenClaw connection settings.', error);
+            this._postMessage({
+                type: 'connectionSettingsSaveFailed',
+                message: t('service.connectFailed')
+            });
         }
     }
 
