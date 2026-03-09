@@ -78,7 +78,7 @@ export async function pickAgentPreset(): Promise<AgentPresetOption | null | unde
         ...getAgentPresets().map(preset => ({
             label: preset.label,
             description: preset.defaultName,
-            detail: preset.description,
+            detail: `${preset.description} ${t('newAgent.preset.recommendedModel')}: ${preset.recommendedModel}`,
             presetId: preset.id
         }))
     ];

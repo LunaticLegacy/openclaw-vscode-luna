@@ -8,6 +8,25 @@ const execFileAsync = promisify(execFile);
 
 interface OpenClawCliRunnerOptions {
     timeoutMs?: number;
+    executor?: OpenClawCliCommandExecutor;
+}
+
+export interface OpenClawCliCommandExecution {
+    config: OpenClawCliServiceConfig;
+    args: string[];
+    timeoutMs: number;
+}
+
+export type OpenClawCliCommandExecutor = (
+    execution: OpenClawCliCommandExecution
+) => Promise<{ stdout: string; stderr: string }>;
+
+let sharedCommandExecutor: OpenClawCliCommandExecutor | null = null;
+
+export function setOpenClawCliCommandExecutorForTests(
+    executor: OpenClawCliCommandExecutor | null
+): void {
+    sharedCommandExecutor = executor;
 }
 
 export interface OpenClawAgentRecord {
@@ -323,12 +342,14 @@ export interface OpenClawCronEditParams {
 
 export class OpenClawCliRunner {
     private readonly timeoutMs: number;
+    private readonly executor: OpenClawCliCommandExecutor;
 
     constructor(
         private readonly config: OpenClawCliServiceConfig,
         options: OpenClawCliRunnerOptions = {}
     ) {
         this.timeoutMs = options.timeoutMs ?? 120000;
+        this.executor = options.executor || sharedCommandExecutor || defaultCommandExecutor;
     }
 
     public async health(): Promise<Record<string, unknown>> {
@@ -487,36 +508,11 @@ export class OpenClawCliRunner {
     }
 
     private async exec(args: string[]): Promise<{ stdout: string; stderr: string }> {
-        const { stdout, stderr } = await execFileAsync(
-            this.config.nodePath,
-            [this.config.cliEntryPath, ...args],
-            {
-                cwd: this.config.stateDir,
-                env: this.buildEnv(),
-                maxBuffer: 50 * 1024 * 1024,
-                timeout: this.timeoutMs,
-                windowsHide: true
-            }
-        );
-
-        return {
-            stdout,
-            stderr
-        };
-    }
-
-    private buildEnv(): NodeJS.ProcessEnv {
-        const env: NodeJS.ProcessEnv = {
-            ...process.env,
-            OPENCLAW_STATE_DIR: this.config.stateDir,
-            OPENCLAW_CONFIG_PATH: this.config.configPath
-        };
-
-        if (this.config.gatewayToken) {
-            env.OPENCLAW_GATEWAY_TOKEN = this.config.gatewayToken;
-        }
-
-        return env;
+        return this.executor({
+            config: this.config,
+            args,
+            timeoutMs: this.timeoutMs
+        });
     }
 
     private resolveAgentWorkspacePath(agentId: string): string {
@@ -527,6 +523,39 @@ export class OpenClawCliRunner {
 
         return path.join(path.dirname(this.config.defaultWorkspacePath), 'agents', safeAgentId);
     }
+}
+
+const defaultCommandExecutor: OpenClawCliCommandExecutor = async ({ config, args, timeoutMs }) => {
+    const { stdout, stderr } = await execFileAsync(
+        config.nodePath,
+        [config.cliEntryPath, ...args],
+        {
+            cwd: config.stateDir,
+            env: buildRunnerEnv(config),
+            maxBuffer: 50 * 1024 * 1024,
+            timeout: timeoutMs,
+            windowsHide: true
+        }
+    );
+
+    return {
+        stdout,
+        stderr
+    };
+};
+
+function buildRunnerEnv(config: OpenClawCliServiceConfig): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        OPENCLAW_STATE_DIR: config.stateDir,
+        OPENCLAW_CONFIG_PATH: config.configPath
+    };
+
+    if (config.gatewayToken) {
+        env.OPENCLAW_GATEWAY_TOKEN = config.gatewayToken;
+    }
+
+    return env;
 }
 
 function toWebSocketUrl(value: string): string {

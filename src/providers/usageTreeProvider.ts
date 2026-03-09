@@ -10,7 +10,7 @@ export class UsageTreeItem extends vscode.TreeItem {
         color?: vscode.ThemeColor
     ) {
         super(label, vscode.TreeItemCollapsibleState.None);
-        
+
         this.tooltip = `${label}: ${description}`;
         this.description = description;
         this.iconPath = new vscode.ThemeIcon(icon, color);
@@ -26,9 +26,8 @@ export class UsageTreeProvider implements vscode.TreeDataProvider<UsageTreeItem>
 
     constructor(usageManager: UsageManager) {
         this.usageManager = usageManager;
-        
-        // 监听用量变化
         this.usageManager.on('usageUpdated', () => this.refresh());
+        this.usageManager.on('usageInvalidated', () => this.refresh());
     }
 
     refresh(): void {

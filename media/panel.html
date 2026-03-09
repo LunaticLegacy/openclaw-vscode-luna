@@ -10,15 +10,17 @@
 <body data-locale="{{locale}}" data-translations="{{translationsBase64}}">
     <script src="{{i18nScriptUri}}" defer></script>
     <script src="{{markdownRendererScriptUri}}" defer></script>
+    <script src="{{panelCommonScriptUri}}" defer></script>
+    <script src="{{panelFeedbackScriptUri}}" defer></script>
     <script src="{{panelScriptUri}}" defer></script>
 
     <div id="app">
         <aside class="sidebar">
             <div class="sidebar-header">
-                <div class="sidebar-brand">
+                <button class="sidebar-brand sidebar-brand-button" type="button" data-console-action="console-home">
                     <h2>OpenClaw Luna</h2>
                     <div id="connection-caption" class="connection-caption">Checking connection...</div>
-                </div>
+                </button>
                 <div id="connection-pill" class="connection-pill offline">
                     <span id="connection-status" class="status-indicator offline">&#9679;</span>
                     <span id="connection-label">Offline</span>
@@ -39,6 +41,13 @@
                     <span data-i18n="sidebar.usage">Usage</span>
                 </button>
             </nav>
+
+            <div class="sidebar-utility">
+                <button id="btn-openclaw-config-entry" class="sidebar-utility-btn" type="button" data-console-action="openclaw-config">
+                    <span class="icon">&#9881;</span>
+                    <span data-i18n="setup.openclawConfig.title">OpenClaw Config</span>
+                </button>
+            </div>
 
             <div class="sidebar-sections">
                 <section class="sidebar-section">
@@ -148,26 +157,104 @@
 
                                 <article id="console-install-guide" class="console-setup-card hidden">
                                     <div class="console-next-header">
-                                        <h4 data-i18n="setup.installTitle">Install OpenClaw</h4>
+                                        <h4 id="install-guide-title" data-i18n="setup.installTitle">Install OpenClaw</h4>
+                                        <button id="btn-start-openclaw" type="button" class="btn btn-primary btn-small hidden" data-i18n="setup.startAction">Start OpenClaw</button>
                                     </div>
                                     <p id="install-guide-summary" class="console-setup-lead" data-i18n="setup.installSummary">No local OpenClaw CLI was detected. Install it locally, or connect Luna to a remote gateway using the form.</p>
                                     <div id="install-guide-state" class="console-card-meta"></div>
-                                    <div class="console-command-block">
+                                    <div id="install-command-block" class="console-command-block">
                                         <div class="console-command-label" data-i18n="setup.installStepInstall">Install the CLI</div>
                                         <div class="console-command-row">
                                             <pre id="install-command" class="console-command-pre"></pre>
                                             <button type="button" class="btn btn-secondary btn-small" data-copy-command="install" data-i18n="common.copy">Copy</button>
                                         </div>
                                     </div>
-                                    <div class="console-command-block">
+                                    <div id="onboard-command-block" class="console-command-block">
                                         <div class="console-command-label" data-i18n="setup.installStepOnboard">Run the onboarding wizard</div>
                                         <div class="console-command-row">
                                             <pre id="onboard-command" class="console-command-pre"></pre>
                                             <button type="button" class="btn btn-secondary btn-small" data-copy-command="onboard" data-i18n="common.copy">Copy</button>
                                         </div>
                                     </div>
-                                    <p class="console-card-meta" data-i18n="setup.installStepRetry">After install and onboarding finish, come back here and click Refresh.</p>
+                                    <div id="start-command-block" class="console-command-block hidden">
+                                        <div class="console-command-label" data-i18n="setup.startStepStart">Start the Gateway</div>
+                                        <div class="console-command-row">
+                                            <pre id="start-command" class="console-command-pre"></pre>
+                                            <button type="button" class="btn btn-secondary btn-small" data-copy-command="start" data-i18n="common.copy">Copy</button>
+                                        </div>
+                                    </div>
+                                    <div id="install-guide-status" class="console-setup-status hidden"></div>
+                                    <p id="install-guide-footnote" class="console-card-meta" data-i18n="setup.installStepRetry">After install and onboarding finish, come back here and click Refresh.</p>
                                 </article>
+                            </div>
+                        </section>
+
+                        <section id="console-openclaw-config-panel" class="console-setup-panel hidden">
+                            <article class="console-setup-card">
+                                <div class="console-next-header">
+                                    <h4 data-i18n="setup.openclawConfig.title">OpenClaw Config</h4>
+                                    <button id="btn-refresh-openclaw-config" class="btn btn-secondary btn-small" type="button" data-i18n="common.refresh">Refresh</button>
+                                </div>
+                                <p class="console-setup-lead" data-i18n="setup.openclawConfig.body">Edit the same persisted OpenClaw runtime config that `openclaw config` manages.</p>
+                                <form id="form-openclaw-config" class="connection-settings-form">
+                                    <div class="connection-settings-grid">
+                                        <div class="form-group">
+                                            <label for="openclaw-state-dir" data-i18n="setup.openclawConfig.stateDirLabel">State Directory</label>
+                                            <input type="text" id="openclaw-state-dir" readonly>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="openclaw-config-path" data-i18n="setup.openclawConfig.configPathLabel">Config File</label>
+                                            <input type="text" id="openclaw-config-path" readonly>
+                                        </div>
+                                    </div>
+                                    <div class="connection-settings-grid">
+                                        <div class="form-group">
+                                            <label for="openclaw-gateway-port" data-i18n="setup.openclawConfig.gatewayPortLabel">Gateway Port</label>
+                                            <input type="number" id="openclaw-gateway-port" min="1" max="65535" placeholder="18789">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="openclaw-default-model" data-i18n="setup.openclawConfig.defaultModelLabel">Default Model</label>
+                                            <input type="text" id="openclaw-default-model" data-i18n-placeholder="setup.openclawConfig.defaultModelPlaceholder" placeholder="moonshot/kimi-k2.5">
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="openclaw-gateway-token" data-i18n="setup.openclawConfig.gatewayTokenLabel">Gateway Token</label>
+                                        <input type="password" id="openclaw-gateway-token" autocomplete="off" data-i18n-placeholder="setup.openclawConfig.gatewayTokenPlaceholder" placeholder="Optional token for the local OpenClaw gateway">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="openclaw-default-workspace" data-i18n="setup.openclawConfig.defaultWorkspaceLabel">Default Workspace</label>
+                                        <input type="text" id="openclaw-default-workspace" data-i18n-placeholder="setup.openclawConfig.defaultWorkspacePlaceholder" placeholder="Optional workspace path for new agents">
+                                    </div>
+                                    <div id="openclaw-config-hint" class="form-hint"></div>
+                                    <div id="openclaw-config-status" class="console-setup-status hidden"></div>
+                                    <div class="form-actions">
+                                        <button type="submit" class="btn btn-primary" data-i18n="setup.openclawConfig.save">Save OpenClaw Config</button>
+                                    </div>
+                                </form>
+                            </article>
+                        </section>
+
+                        <section class="console-capability-panel">
+                            <div class="console-next-header">
+                                <div class="console-capability-copy">
+                                    <div class="console-card-label" data-i18n="capability.current.label">Mode Guardrails</div>
+                                    <h4 id="console-capability-title">-</h4>
+                                    <p id="console-capability-body" class="console-capability-body">-</p>
+                                </div>
+                            </div>
+                            <div class="console-capability-table-wrap">
+                                <table class="console-capability-table">
+                                    <thead>
+                                        <tr>
+                                            <th data-i18n="capability.table.capability">Capability</th>
+                                            <th data-i18n="capability.table.summary">How Luna handles it</th>
+                                            <th data-i18n="capability.table.gateway">Gateway</th>
+                                            <th data-i18n="capability.table.openclaw">OpenClaw CLI</th>
+                                            <th data-i18n="capability.table.local">Local Models</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="console-capability-matrix"></tbody>
+                                </table>
                             </div>
                         </section>
 

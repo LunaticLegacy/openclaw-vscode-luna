@@ -1,5 +1,6 @@
 import { OpenClawService, APIUsage } from '../services/openclawService';
 import { EventEmitter } from 'events';
+import { formatLocalDateKey } from '../utils/dateKey';
 
 export interface UsageMetrics {
     totalRequests: number;
@@ -23,10 +24,14 @@ export class UsageManager extends EventEmitter {
     private cachedUsage: APIUsage | null = null;
     private lastFetch: number = 0;
     private cacheDuration: number = 60000; // 1 minute cache
+    private readonly handleUsageChanged = () => this.invalidate();
+    private readonly handleConnectionChange = () => this.invalidate();
 
     constructor(service: OpenClawService) {
         super();
         this.service = service;
+        this.service.on('usageChanged', this.handleUsageChanged);
+        this.service.on('connectionChange', this.handleConnectionChange);
     }
 
     public async getUsage(forceRefresh: boolean = false): Promise<APIUsage> {
@@ -76,7 +81,7 @@ export class UsageManager extends EventEmitter {
         }
 
         const usage = this.cachedUsage;
-        const today = new Date().toISOString().split('T')[0];
+        const today = formatLocalDateKey();
         const todayStats = usage.byDay[today] || { requests: 0, tokens: 0 };
 
         return {
@@ -101,7 +106,7 @@ export class UsageManager extends EventEmitter {
         for (let i = days - 1; i >= 0; i--) {
             const date = new Date(today);
             date.setDate(date.getDate() - i);
-            const dateStr = date.toISOString().split('T')[0];
+            const dateStr = formatLocalDateKey(date);
             
             const dayStats = this.cachedUsage.byDay[dateStr] || { requests: 0, tokens: 0 };
             
@@ -172,7 +177,15 @@ export class UsageManager extends EventEmitter {
         return this.getUsage(true);
     }
 
+    public invalidate(): void {
+        this.cachedUsage = null;
+        this.lastFetch = 0;
+        this.emit('usageInvalidated');
+    }
+
     public dispose() {
+        this.service.off('usageChanged', this.handleUsageChanged);
+        this.service.off('connectionChange', this.handleConnectionChange);
         this.removeAllListeners();
         this.cachedUsage = null;
     }

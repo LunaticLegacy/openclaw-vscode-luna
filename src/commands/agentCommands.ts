@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
 import { t } from '../i18n';
-import { AgentPresetOption } from '../config/agentPresets';
 import { OpenClawExtensionRuntime } from '../extension/runtime';
 import { Agent } from '../services/openclawService';
+import { showSuccessStatus } from '../utils/statusFeedback';
+import { getCapabilityUnavailableMessage, isServiceCapabilityAvailable } from '../utils/capabilitySupport';
 import { pickAgentPreset, resolveAgentId } from './helpers';
 
 export function registerAgentCommands(
@@ -76,7 +77,7 @@ export function registerAgentCommands(
                     presetId: selectedPreset?.id
                 });
 
-                vscode.window.showInformationMessage(t('newAgent.created', { name }));
+                showSuccessStatus(t('newAgent.created', { name }));
                 runtime.sidebarTreeProvider.refresh();
             } catch (error) {
                 vscode.window.showErrorMessage(t('newAgent.createFailed', { error: String(error) }));
@@ -131,13 +132,18 @@ export function registerAgentCommands(
 
             try {
                 await runtime.agentManager.deleteAgent(agentId);
-                vscode.window.showInformationMessage(t('agent.deleted'));
+                showSuccessStatus(t('agent.deleted'));
                 runtime.sidebarTreeProvider.refresh();
             } catch (error) {
                 vscode.window.showErrorMessage(t('agent.deleteFailed', { error: String(error) }));
             }
         }),
         vscode.commands.registerCommand('openclaw.editAgent', async (agentArg: any) => {
+            if (!isServiceCapabilityAvailable(runtime.service, 'agentEditing')) {
+                vscode.window.showErrorMessage(getCapabilityUnavailableMessage('agentEditing'));
+                return;
+            }
+
             const agentId = resolveAgentId(agentArg);
             if (!agentId) {
                 vscode.window.showErrorMessage(t('agent.notFound'));
@@ -174,7 +180,7 @@ export function registerAgentCommands(
                     systemPrompt: newPrompt
                 });
 
-                vscode.window.showInformationMessage(t('agent.updated'));
+                showSuccessStatus(t('agent.updated'));
                 runtime.sidebarTreeProvider.refresh();
             } catch (error) {
                 vscode.window.showErrorMessage(t('agent.editFailed', { error: String(error) }));
@@ -214,6 +220,11 @@ export function registerAgentCommands(
             }
         }),
         vscode.commands.registerCommand('openclaw.openAgentSettings', async (agentArg: any) => {
+            if (!isServiceCapabilityAvailable(runtime.service, 'agentEditing')) {
+                vscode.window.showErrorMessage(getCapabilityUnavailableMessage('agentEditing'));
+                return;
+            }
+
             const agentId = resolveAgentId(agentArg);
             if (!agentId) {
                 vscode.window.showErrorMessage(t('agent.notFound'));
@@ -233,9 +244,14 @@ export function registerAgentCommands(
             }
         }),
         vscode.commands.registerCommand('openclaw.saveAgentSettings', async (agentId: string, settings: any) => {
+            if (!isServiceCapabilityAvailable(runtime.service, 'agentEditing')) {
+                vscode.window.showErrorMessage(getCapabilityUnavailableMessage('agentEditing'));
+                return;
+            }
+
             try {
                 await runtime.agentManager.updateAgent(agentId, settings);
-                vscode.window.showInformationMessage(t('agentSettings.saved'));
+                showSuccessStatus(t('agentSettings.saved'));
                 runtime.sidebarTreeProvider.refresh();
             } catch (error) {
                 vscode.window.showErrorMessage(t('agentSettings.saveFailed', { error: String(error) }));

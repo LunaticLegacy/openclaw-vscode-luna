@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { t } from '../i18n';
 import { OpenClawExtensionRuntime } from '../extension/runtime';
+import { showSuccessStatus } from '../utils/statusFeedback';
 import { resolveClusterId } from './helpers';
 
 export function registerClusterCommands(
@@ -61,7 +62,7 @@ export function registerClusterCommands(
                     agentIds: selectedAgents.map(agent => agent.agentId)
                 });
 
-                vscode.window.showInformationMessage(t('clusters.created', { name }));
+                showSuccessStatus(t('clusters.created', { name }));
                 runtime.sidebarTreeProvider.refresh();
             } catch (error) {
                 vscode.window.showErrorMessage(t('clusters.createFailed', { error: String(error) }));
@@ -112,7 +113,7 @@ export function registerClusterCommands(
                 }
 
                 await runtime.clusterManager.deleteCluster(clusterId);
-                vscode.window.showInformationMessage(t('clusters.deleted', { name: cluster.name }));
+                showSuccessStatus(t('clusters.deleted', { name: cluster.name }));
                 runtime.sidebarTreeProvider.refresh();
             } catch (error) {
                 vscode.window.showErrorMessage(t('clusters.deleteFailed', { error: String(error) }));
