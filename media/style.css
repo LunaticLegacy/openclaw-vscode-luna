@@ -1723,6 +1723,14 @@ body {
     overflow-y: auto;
 }
 
+.modal-content-wide {
+    max-width: 1080px;
+}
+
+#modal-new-agent .modal-content > h2 {
+    margin-left: 8px;
+}
+
 .modal-header {
     display: flex;
     justify-content: space-between;
@@ -1804,6 +1812,225 @@ form {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0 16px;
+}
+
+.new-agent-mode-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px;
+    margin-bottom: 18px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bg-primary) 92%, transparent);
+}
+
+.new-agent-mode-btn {
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    padding: 9px 18px;
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    transition: all 0.2s ease;
+}
+
+.new-agent-mode-btn:hover {
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.new-agent-mode-btn.active {
+    background: var(--accent);
+    color: var(--vscode-button-foreground, white);
+}
+
+#btn-new-agent-mode-custom {
+    padding-left: 24px;
+    padding-right: 14px;
+}
+
+.new-agent-preset-panel {
+    margin-bottom: 20px;
+    padding: 18px;
+    border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+    border-radius: 18px;
+    background:
+        radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 16%, transparent), transparent 36%),
+        linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 88%, transparent), color-mix(in srgb, var(--bg-secondary) 92%, transparent));
+}
+
+.new-agent-preset-header {
+    margin-bottom: 14px;
+}
+
+.new-agent-preset-copy h3 {
+    font-size: 20px;
+    line-height: 1.2;
+}
+
+.new-agent-preset-copy p {
+    margin-top: 8px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.new-agent-preset-eyebrow {
+    margin-bottom: 8px;
+    color: var(--accent-strong);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.new-agent-preset-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.new-agent-preset-card {
+    position: relative;
+    min-height: 132px;
+    padding: 18px;
+    border: 1px solid color-mix(in srgb, var(--border) 92%, transparent);
+    border-radius: 18px;
+    background:
+        radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 16%, transparent), transparent 34%),
+        linear-gradient(90deg, rgba(6, 9, 14, 0.95), rgba(12, 19, 31, 0.96));
+    color: #f4f8ff;
+    text-align: left;
+    cursor: pointer;
+    overflow: hidden;
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.new-agent-preset-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(110deg, transparent 0%, rgba(99, 165, 255, 0.12) 58%, transparent 100%);
+    opacity: 0.65;
+    pointer-events: none;
+}
+
+.new-agent-preset-card:hover {
+    transform: translateY(-1px);
+    border-color: color-mix(in srgb, var(--accent) 64%, transparent);
+    box-shadow: 0 16px 30px rgba(0, 0, 0, 0.18);
+}
+
+.new-agent-preset-card.selected {
+    border-color: color-mix(in srgb, var(--accent) 78%, white 8%);
+    box-shadow: 0 18px 36px rgba(0, 0, 0, 0.24);
+}
+
+.new-agent-preset-card.is-wide {
+    grid-column: span 2;
+}
+
+.new-agent-preset-card-badge,
+.new-agent-preset-summary-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 24px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(255, 196, 84, 0.16);
+    color: #ffd97a;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.new-agent-preset-card-badge {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+}
+
+.new-agent-preset-card-name,
+.new-agent-preset-card-title,
+.new-agent-preset-card-description {
+    position: relative;
+    z-index: 1;
+}
+
+.new-agent-preset-card-name {
+    margin-top: auto;
+    color: rgba(244, 248, 255, 0.64);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.new-agent-preset-card-title {
+    margin-top: 34px;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.35;
+    max-width: 75%;
+}
+
+.new-agent-preset-card-description {
+    margin-top: 8px;
+    color: rgba(244, 248, 255, 0.72);
+    font-size: 13px;
+    line-height: 1.55;
+    max-width: 88%;
+}
+
+.new-agent-preset-summary {
+    margin-top: 14px;
+    padding: 14px 16px;
+    border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
+}
+
+.new-agent-preset-summary-label {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.new-agent-preset-summary-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 8px;
+}
+
+.new-agent-preset-summary-title {
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.new-agent-preset-summary-text {
+    margin-top: 8px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.new-agent-preset-empty {
+    grid-column: 1 / -1;
+    padding: 28px 20px;
+    border: 1px dashed var(--border);
+    border-radius: 14px;
+    text-align: center;
+    color: var(--text-secondary);
+    background: color-mix(in srgb, var(--bg-primary) 92%, transparent);
 }
 
 /* Error Message */
@@ -2114,6 +2341,28 @@ form {
         grid-template-columns: 1fr;
     }
 
+    .new-agent-mode-toggle {
+        width: 100%;
+    }
+
+    .new-agent-mode-btn {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .new-agent-preset-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .new-agent-preset-card.is-wide {
+        grid-column: span 2;
+    }
+
+    .new-agent-preset-summary-head {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
     .cluster-chat-header {
         flex-direction: column;
         align-items: flex-start;
@@ -2151,6 +2400,14 @@ form {
     .console-next-steps,
     .console-setup-grid {
         grid-template-columns: 1fr;
+    }
+
+    .new-agent-preset-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .new-agent-preset-card.is-wide {
+        grid-column: span 1;
     }
 
     .console-setup-panel,

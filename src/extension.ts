@@ -11,6 +11,13 @@ import { AgentManager } from './managers/agentManager';
 import { ClusterManager } from './managers/clusterManager';
 import { UsageManager } from './managers/usageManager';
 import { ScheduledTaskManager } from './managers/scheduledTaskManager';
+import { AgentPresetScaffolder } from './services/agentPresetScaffolder';
+import {
+    CUSTOM_AGENT_PRESET_ID,
+    AgentPresetOption,
+    getAgentPreset,
+    getAgentPresets
+} from './config/agentPresets';
 
 let openclawService: OpenClawService;
 let agentManager: AgentManager;
@@ -26,7 +33,10 @@ export async function activate(context: vscode.ExtensionContext) {
     const config = vscode.workspace.getConfiguration('openclaw');
     const serviceConfig = await resolveOpenClawServiceConfig(context.extensionPath);
     openclawService = new OpenClawService(serviceConfig);
-    agentManager = new AgentManager(openclawService);
+    agentManager = new AgentManager(
+        openclawService,
+        new AgentPresetScaffolder(context.extensionPath, openclawService)
+    );
     clusterManager = new ClusterManager(
         openclawService,
         path.join(context.globalStorageUri.fsPath, 'clusters.json')
@@ -150,9 +160,15 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // 4. 创建新 Agent
     const newAgentCmd = vscode.commands.registerCommand('openclaw.newAgent', async () => {
+        const selectedPreset = await pickAgentPreset();
+        if (selectedPreset === undefined) {
+            return;
+        }
+
         const enteredName = await vscode.window.showInputBox({
             prompt: t('newAgent.promptName'),
-            placeHolder: t('newAgent.placeholderName')
+            placeHolder: selectedPreset?.defaultName || t('newAgent.placeholderName'),
+            value: selectedPreset?.defaultName || ''
         });
         
         const name = enteredName?.trim();
@@ -201,7 +217,8 @@ export async function activate(context: vscode.ExtensionContext) {
             await agentManager.createAgent({
                 name,
                 model,
-                systemPrompt: t('newAgent.defaultSystemPrompt')
+                systemPrompt: selectedPreset?.systemPrompt || t('newAgent.defaultSystemPrompt'),
+                presetId: selectedPreset?.id
             });
             
             vscode.window.showInformationMessage(t('newAgent.created', { name }));
@@ -384,11 +401,31 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(clearChatCmd);
 
     // 11. 刷新 Agents
-    const refreshAgentsCmd = vscode.commands.registerCommand('openclaw.refreshAgents', () => {
-        sidebarTreeProvider.refresh();
-        vscode.window.showInformationMessage(t('agents.refreshed'));
+    const refreshAgentsCmd = vscode.commands.registerCommand('openclaw.refreshAgents', async () => {
+        try {
+            await agentManager.getAgents(true);
+            sidebarTreeProvider.refresh();
+            const panel = OpenClawPanel.getPanel();
+            if (panel) {
+                await panel.refreshAgents(false);
+            }
+            vscode.window.showInformationMessage(t('agents.refreshed'));
+        } catch (error) {
+            vscode.window.showErrorMessage(t('agents.refreshFailed', { error: String(error) }));
+        }
     });
     context.subscriptions.push(refreshAgentsCmd);
+
+    const refreshTasksCmd = vscode.commands.registerCommand('openclaw.refreshTasks', async () => {
+        try {
+            await taskManager.refresh();
+            taskTreeProvider.refresh();
+            vscode.window.showInformationMessage(t('tasks.refreshed'));
+        } catch (error) {
+            vscode.window.showErrorMessage(t('tasks.refreshFailed', { error: String(error) }));
+        }
+    });
+    context.subscriptions.push(refreshTasksCmd);
 
     // 12. 删除 Agent
     const deleteAgentCmd = vscode.commands.registerCommand('openclaw.deleteAgent', async (agentArg: any) => {
@@ -734,6 +771,33 @@ function resolveTaskId(taskArg: any): string | undefined {
     }
 
     return undefined;
+}
+
+async function pickAgentPreset(): Promise<AgentPresetOption | null | undefined> {
+    const items = [
+        {
+            label: t('newAgent.preset.custom'),
+            description: t('newAgent.preset.customDescription'),
+            detail: t('newAgent.preset.hint'),
+            presetId: CUSTOM_AGENT_PRESET_ID
+        },
+        ...getAgentPresets().map(preset => ({
+            label: preset.label,
+            description: preset.defaultName,
+            detail: preset.description,
+            presetId: preset.id
+        }))
+    ];
+
+    const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: t('newAgent.selectPreset')
+    });
+
+    if (!selected) {
+        return undefined;
+    }
+
+    return getAgentPreset(selected.presetId);
 }
 
 export function deactivate() {

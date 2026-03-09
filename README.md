@@ -1,253 +1,173 @@
-<div align="center">
-
-<br />
-
-<img src="resources/icon.png" width="120" alt="OpenClaw Luna Logo" />
-
 # OpenClaw Luna for VSCode
 
-### 在 VSCode 中无缝使用 OpenClaw AI Agent 功能
+<div align="center">
+  <img src="resources/icon.png" width="120" alt="OpenClaw Luna Logo" />
 
-(Public Alpha)
+  ### 在 VS Code 中直接使用 OpenClaw Agent、AI Swarm 和 cron 任务
 
-**支持 Agent 管理、集群操作、API 用量监控的 VSCode 插件**
+  **支持 Agent 管理、AI Swarm 集群、OpenClaw cron 定时任务、7/30 日用量监控与多连接模式的 VS Code 插件**
 
-[🇨🇳 中文](README.md) | [🇺🇸 English](docs/README_EN.md)
-
-[![VSCode](https://img.shields.io/badge/VSCode-%5E1.80.0-blue?logo=visualstudiocode&logoColor=white)](https://code.visualstudio.com)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.2+-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Stars](https://img.shields.io/github/stars/LunaticLegacy/openclaw-vscode-luna?style=social)](https://github.com/LunaticLegacy/openclaw-vscode-luna.git)
-
-[🇨🇳 📖 文档](https://docs.openclaw.ai) · [💬 讨论区](https://github.com/LunaticLegacy/openclaw-vscode-luna/discussions) · [🐛 问题反馈](https://github.com/LunaticLegacy/openclaw-vscode-luna/issues)
-
-<br />
-
+  [中文](README.md) | [English](docs/README_EN.md)
 </div>
 
 ---
 
-## ✨ 为什么选择 OpenClaw Luna？
+## 当前能力
 
-> *"让 AI Agent 成为你开发工作流的自然延伸，而不是额外的负担。"*
+### Agent 管理
 
-在现代开发中，我们每天都在与代码、文档、调试信息打交道。但传统的 AI 工具往往是孤立的，需要切换上下文。**OpenClaw Luna 将 AI 能力深度集成到你的开发环境中**。
+- 在主界面和侧边栏中创建、编辑、删除、刷新 Agent
+- 支持自定义模型和 System Prompt
+- 支持预设智能体创建流程
+- 聊天记录会自动持久化
 
-OpenClaw Luna 帮助你：
+### AI Swarm 集群工作区
 
-- 🤖 **无缝 Agent 集成** —— 在 VSCode 中直接与多个 AI Agent 对话
-- 🖥️ **智能集群管理** —— 创建 Agent 集群，实现多 Agent 协作
-- 📊 **实时用量监控** —— 监控 API 调用和 Token 消耗
-- ⚡ **零上下文切换** —— 所有功能都在 VSCode 内完成
+- 在同一工作区内切换 `Broadcast / Collaborate / 成员直连`
+- 顶部菜单可直接选择集群成员继续对话
+- 支持在集群内添加或移除智能体
+- 支持从侧边栏直接进入某个集群
+
+### 定时任务
+
+- 任务页直接读取 OpenClaw 的 cron 作业和运行记录
+- 支持 `every / at / cron` 三种调度方式
+- 支持创建、编辑、启用、停用、立即执行和删除
+- 仅在 `OpenClaw CLI` 模式下可用
+
+### API 用量
+
+- 支持 7 日 / 30 日窗口切换
+- 展示请求数、Token、成本估算
+- 支持按日统计和按模型分布
+
+### 连接模式
+
+- `Auto Detect`
+- `Gateway`
+- `OpenClaw CLI`
+- `Local Models`
+
+主界面自带连接设置和安装引导，不需要离开 Luna 处理切换和重试。
 
 ---
 
-## 🚀 两分钟上手
+## 快速开始
 
 ### 安装
 
 ```bash
-# 从源码安装（开发模式）
 git clone https://github.com/openclaw/openclaw-vscode-luna.git
 cd openclaw-vscode-luna
 npm install
 npm run compile
 ```
 
-### 配置
-
-1. 打开 VSCode 设置 (`Ctrl+,`)
-2. 搜索 "OpenClaw"
-3. 配置以下关键设置：
-
-| 配置项 | 说明 | 默认值 |
-|--------|------|--------|
-| `openclaw.gatewayUrl` | OpenClaw Gateway 地址 | `http://127.0.0.1:18789` |
-| `openclaw.gatewayToken` | Gateway 认证 Token | - |
-| `openclaw.defaultAgent` | 默认 Agent ID | `default` |
-
-### 启动
+### 开发模式
 
 ```bash
-# 开发模式
-npm run watch  # 监听文件变化
-# 然后按 F5 启动 Extension Development Host
+npm run watch
 ```
 
-或者直接从 VSCode Marketplace 安装发布版本。
+然后按 `F5` 启动 Extension Development Host。
+
+### 常用配置
+
+| 配置项 | 说明 | 默认值 |
+| --- | --- | --- |
+| `openclaw.configMode` | 连接模式 | `auto` |
+| `openclaw.gatewayUrl` | Gateway 地址 | `http://127.0.0.1:18789` |
+| `openclaw.gatewayToken` | Gateway Token | `""` |
+| `openclaw.defaultAgent` | 默认 Agent ID | `default` |
+| `openclaw.cliPath` | OpenClaw CLI 路径 | `""` |
+| `openclaw.nodePath` | Node 路径 | `""` |
+| `openclaw.stateDir` | OpenClaw 状态目录 | `""` |
 
 ---
 
-## 🎯 核心特性
+## 界面说明
 
-### 🤖 多 Agent 管理
+### 主界面
 
-- **创建/编辑/删除 Agent** —— 支持多种模型 (GPT-4, GPT-3.5, Claude, Kimi)
-- **自定义 System Prompt** —— 为每个 Agent 设置专属行为
-- **实时状态监控** —— 在线/空闲/离线状态一目了然
-- **聊天记录持久化** —— 所有对话历史自动保存
+- `对话`：与当前 Agent 聊天
+- `任务`：管理 OpenClaw cron 作业
+- `用量`：查看 7/30 日 API 用量
+- 左侧主栏：同时展示 `Agents` 和 `Clusters`
 
-### 🖥️ Agent 集群功能
+### 新建智能体
 
-| 功能 | 说明 | 使用场景 |
-|------|------|----------|
-| 集群创建 | 将多个 Agent 组织成集群 | 团队协作、多角色模拟 |
-| 广播消息 | 向集群中所有 Agent 发送消息 | 并行处理、多角度分析 |
-| 状态管理 | 监控集群整体状态 | 负载均衡、故障检测 |
+- `新建智能体`：空白创建
+- `使用预设智能体`：使用卡片式预设模板快速创建
 
-### 📊 API 用量监控
+当前内置预设包括：
 
-内置用量统计功能：
-- ✅ 实时 Token 消耗监控
-- ✅ 按模型分类的用量分析
-- ✅ 7天趋势图表
-- ✅ 成本估算
-
-### ⚡ 无缝集成体验
-
-多种触发方式：
-- **状态栏按钮** —— 右下角 🚀 OpenClaw 按钮
-- **快捷键** —— `Ctrl+Shift+O` 打开面板
-- **命令面板** —— `Ctrl+Shift+P` → "Open OpenClaw Luna"
-- **右键菜单** —— 编辑器右键 → "与智能体对话"
-- **选中代码** —— 选中文本后按 `Ctrl+Shift+C`
+- `algorithm-helper`
+- `quantative-recorder`
+- `code-review-guard`
+- `bug-hunter`
+- `refactor-planner`
+- `api-contract-writer`
 
 ---
 
-## 🏗️ 架构概览
+## 项目结构
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        VSCode Extension                      │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────┐  │
-│  │   Webview UI    │  │  Tree View      │  │ Command     │  │
-│  │   (React-like)  │  │  (Side Panel)   │  │ Palette     │  │
-│  └─────────────────┘  └─────────────────┘  └─────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     Extension Backend                        │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │  Extension  │  │   Managers  │  │   Tree Providers    │  │
-│  │   (Main)    │──│  (Agent,    │──│   (Agent, Cluster,  │  │
-│  └─────────────┘  │   Cluster,  │  │    Usage)           │  │
-│                   │   Usage)    │  └─────────────────────┘  │
-│                   └─────────────┘                           │
-│         │                                                   │
-│         ▼                                                   │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │              OpenClaw Service Layer                  │   │
-│  │  ┌───────────────────────────────────────────────┐  │   │
-│  │  │               HTTP Client (Axios)             │  │   │
-│  │  └───────────────────────────────────────────────┘  │   │
-│  └─────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     OpenClaw Gateway                         │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │   Agent     │  │   Cluster   │  │   Metrics &         │  │
-│  │  Management │  │  Management │  │   Usage Tracking    │  │
-│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 📦 项目结构
-
-```
+```text
 openclaw-vscode/
 ├── src/
-│   ├── extension.ts                    # 插件入口与命令注册
-│   ├── i18n.ts                         # 运行时 i18n 加载
-│   ├── managers/                       # 会话 / Agent / 集群 / 用量管理
+│   ├── extension.ts
+│   ├── i18n.ts
+│   ├── config/
+│   │   └── agentPresets.ts
+│   ├── managers/
 │   │   ├── agentManager.ts
 │   │   ├── chatSessionManager.ts
 │   │   ├── clusterManager.ts
-│   │   └── usageManager.ts
+│   │   └── scheduledTaskManager.ts
 │   ├── panels/
-│   │   └── openclawPanel.ts            # Webview 面板控制器
-│   ├── providers/                      # 侧边栏树视图提供者
-│   │   ├── agentTreeProvider.ts
-│   │   ├── clusterTreeProvider.ts
-│   │   └── usageTreeProvider.ts
-│   ├── services/                       # OpenClaw 接入层
-│   │   ├── openclawCli.ts              # CLI / gateway call 封装
-│   │   ├── openclawConfig.ts           # 本地 OpenClaw 配置解析
-│   │   ├── openclawGatewayClient.ts    # Gateway WebSocket 事件流客户端
-│   │   └── openclawService.ts          # 统一服务接口与消息归一化
+│   │   └── openclawPanel.ts
+│   ├── providers/
+│   │   ├── openclawSidebarProvider.ts
+│   │   └── taskTreeProvider.ts
+│   ├── services/
+│   │   ├── openclawCli.ts
+│   │   ├── openclawConfig.ts
+│   │   ├── openclawGatewayClient.ts
+│   │   └── openclawService.ts
 │   └── types/
-│       └── ws.d.ts                     # `ws` 本地类型声明
+│       └── ws.d.ts
 ├── media/
-│   ├── panel.html                      # Webview 模板
-│   ├── panel.js                        # 主界面交互逻辑
-│   ├── style.css                       # Webview 样式
-│   ├── i18n.js                         # 前端 i18n
-│   └── markdownRenderer.js             # Markdown 渲染器
+│   ├── panel.html
+│   ├── panel.js
+│   ├── style.css
+│   ├── i18n.js
+│   └── markdownRenderer.js
 ├── i18n/
-│   ├── en.json                         # 运行时英文文案
-│   └── zh-cn.json                      # 运行时中文文案
+│   ├── en.json
+│   └── zh-cn.json
 ├── docs/
-│   └── README_EN.md                    # 英文说明文档
+│   └── README_EN.md
 ├── resources/
-│   ├── icon.png
-│   └── icon.svg
-├── package.json                        # 插件清单、命令与配置
-├── package.nls.json                    # 英文本地化占位
-├── package.nls.zh-cn.json              # 中文本地化占位
-└── tsconfig.json                       # TypeScript 配置
+├── package.json
+├── package.nls.json
+└── package.nls.zh-cn.json
 ```
 
 ---
 
-## 🛣️ 路线图
+## 当前状态
 
-- [x] 基础 Agent 管理功能
-- [x] 多 Agent 集群支持
-- [x] API 用量监控
-- [x] VSCode 深度集成
-- [ ] Webview 自定义界面
-  - [ ] React-based UI
-  - [ ] 主题自适应
-  - [ ] 交互式聊天界面
-- [ ] 高级功能
-  - [ ] Agent 模板库
-  - [ ] 代码片段集成
-  - [ ] 智能建议系统
-- [ ] 性能优化
-  - [ ] 缓存机制
-  - [ ] 异步加载
-  - [ ] 内存优化
+- [x] 主界面 Webview 聊天工作区
+- [x] AI Swarm 集群工作区
+- [x] OpenClaw cron 定时任务管理
+- [x] 7 日 / 30 日 API 用量面板
+- [x] 预设智能体创建流程
+- [ ] 更多端到端 UI 测试
+- [ ] 更多场景化预设
+- [ ] 文档截图持续更新
 
 ---
 
-## 🤝 贡献指南
-
-我们欢迎所有形式的贡献！
-
-1. **Fork** 本项目
-2. 创建你的功能分支：`git checkout -b feature/amazing-feature`
-3. 提交改动：`git commit -m 'Add amazing feature'`
-4. 推送到分支：`git push origin feature/amazing-feature`
-5. 创建 **Pull Request**
-
-查看详细的 [贡献指南](CONTRIBUTING.md) 了解规范。
-
----
-
-## 📄 许可证
+## License
 
 [MIT](LICENSE) © 2026 OpenClaw
-
----
-
-<div align="center">
-
-**[⬆ 回到顶部](#openclaw-luna-for-vscode)**
-
-Made with ❤️ and 💻 by [月と猫 - LunaNeko](https://github.com/openclaw)
-
-</div>

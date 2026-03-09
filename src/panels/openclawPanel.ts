@@ -11,6 +11,7 @@ import { AgentManager } from '../managers/agentManager';
 import { ChatSessionManager } from '../managers/chatSessionManager';
 import { ClusterManager } from '../managers/clusterManager';
 import { ScheduledTask, ScheduledTaskManager } from '../managers/scheduledTaskManager';
+import { getAgentPresets } from '../config/agentPresets';
 
 export class OpenClawPanel {
     public static currentPanel: OpenClawPanel | undefined;
@@ -103,6 +104,22 @@ export class OpenClawPanel {
             this._service.off('connectionChange', handleConnectionChange);
         }));
 
+        const refreshAgents = () => {
+            if (!this._isWebviewReady) {
+                return;
+            }
+
+            void this._loadAgents();
+        };
+        for (const eventName of ['agentCreated', 'agentUpdated', 'agentDeleted']) {
+            this._agentManager.on(eventName, refreshAgents);
+        }
+        this._disposables.push(new vscode.Disposable(() => {
+            for (const eventName of ['agentCreated', 'agentUpdated', 'agentDeleted']) {
+                this._agentManager.off(eventName, refreshAgents);
+            }
+        }));
+
         const refreshTasks = () => {
             if (!this._isWebviewReady) {
                 return;
@@ -156,8 +173,21 @@ export class OpenClawPanel {
             this._postMessage({
                 type: 'agentsLoaded',
                 agents: agents.map(a => ({ id: a.id, name: a.name, model: a.model, status: a.status })),
-                models
+                models,
+                presets: getAgentPresets()
             });
+
+            const currentAgentStillExists = this._currentAgentId
+                ? agents.some(agent => agent.id === this._currentAgentId)
+                : false;
+
+            if (this._currentAgentId && !currentAgentStillExists) {
+                this._stopActiveSessionSync();
+                this._currentAgentId = null;
+                this._currentSessionId = null;
+                this._postMessage({ type: 'clearChat' });
+                this._postMessage({ type: 'setActiveAgent', agentId: null });
+            }
 
             const preferredAgentId = this._currentAgentId
                 || this._agentManager.getActiveAgentId()
@@ -174,6 +204,14 @@ export class OpenClawPanel {
                 message: t('panel.failedLoadAgents', { error: String(error) })
             });
         }
+    }
+
+    public async refreshAgents(force: boolean = true): Promise<void> {
+        if (force) {
+            await this._agentManager.getAgents(true);
+        }
+
+        await this._loadAgents();
     }
 
     private async _handleMessage(message: any) {
@@ -221,6 +259,10 @@ export class OpenClawPanel {
 
             case 'getTasks':
                 await this._loadTasks();
+                break;
+
+            case 'getAgents':
+                await this.refreshAgents(true);
                 break;
 
             case 'createAgent':
