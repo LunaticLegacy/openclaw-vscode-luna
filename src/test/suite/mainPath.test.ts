@@ -18,6 +18,7 @@ import {
 import {
     GatewayServiceConfig,
     LocalServiceConfig,
+    mergeOpenClawAuthProfilesForSave,
     mergeOpenClawConfigForSave,
     OpenClawCliServiceConfig
 } from '../../services/openclawConfig';
@@ -180,6 +181,118 @@ suite('OpenClaw Main Path', () => {
         assert.equal((merged as any).gateway.port, 18789);
         assert.equal((merged as any).gateway.auth, undefined);
         assert.equal((merged as any).agents, undefined);
+    });
+
+    test('merges OpenClaw auth metadata and API keys without dropping unrelated entries', () => {
+        const mergedConfig = mergeOpenClawConfigForSave({
+            auth: {
+                profiles: {
+                    'moonshot:default': {
+                        provider: 'moonshot',
+                        mode: 'api_key'
+                    }
+                }
+            }
+        }, {
+            gatewayPort: 18789,
+            gatewayToken: '',
+            defaultWorkspace: '',
+            defaultModel: 'ollama/qwen3:8b',
+            authProviderId: 'ollama',
+            authApiKey: 'ollama-local'
+        });
+        const mergedAuthProfiles = mergeOpenClawAuthProfilesForSave({
+            version: 1,
+            profiles: {
+                'moonshot:default': {
+                    type: 'api_key',
+                    provider: 'moonshot',
+                    key: 'moonshot-secret'
+                }
+            },
+            lastGood: {
+                moonshot: 'moonshot:default'
+            },
+            usageStats: {
+                'moonshot:default': {
+                    errorCount: 0
+                }
+            }
+        }, {
+            gatewayPort: 18789,
+            gatewayToken: '',
+            defaultWorkspace: '',
+            defaultModel: 'ollama/qwen3:8b',
+            authProviderId: 'ollama',
+            authApiKey: 'ollama-local'
+        });
+
+        assert.equal((mergedConfig as any).auth.profiles['moonshot:default'].provider, 'moonshot');
+        assert.equal((mergedConfig as any).auth.profiles['ollama:default'].provider, 'ollama');
+        assert.equal((mergedConfig as any).auth.profiles['ollama:default'].mode, 'api_key');
+
+        assert.equal((mergedAuthProfiles as any).profiles['moonshot:default'].key, 'moonshot-secret');
+        assert.equal((mergedAuthProfiles as any).profiles['ollama:default'].key, 'ollama-local');
+        assert.equal((mergedAuthProfiles as any).lastGood.ollama, 'ollama:default');
+        assert.equal((mergedAuthProfiles as any).usageStats['moonshot:default'].errorCount, 0);
+    });
+
+    test('clears saved OpenClaw auth API keys for the selected provider without touching others', () => {
+        const mergedConfig = mergeOpenClawConfigForSave({
+            auth: {
+                profiles: {
+                    'moonshot:default': {
+                        provider: 'moonshot',
+                        mode: 'api_key'
+                    },
+                    'ollama:default': {
+                        provider: 'ollama',
+                        mode: 'api_key'
+                    }
+                }
+            }
+        }, {
+            gatewayPort: 18789,
+            gatewayToken: '',
+            defaultWorkspace: '',
+            defaultModel: 'ollama/qwen3:8b',
+            authProviderId: 'ollama',
+            authApiKey: ''
+        });
+        const mergedAuthProfiles = mergeOpenClawAuthProfilesForSave({
+            version: 1,
+            profiles: {
+                'moonshot:default': {
+                    type: 'api_key',
+                    provider: 'moonshot',
+                    key: 'moonshot-secret'
+                },
+                'ollama:default': {
+                    type: 'api_key',
+                    provider: 'ollama',
+                    key: 'ollama-local'
+                }
+            },
+            lastGood: {
+                moonshot: 'moonshot:default',
+                ollama: 'ollama:default'
+            }
+        }, {
+            gatewayPort: 18789,
+            gatewayToken: '',
+            defaultWorkspace: '',
+            defaultModel: 'ollama/qwen3:8b',
+            authProviderId: 'ollama',
+            authApiKey: ''
+        });
+
+        assert.equal((mergedConfig as any).auth.profiles['moonshot:default'].provider, 'moonshot');
+        assert.equal((mergedConfig as any).auth.profiles['ollama:default'], undefined);
+
+        assert.equal((mergedAuthProfiles as any).profiles['moonshot:default'].key, 'moonshot-secret');
+        assert.equal((mergedAuthProfiles as any).profiles['ollama:default'], undefined);
+        assert.equal((mergedAuthProfiles as any).lastGood.moonshot, 'moonshot:default');
+        assert.equal((mergedAuthProfiles as any).lastGood.ollama, undefined);
     });
 
     test('runs the primary smoke flow across local chat, usage, and scheduled tasks', async function() {

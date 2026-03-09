@@ -65,6 +65,11 @@ export interface OpenClawConfigEditorState {
     stateDir: string;
     configPath: string;
     exists: boolean;
+    authProfilesPath: string;
+    authProfilesExists: boolean;
+    authProviderId: string;
+    authApiKey: string;
+    authProviders: string[];
     gatewayPort: number;
     gatewayToken: string;
     defaultWorkspace: string;
@@ -77,6 +82,8 @@ export interface OpenClawConfigEditorUpdate {
     gatewayToken?: string;
     defaultWorkspace?: string;
     defaultModel?: string;
+    authProviderId?: string;
+    authApiKey?: string;
 }
 
 export type ResolvedServiceConfig =
@@ -88,11 +95,18 @@ const DEFAULT_OPENCLAW_GATEWAY_PORT = 18789;
 const execFileAsync = promisify(execFile);
 
 interface AuthProfilesFile {
+    version?: number;
     profiles?: Record<string, {
+        type?: string;
         provider?: string;
         key?: string;
     }>;
     lastGood?: Record<string, string>;
+    usageStats?: Record<string, {
+        errorCount?: number;
+        lastFailureAt?: number;
+        lastUsed?: number;
+    }>;
 }
 
 interface ModelsFile {
@@ -108,6 +122,12 @@ interface ModelsFile {
 }
 
 interface OpenClawConfigFile {
+    auth?: {
+        profiles?: Record<string, {
+            provider?: string;
+            mode?: string;
+        }>;
+    };
     gateway?: {
         port?: number;
         auth?: {
@@ -209,10 +229,24 @@ export async function loadOpenClawConfigEditorState(extensionPath: string): Prom
     const config = vscode.workspace.getConfiguration('openclaw');
     const stateDir = await resolveOpenClawConfigStateDir(config, extensionPath);
     const configPath = path.join(stateDir, 'openclaw.json');
+    const authProfilesPath = getOpenClawMainAuthProfilesPath(stateDir);
+    const mainAgentModelsPath = getOpenClawMainModelsPath(stateDir);
     const openClawConfig = await readJsonFile<OpenClawConfigFile>(configPath);
+    const authProfiles = await readJsonFile<AuthProfilesFile>(authProfilesPath);
+    const mainAgentModels = await readJsonFile<ModelsFile>(mainAgentModelsPath);
     const exists = await pathExists(configPath);
+    const authProfilesExists = await pathExists(authProfilesPath);
 
-    return buildOpenClawConfigEditorState(stateDir, configPath, openClawConfig, exists);
+    return buildOpenClawConfigEditorState(
+        stateDir,
+        configPath,
+        authProfilesPath,
+        openClawConfig,
+        authProfiles,
+        mainAgentModels,
+        exists,
+        authProfilesExists
+    );
 }
 
 export async function saveOpenClawConfigEditorState(
@@ -222,17 +256,36 @@ export async function saveOpenClawConfigEditorState(
     const config = vscode.workspace.getConfiguration('openclaw');
     const stateDir = await resolveOpenClawConfigStateDir(config, extensionPath);
     const configPath = path.join(stateDir, 'openclaw.json');
-    const existing = await readJsonFile<JsonRecord>(configPath);
-    const nextConfig = mergeOpenClawConfigForSave(existing, update);
+    const authProfilesPath = getOpenClawMainAuthProfilesPath(stateDir);
+    const mainAgentModelsPath = getOpenClawMainModelsPath(stateDir);
+    const [existingConfig, existingAuthProfiles, mainAgentModels] = await Promise.all([
+        readJsonFile<JsonRecord>(configPath),
+        readJsonFile<AuthProfilesFile>(authProfilesPath),
+        readJsonFile<ModelsFile>(mainAgentModelsPath)
+    ]);
+    const nextConfig = mergeOpenClawConfigForSave(existingConfig, update);
+    const nextAuthProfiles = mergeOpenClawAuthProfilesForSave(existingAuthProfiles, update);
+    const hasAuthProfiles = hasOpenClawAuthProfilesContent(nextAuthProfiles);
 
     await fs.mkdir(stateDir, { recursive: true });
     await fs.writeFile(configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, 'utf8');
+    await fs.mkdir(path.dirname(authProfilesPath), { recursive: true });
+    if (hasAuthProfiles) {
+        await fs.writeFile(authProfilesPath, `${JSON.stringify(nextAuthProfiles, null, 2)}\n`, 'utf8');
+    } else if (await pathExists(authProfilesPath)) {
+        await fs.rm(authProfilesPath, { force: true });
+    }
 
     return buildOpenClawConfigEditorState(
         stateDir,
         configPath,
+        authProfilesPath,
         nextConfig as OpenClawConfigFile,
+        hasAuthProfiles ? nextAuthProfiles : null,
+        mainAgentModels,
         true
+        ,
+        hasAuthProfiles
     );
 }
 
@@ -282,6 +335,7 @@ export function mergeOpenClawConfigForSave(
     setOptionalString(auth, 'token', update.gatewayToken);
     setOptionalString(defaults, 'workspace', update.defaultWorkspace, { trimAsPath: true });
     setOptionalString(model, 'primary', update.defaultModel);
+    applyOpenClawAuthProfileMetadata(nextConfig, update);
 
     pruneEmptyObject(gateway, 'auth');
     pruneEmptyObject(defaults, 'model');
@@ -289,6 +343,56 @@ export function mergeOpenClawConfigForSave(
     pruneEmptyObject(nextConfig, 'agents');
 
     return nextConfig;
+}
+
+export function mergeOpenClawAuthProfilesForSave(
+    existing: AuthProfilesFile | null,
+    update: OpenClawConfigEditorUpdate
+): AuthProfilesFile {
+    const nextAuthProfiles = cloneAuthProfilesFile(existing);
+    const providerId = normalizeAuthProviderId(update);
+
+    if (!providerId) {
+        return nextAuthProfiles;
+    }
+
+    const profileId = resolveAuthProfileId(nextAuthProfiles, providerId);
+    const profiles = nextAuthProfiles.profiles || (nextAuthProfiles.profiles = {});
+    const lastGood = nextAuthProfiles.lastGood || (nextAuthProfiles.lastGood = {});
+    const normalizedApiKey = update.authApiKey?.trim() || '';
+
+    if (normalizedApiKey) {
+        profiles[profileId] = {
+            ...profiles[profileId],
+            type: 'api_key',
+            provider: providerId,
+            key: normalizedApiKey
+        };
+        lastGood[providerId] = profileId;
+        nextAuthProfiles.version = nextAuthProfiles.version || 1;
+        return nextAuthProfiles;
+    }
+
+    delete profiles[profileId];
+    if (lastGood[providerId] === profileId) {
+        const fallbackProfileId = Object.entries(profiles)
+            .find(([, profile]) => profile?.provider?.trim() === providerId)?.[0];
+        if (fallbackProfileId) {
+            lastGood[providerId] = fallbackProfileId;
+        } else {
+            delete lastGood[providerId];
+        }
+    }
+
+    pruneEmptyObject(nextAuthProfiles as JsonRecord, 'profiles');
+    pruneEmptyObject(nextAuthProfiles as JsonRecord, 'lastGood');
+    pruneEmptyObject(nextAuthProfiles as JsonRecord, 'usageStats');
+
+    if (nextAuthProfiles.version !== undefined && !hasOpenClawAuthProfilesContent(nextAuthProfiles)) {
+        delete nextAuthProfiles.version;
+    }
+
+    return nextAuthProfiles;
 }
 
 async function resolveGatewayConfig(
@@ -581,17 +685,30 @@ async function resolveOpenClawConfigStateDir(
 function buildOpenClawConfigEditorState(
     stateDir: string,
     configPath: string,
+    authProfilesPath: string,
     openClawConfig: OpenClawConfigFile | null,
-    exists: boolean
+    authProfiles: AuthProfilesFile | null,
+    mainAgentModels: ModelsFile | null,
+    exists: boolean,
+    authProfilesExists: boolean
 ): OpenClawConfigEditorState {
+    const defaultModel = openClawConfig?.agents?.defaults?.model?.primary?.trim() || '';
+    const authProviders = collectOpenClawAuthProviders(authProfiles, mainAgentModels, defaultModel);
+    const authProviderId = resolveInitialOpenClawAuthProviderId(authProfiles, mainAgentModels, defaultModel, authProviders);
+
     return {
         stateDir,
         configPath,
         exists,
+        authProfilesPath,
+        authProfilesExists,
+        authProviderId,
+        authApiKey: resolveOpenClawAuthApiKey(authProfiles, mainAgentModels, authProviderId),
+        authProviders,
         gatewayPort: normalizeGatewayPort(openClawConfig?.gateway?.port),
         gatewayToken: openClawConfig?.gateway?.auth?.token?.trim() || '',
         defaultWorkspace: trimConfigPath(openClawConfig?.agents?.defaults?.workspace) || '',
-        defaultModel: openClawConfig?.agents?.defaults?.model?.primary?.trim() || '',
+        defaultModel,
         sourceDescription: exists ? configPath : `Will create ${configPath}`
     };
 }
@@ -606,6 +723,10 @@ function normalizeGatewayPort(value: number | undefined): number {
 
 function cloneJsonRecord(value: JsonRecord | null): JsonRecord {
     return JSON.parse(JSON.stringify(value || {})) as JsonRecord;
+}
+
+function cloneAuthProfilesFile(value: AuthProfilesFile | null): AuthProfilesFile {
+    return JSON.parse(JSON.stringify(value || {})) as AuthProfilesFile;
 }
 
 function ensureJsonRecord(parent: JsonRecord, key: string): JsonRecord {
@@ -646,6 +767,186 @@ function pruneEmptyObject(parent: JsonRecord, key: string): void {
     if (Object.keys(current as JsonRecord).length === 0) {
         delete parent[key];
     }
+}
+
+function getOpenClawMainAgentDir(stateDir: string): string {
+    return path.join(stateDir, 'agents', 'main', 'agent');
+}
+
+function getOpenClawMainAuthProfilesPath(stateDir: string): string {
+    return path.join(getOpenClawMainAgentDir(stateDir), 'auth-profiles.json');
+}
+
+function getOpenClawMainModelsPath(stateDir: string): string {
+    return path.join(getOpenClawMainAgentDir(stateDir), 'models.json');
+}
+
+function applyOpenClawAuthProfileMetadata(
+    nextConfig: JsonRecord,
+    update: OpenClawConfigEditorUpdate
+): void {
+    const providerId = normalizeAuthProviderId(update);
+    if (!providerId) {
+        return;
+    }
+
+    const auth = ensureJsonRecord(nextConfig, 'auth');
+    const profiles = ensureJsonRecord(auth, 'profiles');
+    const profileId = `${providerId}:default`;
+    const normalizedApiKey = update.authApiKey?.trim() || '';
+
+    if (normalizedApiKey) {
+        profiles[profileId] = {
+            provider: providerId,
+            mode: 'api_key'
+        };
+        return;
+    }
+
+    delete profiles[profileId];
+    pruneEmptyObject(auth, 'profiles');
+    pruneEmptyObject(nextConfig, 'auth');
+}
+
+function collectOpenClawAuthProviders(
+    authProfiles: AuthProfilesFile | null,
+    mainAgentModels: ModelsFile | null,
+    defaultModel: string
+): string[] {
+    const providers = new Set<string>();
+
+    for (const providerId of Object.keys(mainAgentModels?.providers || {})) {
+        const normalized = normalizeProviderId(providerId);
+        if (normalized) {
+            providers.add(normalized);
+        }
+    }
+
+    for (const profile of Object.values(authProfiles?.profiles || {})) {
+        const normalized = normalizeProviderId(profile?.provider);
+        if (normalized) {
+            providers.add(normalized);
+        }
+    }
+
+    const defaultProviderId = inferProviderIdFromModel(defaultModel);
+    if (defaultProviderId) {
+        providers.add(defaultProviderId);
+    }
+
+    return Array.from(providers).sort((left, right) => left.localeCompare(right));
+}
+
+function resolveInitialOpenClawAuthProviderId(
+    authProfiles: AuthProfilesFile | null,
+    mainAgentModels: ModelsFile | null,
+    defaultModel: string,
+    authProviders: string[]
+): string {
+    const defaultProviderId = inferProviderIdFromModel(defaultModel);
+    if (defaultProviderId) {
+        return defaultProviderId;
+    }
+
+    const lastGoodProviderId = Object.keys(authProfiles?.lastGood || {})
+        .map(providerId => normalizeProviderId(providerId))
+        .find((providerId): providerId is string => Boolean(providerId));
+    if (lastGoodProviderId) {
+        return lastGoodProviderId;
+    }
+
+    const authProfileProviderId = Object.values(authProfiles?.profiles || {})
+        .map(profile => normalizeProviderId(profile?.provider))
+        .find((providerId): providerId is string => Boolean(providerId));
+    if (authProfileProviderId) {
+        return authProfileProviderId;
+    }
+
+    const modelProviderId = Object.keys(mainAgentModels?.providers || {})
+        .map(providerId => normalizeProviderId(providerId))
+        .find((providerId): providerId is string => Boolean(providerId));
+    if (modelProviderId) {
+        return modelProviderId;
+    }
+
+    return authProviders[0] || '';
+}
+
+function resolveOpenClawAuthApiKey(
+    authProfiles: AuthProfilesFile | null,
+    mainAgentModels: ModelsFile | null,
+    providerId: string
+): string {
+    const normalizedProviderId = normalizeProviderId(providerId);
+    if (!normalizedProviderId) {
+        return '';
+    }
+
+    const profileId = resolveAuthProfileId(authProfiles, normalizedProviderId);
+    const authProfileKey = authProfiles?.profiles?.[profileId]?.key?.trim();
+    if (authProfileKey) {
+        return authProfileKey;
+    }
+
+    return mainAgentModels?.providers?.[normalizedProviderId]?.apiKey?.trim() || '';
+}
+
+function resolveAuthProfileId(
+    authProfiles: AuthProfilesFile | null,
+    providerId: string
+): string {
+    const normalizedProviderId = normalizeProviderId(providerId) || providerId.trim();
+    const preferredProfileId = authProfiles?.lastGood?.[normalizedProviderId]?.trim();
+    if (preferredProfileId) {
+        return preferredProfileId;
+    }
+
+    const matchingProfileId = Object.entries(authProfiles?.profiles || {})
+        .find(([, profile]) => profile?.provider?.trim() === normalizedProviderId)?.[0];
+    if (matchingProfileId) {
+        return matchingProfileId;
+    }
+
+    return `${normalizedProviderId}:default`;
+}
+
+function hasOpenClawAuthProfilesContent(authProfiles: AuthProfilesFile | null): boolean {
+    return Boolean(
+        authProfiles
+        && (
+            Object.keys(authProfiles.profiles || {}).length > 0
+            || Object.keys(authProfiles.lastGood || {}).length > 0
+            || Object.keys(authProfiles.usageStats || {}).length > 0
+        )
+    );
+}
+
+function normalizeAuthProviderId(update: OpenClawConfigEditorUpdate): string | undefined {
+    const explicitProviderId = normalizeProviderId(update.authProviderId);
+    if (explicitProviderId) {
+        return explicitProviderId;
+    }
+
+    return inferProviderIdFromModel(update.defaultModel);
+}
+
+function inferProviderIdFromModel(model: string | undefined): string | undefined {
+    const normalizedModel = model?.trim();
+    if (!normalizedModel) {
+        return undefined;
+    }
+
+    const slashIndex = normalizedModel.indexOf('/');
+    if (slashIndex <= 0) {
+        return undefined;
+    }
+
+    return normalizeProviderId(normalizedModel.slice(0, slashIndex));
+}
+
+function normalizeProviderId(value: string | undefined): string | undefined {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : undefined;
 }
 
 function getCliCandidates(): string[] {

@@ -965,6 +965,8 @@ export class OpenClawPanel {
         gatewayToken?: string;
         defaultWorkspace?: string;
         defaultModel?: string;
+        authProviderId?: string;
+        authApiKey?: string;
     }) {
         const gatewayPort = Number(settings.gatewayPort);
         if (!Number.isInteger(gatewayPort) || gatewayPort <= 0 || gatewayPort > 65535) {
@@ -980,7 +982,9 @@ export class OpenClawPanel {
                 gatewayPort,
                 gatewayToken: settings.gatewayToken,
                 defaultWorkspace: settings.defaultWorkspace,
-                defaultModel: settings.defaultModel
+                defaultModel: settings.defaultModel,
+                authProviderId: settings.authProviderId,
+                authApiKey: settings.authApiKey
             });
 
             const nextConfig = await resolveOpenClawServiceConfig(this._extensionUri.fsPath);

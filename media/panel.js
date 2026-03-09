@@ -137,10 +137,14 @@
         elements.formOpenClawConfig = document.getElementById('form-openclaw-config');
         elements.openclawStateDir = document.getElementById('openclaw-state-dir');
         elements.openclawConfigPath = document.getElementById('openclaw-config-path');
+        elements.openclawAuthProfilesPath = document.getElementById('openclaw-auth-profiles-path');
         elements.openclawGatewayPort = document.getElementById('openclaw-gateway-port');
         elements.openclawGatewayToken = document.getElementById('openclaw-gateway-token');
         elements.openclawDefaultWorkspace = document.getElementById('openclaw-default-workspace');
         elements.openclawDefaultModel = document.getElementById('openclaw-default-model');
+        elements.openclawAuthProvider = document.getElementById('openclaw-auth-provider');
+        elements.openclawAuthProviderOptions = document.getElementById('openclaw-auth-provider-options');
+        elements.openclawAuthApiKey = document.getElementById('openclaw-auth-api-key');
         elements.openclawConfigHint = document.getElementById('openclaw-config-hint');
         elements.openclawConfigStatus = document.getElementById('openclaw-config-status');
         elements.btnRefreshOpenclawConfig = document.getElementById('btn-refresh-openclaw-config');
@@ -289,7 +293,9 @@
             elements.openclawGatewayPort,
             elements.openclawGatewayToken,
             elements.openclawDefaultWorkspace,
-            elements.openclawDefaultModel
+            elements.openclawDefaultModel,
+            elements.openclawAuthProvider,
+            elements.openclawAuthApiKey
         ].forEach(input => {
             input?.addEventListener('input', () => {
                 state.openClawConfigFormDirty = true;
@@ -936,10 +942,14 @@
         return {
             stateDir: openClawConfig?.stateDir || diagnostics?.configuredStateDir || diagnostics?.detectedStateDir || '',
             configPath: openClawConfig?.configPath || diagnostics?.detectedConfigPath || '',
+            authProfilesPath: openClawConfig?.authProfilesPath || '',
             gatewayPort: String(openClawConfig?.gatewayPort || 18789),
             gatewayToken: openClawConfig?.gatewayToken || '',
             defaultWorkspace: openClawConfig?.defaultWorkspace || '',
-            defaultModel: openClawConfig?.defaultModel || ''
+            defaultModel: openClawConfig?.defaultModel || '',
+            authProviderId: openClawConfig?.authProviderId || '',
+            authApiKey: openClawConfig?.authApiKey || '',
+            authProviders: Array.isArray(openClawConfig?.authProviders) ? openClawConfig.authProviders : []
         };
     }
 
@@ -947,10 +957,13 @@
         if (
             !elements.openclawStateDir
             || !elements.openclawConfigPath
+            || !elements.openclawAuthProfilesPath
             || !elements.openclawGatewayPort
             || !elements.openclawGatewayToken
             || !elements.openclawDefaultWorkspace
             || !elements.openclawDefaultModel
+            || !elements.openclawAuthProvider
+            || !elements.openclawAuthApiKey
         ) {
             return;
         }
@@ -962,10 +975,14 @@
         const formState = resolveOpenClawConfigFormState();
         elements.openclawStateDir.value = formState.stateDir;
         elements.openclawConfigPath.value = formState.configPath;
+        elements.openclawAuthProfilesPath.value = formState.authProfilesPath;
         elements.openclawGatewayPort.value = formState.gatewayPort;
         elements.openclawGatewayToken.value = formState.gatewayToken;
         elements.openclawDefaultWorkspace.value = formState.defaultWorkspace;
         elements.openclawDefaultModel.value = formState.defaultModel;
+        elements.openclawAuthProvider.value = formState.authProviderId;
+        elements.openclawAuthApiKey.value = formState.authApiKey;
+        renderOpenClawAuthProviderOptions(formState.authProviders);
     }
 
     function collectOpenClawConfigSettings() {
@@ -973,7 +990,9 @@
             gatewayPort: elements.openclawGatewayPort?.value?.trim() || '',
             gatewayToken: elements.openclawGatewayToken?.value?.trim() || '',
             defaultWorkspace: elements.openclawDefaultWorkspace?.value?.trim() || '',
-            defaultModel: elements.openclawDefaultModel?.value?.trim() || ''
+            defaultModel: elements.openclawDefaultModel?.value?.trim() || '',
+            authProviderId: elements.openclawAuthProvider?.value?.trim() || '',
+            authApiKey: elements.openclawAuthApiKey?.value?.trim() || ''
         };
     }
 
@@ -986,13 +1005,22 @@
             };
         }
 
+        if (settings.authApiKey && !settings.authProviderId) {
+            return {
+                ok: false,
+                message: window.OpenClawI18n ? window.OpenClawI18n.t('setup.openclawConfig.authProviderRequired') : 'Choose or enter a provider before saving an API key.'
+            };
+        }
+
         return {
             ok: true,
             settings: {
                 gatewayPort,
                 gatewayToken: settings.gatewayToken,
                 defaultWorkspace: settings.defaultWorkspace,
-                defaultModel: settings.defaultModel
+                defaultModel: settings.defaultModel,
+                authProviderId: settings.authProviderId,
+                authApiKey: settings.authApiKey
             }
         };
     }
@@ -1034,15 +1062,39 @@
             return t('setup.openclawConfig.hintUnavailable');
         }
 
+        if (openClawConfig.exists && openClawConfig.authProfilesExists) {
+            return t('setup.openclawConfig.hintExistingWithAuth', {
+                path: openClawConfig.configPath,
+                authPath: openClawConfig.authProfilesPath
+            });
+        }
+
         if (openClawConfig.exists) {
             return t('setup.openclawConfig.hintExisting', {
                 path: openClawConfig.configPath
             });
         }
 
+        if (openClawConfig.authProfilesExists) {
+            return t('setup.openclawConfig.hintCreateWithAuth', {
+                path: openClawConfig.configPath,
+                authPath: openClawConfig.authProfilesPath
+            });
+        }
+
         return t('setup.openclawConfig.hintCreate', {
             path: openClawConfig.configPath
         });
+    }
+
+    function renderOpenClawAuthProviderOptions(authProviders) {
+        if (!elements.openclawAuthProviderOptions) {
+            return;
+        }
+
+        elements.openclawAuthProviderOptions.innerHTML = (authProviders || [])
+            .map(providerId => `<option value="${escapeHtml(providerId)}"></option>`)
+            .join('');
     }
 
     function renderOpenClawConfig() {

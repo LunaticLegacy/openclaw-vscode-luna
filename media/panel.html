@@ -207,6 +207,10 @@
                                             <input type="text" id="openclaw-config-path" readonly>
                                         </div>
                                     </div>
+                                    <div class="form-group">
+                                        <label for="openclaw-auth-profiles-path" data-i18n="setup.openclawConfig.authProfilesPathLabel">Auth Store</label>
+                                        <input type="text" id="openclaw-auth-profiles-path" readonly>
+                                    </div>
                                     <div class="connection-settings-grid">
                                         <div class="form-group">
                                             <label for="openclaw-gateway-port" data-i18n="setup.openclawConfig.gatewayPortLabel">Gateway Port</label>
@@ -224,6 +228,17 @@
                                     <div class="form-group">
                                         <label for="openclaw-default-workspace" data-i18n="setup.openclawConfig.defaultWorkspaceLabel">Default Workspace</label>
                                         <input type="text" id="openclaw-default-workspace" data-i18n-placeholder="setup.openclawConfig.defaultWorkspacePlaceholder" placeholder="Optional workspace path for new agents">
+                                    </div>
+                                    <div class="connection-settings-grid">
+                                        <div class="form-group">
+                                            <label for="openclaw-auth-provider" data-i18n="setup.openclawConfig.authProviderLabel">Auth Provider</label>
+                                            <input type="text" id="openclaw-auth-provider" list="openclaw-auth-provider-options" data-i18n-placeholder="setup.openclawConfig.authProviderPlaceholder" placeholder="ollama">
+                                            <datalist id="openclaw-auth-provider-options"></datalist>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="openclaw-auth-api-key" data-i18n="setup.openclawConfig.authApiKeyLabel">API Key</label>
+                                            <input type="password" id="openclaw-auth-api-key" autocomplete="off" data-i18n-placeholder="setup.openclawConfig.authApiKeyPlaceholder" placeholder="API key or local provider token">
+                                        </div>
                                     </div>
                                     <div id="openclaw-config-hint" class="form-hint"></div>
                                     <div id="openclaw-config-status" class="console-setup-status hidden"></div>
