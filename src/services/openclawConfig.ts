@@ -43,6 +43,22 @@ export interface LocalServiceConfig {
     sourceDescription: string;
 }
 
+export interface OpenClawRuntimeDiagnostics {
+    configMode: 'auto' | 'gateway' | 'local' | 'openclaw';
+    configuredGatewayUrl: string;
+    configuredGatewayToken: string;
+    configuredStateDir?: string;
+    configuredCliPath?: string;
+    configuredNodePath?: string;
+    detectedGatewayUrl?: string;
+    detectedGatewayToken?: string;
+    detectedStateDir?: string;
+    detectedConfigPath?: string;
+    detectedCliEntryPath?: string;
+    detectedNodePath?: string;
+    openClawInstalled: boolean;
+}
+
 export type ResolvedServiceConfig =
     | GatewayServiceConfig
     | OpenClawCliServiceConfig
@@ -128,6 +144,40 @@ export async function resolveOpenClawServiceConfig(extensionPath: string): Promi
     }
 
     return gatewayConfig;
+}
+
+export async function inspectOpenClawEnvironment(extensionPath: string): Promise<OpenClawRuntimeDiagnostics> {
+    const config = vscode.workspace.getConfiguration('openclaw');
+    const configMode = config.get<'auto' | 'gateway' | 'local' | 'openclaw'>('configMode', 'auto');
+    const configuredGatewayUrl = trimConfigPath(config.get<string>('gatewayUrl', '')) || '';
+    const configuredGatewayToken = config.get<string>('gatewayToken', '').trim();
+    const configuredStateDir = trimConfigPath(config.get<string>('stateDir', ''));
+    const configuredCliPath = trimConfigPath(config.get<string>('cliPath', ''));
+    const configuredNodePath = trimConfigPath(config.get<string>('nodePath', ''));
+
+    const detectedStateDir = await findFirstExistingPath(getStateDirCandidates(config, extensionPath)) || undefined;
+    const detectedConfigPath = detectedStateDir
+        ? path.join(detectedStateDir, 'openclaw.json')
+        : undefined;
+    const cliEntryPath = await resolveCliEntryPath(config) || undefined;
+    const nodePath = cliEntryPath ? resolveNodePath(config, cliEntryPath) || undefined : undefined;
+    const detectedGateway = await resolveDetectedGatewayConfig(config, extensionPath);
+
+    return {
+        configMode,
+        configuredGatewayUrl,
+        configuredGatewayToken,
+        configuredStateDir,
+        configuredCliPath,
+        configuredNodePath,
+        detectedGatewayUrl: detectedGateway.gatewayUrl,
+        detectedGatewayToken: detectedGateway.gatewayToken,
+        detectedStateDir,
+        detectedConfigPath,
+        detectedCliEntryPath: cliEntryPath,
+        detectedNodePath: nodePath,
+        openClawInstalled: Boolean(cliEntryPath)
+    };
 }
 
 async function resolveGatewayConfig(
