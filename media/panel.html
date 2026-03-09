@@ -217,8 +217,11 @@
                                             <input type="number" id="openclaw-gateway-port" min="1" max="65535" placeholder="18789">
                                         </div>
                                         <div class="form-group">
-                                            <label for="openclaw-default-model" data-i18n="setup.openclawConfig.defaultModelLabel">Default Model</label>
-                                            <input type="text" id="openclaw-default-model" data-i18n-placeholder="setup.openclawConfig.defaultModelPlaceholder" placeholder="moonshot/kimi-k2.5">
+                                            <label for="openclaw-default-model-select" data-i18n="setup.openclawConfig.defaultModelLabel">Default Model</label>
+                                            <div class="auth-provider-inputs">
+                                                <select id="openclaw-default-model-select"></select>
+                                                <input type="text" id="openclaw-default-model-custom" class="hidden" data-i18n-placeholder="setup.openclawConfig.defaultModelPlaceholder" placeholder="moonshot/kimi-k2.5">
+                                            </div>
                                         </div>
                                     </div>
                                     <div class="form-group">
@@ -231,9 +234,11 @@
                                     </div>
                                     <div class="connection-settings-grid">
                                         <div class="form-group">
-                                            <label for="openclaw-auth-provider" data-i18n="setup.openclawConfig.authProviderLabel">Auth Provider</label>
-                                            <input type="text" id="openclaw-auth-provider" list="openclaw-auth-provider-options" data-i18n-placeholder="setup.openclawConfig.authProviderPlaceholder" placeholder="ollama">
-                                            <datalist id="openclaw-auth-provider-options"></datalist>
+                                            <label for="openclaw-auth-provider-select" data-i18n="setup.openclawConfig.authProviderLabel">Auth Provider</label>
+                                            <div class="auth-provider-inputs">
+                                                <select id="openclaw-auth-provider-select"></select>
+                                                <input type="text" id="openclaw-auth-provider-custom" class="hidden" data-i18n-placeholder="setup.openclawConfig.authProviderPlaceholder" placeholder="ollama">
+                                            </div>
                                         </div>
                                         <div class="form-group">
                                             <label for="openclaw-auth-api-key" data-i18n="setup.openclawConfig.authApiKeyLabel">API Key</label>

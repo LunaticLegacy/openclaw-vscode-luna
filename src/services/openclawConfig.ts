@@ -70,6 +70,7 @@ export interface OpenClawConfigEditorState {
     authProviderId: string;
     authApiKey: string;
     authProviders: string[];
+    defaultModelSuggestionsByProvider: Record<string, string[]>;
     gatewayPort: number;
     gatewayToken: string;
     defaultWorkspace: string;
@@ -93,6 +94,229 @@ export type ResolvedServiceConfig =
 
 const DEFAULT_OPENCLAW_GATEWAY_PORT = 18789;
 const execFileAsync = promisify(execFile);
+
+// Based on OpenClaw's provider docs and model-provider catalog.
+export const BUILTIN_OPENCLAW_AUTH_PROVIDER_IDS: readonly string[] = Object.freeze([
+    'amazon-bedrock',
+    'anthropic',
+    'byteplus',
+    'byteplus-plan',
+    'cerebras',
+    'cloudflare-ai-gateway',
+    'gemini',
+    'github-copilot',
+    'google',
+    'google-antigravity',
+    'google-gemini-cli',
+    'google-vertex',
+    'groq',
+    'huggingface',
+    'kilocode',
+    'kimi-coding',
+    'litellm',
+    'lmstudio',
+    'minimax',
+    'mistral',
+    'moonshot',
+    'nvidia',
+    'ollama',
+    'openai',
+    'openai-codex',
+    'opencode',
+    'openrouter',
+    'qianfan',
+    'qwen-portal',
+    'synthetic',
+    'together',
+    'venice',
+    'vercel-ai-gateway',
+    'vllm',
+    'volcengine',
+    'volcengine-plan',
+    'xai',
+    'xiaomi',
+    'zai'
+]);
+
+export function getBuiltInOpenClawAuthProviderIds(): string[] {
+    return [...BUILTIN_OPENCLAW_AUTH_PROVIDER_IDS];
+}
+
+function freezeStringList(values: string[]): readonly string[] {
+    return Object.freeze(values);
+}
+
+const BUILTIN_OPENCLAW_DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<string, readonly string[]>> = Object.freeze({
+    'amazon-bedrock': freezeStringList([
+        'amazon-bedrock/us.anthropic.claude-opus-4-6-v1:0'
+    ]),
+    anthropic: freezeStringList([
+        'anthropic/claude-opus-4-6',
+        'anthropic/claude-sonnet-4-6',
+        'anthropic/claude-haiku-4-5'
+    ]),
+    byteplus: freezeStringList([
+        'byteplus/seed-1-8-251228',
+        'byteplus/kimi-k2-5-260127',
+        'byteplus/glm-4-7-251222'
+    ]),
+    'byteplus-plan': freezeStringList([
+        'byteplus-plan/ark-code-latest',
+        'byteplus-plan/doubao-seed-code',
+        'byteplus-plan/kimi-k2.5',
+        'byteplus-plan/kimi-k2-thinking',
+        'byteplus-plan/glm-4.7'
+    ]),
+    cerebras: freezeStringList([
+        'cerebras/zai-glm-4.7',
+        'cerebras/zai-glm-4.6'
+    ]),
+    'cloudflare-ai-gateway': freezeStringList([
+        'cloudflare-ai-gateway/claude-sonnet-4-5'
+    ]),
+    gemini: freezeStringList([
+        'google/gemini-3.1-pro-preview',
+        'google/gemini-3-flash-preview',
+        'google/gemini-3.1-flash-lite-preview'
+    ]),
+    'github-copilot': freezeStringList([
+        'github-copilot/gpt-4o',
+        'github-copilot/gpt-4.1'
+    ]),
+    google: freezeStringList([
+        'google/gemini-3.1-pro-preview',
+        'google/gemini-3-flash-preview',
+        'google/gemini-3.1-flash-lite-preview'
+    ]),
+    'google-antigravity': freezeStringList([
+        'google-antigravity/claude-opus-4-6-thinking',
+        'google-antigravity/gemini-3-flash'
+    ]),
+    'google-gemini-cli': freezeStringList([]),
+    'google-vertex': freezeStringList([
+        'google-vertex/gemini-3.1-pro-preview',
+        'google-vertex/gemini-3-flash-preview'
+    ]),
+    groq: freezeStringList([]),
+    huggingface: freezeStringList([
+        'huggingface/deepseek-ai/DeepSeek-R1',
+        'huggingface/deepseek-ai/DeepSeek-V3.2',
+        'huggingface/Qwen/Qwen3-8B',
+        'huggingface/meta-llama/Llama-3.3-70B-Instruct'
+    ]),
+    kilocode: freezeStringList([
+        'kilocode/kilo/auto',
+        'kilocode/anthropic/claude-sonnet-4',
+        'kilocode/openai/gpt-5.2',
+        'kilocode/google/gemini-3-pro-preview'
+    ]),
+    'kimi-coding': freezeStringList([
+        'kimi-coding/k2p5'
+    ]),
+    litellm: freezeStringList([
+        'litellm/claude-opus-4-6',
+        'litellm/gpt-4o'
+    ]),
+    lmstudio: freezeStringList([
+        'lmstudio/minimax-m2.5-gs32'
+    ]),
+    minimax: freezeStringList([
+        'minimax/MiniMax-M2.5',
+        'minimax/MiniMax-M2.5-highspeed'
+    ]),
+    mistral: freezeStringList([
+        'mistral/mistral-large-latest'
+    ]),
+    moonshot: freezeStringList([
+        'moonshot/kimi-k2.5',
+        'moonshot/kimi-k2-0905-preview',
+        'moonshot/kimi-k2-turbo-preview',
+        'moonshot/kimi-k2-thinking',
+        'moonshot/kimi-k2-thinking-turbo'
+    ]),
+    nvidia: freezeStringList([
+        'nvidia/nvidia/llama-3.1-nemotron-70b-instruct',
+        'nvidia/meta/llama-3.3-70b-instruct',
+        'nvidia/nvidia/mistral-nemo-minitron-8b-8k-instruct'
+    ]),
+    ollama: freezeStringList([
+        'ollama/gpt-oss:20b',
+        'ollama/llama3.3',
+        'ollama/qwen2.5-coder:32b',
+        'ollama/deepseek-r1:32b'
+    ]),
+    opencode: freezeStringList([
+        'opencode/claude-opus-4-6'
+    ]),
+    openai: freezeStringList([
+        'openai/gpt-5.4',
+        'openai/gpt-5.4-pro',
+        'openai/gpt-5-mini'
+    ]),
+    'openai-codex': freezeStringList([
+        'openai-codex/gpt-5.4'
+    ]),
+    openrouter: freezeStringList([
+        'openrouter/anthropic/claude-sonnet-4-5',
+        'openrouter/google/gemini-2.0-flash-vision:free',
+        'openrouter/meta-llama/llama-3.3-70b-instruct:free'
+    ]),
+    qianfan: freezeStringList([]),
+    'qwen-portal': freezeStringList([
+        'qwen-portal/coder-model',
+        'qwen-portal/vision-model'
+    ]),
+    synthetic: freezeStringList([
+        'synthetic/hf:MiniMaxAI/MiniMax-M2.5'
+    ]),
+    together: freezeStringList([
+        'together/moonshotai/Kimi-K2.5',
+        'together/deepseek-ai/DeepSeek-V3.1'
+    ]),
+    venice: freezeStringList([
+        'venice/kimi-k2-5',
+        'venice/claude-opus-4-6',
+        'venice/venice-uncensored',
+        'venice/qwen3-vl-235b-a22b',
+        'venice/qwen3-coder-480b-a35b-instruct'
+    ]),
+    'vercel-ai-gateway': freezeStringList([
+        'vercel-ai-gateway/anthropic/claude-opus-4.6'
+    ]),
+    vllm: freezeStringList([]),
+    volcengine: freezeStringList([
+        'volcengine/doubao-seed-1-8-251228',
+        'volcengine/doubao-seed-code-preview-251028',
+        'volcengine/kimi-k2-5-260127',
+        'volcengine/glm-4-7-251222',
+        'volcengine/deepseek-v3-2-251201'
+    ]),
+    'volcengine-plan': freezeStringList([
+        'volcengine-plan/ark-code-latest',
+        'volcengine-plan/doubao-seed-code',
+        'volcengine-plan/kimi-k2.5',
+        'volcengine-plan/kimi-k2-thinking',
+        'volcengine-plan/glm-4.7'
+    ]),
+    xai: freezeStringList([
+        'xai/grok-4'
+    ]),
+    xiaomi: freezeStringList([
+        'xiaomi/mimo-v2-flash'
+    ]),
+    zai: freezeStringList([
+        'zai/glm-5',
+        'zai/glm-4.7',
+        'zai/glm-4.6'
+    ])
+});
+
+export function getBuiltInOpenClawDefaultModelsByProvider(): Record<string, string[]> {
+    return Object.fromEntries(
+        Object.entries(BUILTIN_OPENCLAW_DEFAULT_MODELS_BY_PROVIDER)
+            .map(([providerId, modelRefs]) => [providerId, [...modelRefs]])
+    );
+}
 
 interface AuthProfilesFile {
     version?: number;
@@ -695,6 +919,7 @@ function buildOpenClawConfigEditorState(
     const defaultModel = openClawConfig?.agents?.defaults?.model?.primary?.trim() || '';
     const authProviders = collectOpenClawAuthProviders(authProfiles, mainAgentModels, defaultModel);
     const authProviderId = resolveInitialOpenClawAuthProviderId(authProfiles, mainAgentModels, defaultModel, authProviders);
+    const defaultModelSuggestionsByProvider = collectOpenClawDefaultModelSuggestionsByProvider(mainAgentModels, defaultModel);
 
     return {
         stateDir,
@@ -705,6 +930,7 @@ function buildOpenClawConfigEditorState(
         authProviderId,
         authApiKey: resolveOpenClawAuthApiKey(authProfiles, mainAgentModels, authProviderId),
         authProviders,
+        defaultModelSuggestionsByProvider,
         gatewayPort: normalizeGatewayPort(openClawConfig?.gateway?.port),
         gatewayToken: openClawConfig?.gateway?.auth?.token?.trim() || '',
         defaultWorkspace: trimConfigPath(openClawConfig?.agents?.defaults?.workspace) || '',
@@ -813,7 +1039,7 @@ function collectOpenClawAuthProviders(
     mainAgentModels: ModelsFile | null,
     defaultModel: string
 ): string[] {
-    const providers = new Set<string>();
+    const providers = new Set<string>(BUILTIN_OPENCLAW_AUTH_PROVIDER_IDS);
 
     for (const providerId of Object.keys(mainAgentModels?.providers || {})) {
         const normalized = normalizeProviderId(providerId);
@@ -835,6 +1061,71 @@ function collectOpenClawAuthProviders(
     }
 
     return Array.from(providers).sort((left, right) => left.localeCompare(right));
+}
+
+function collectOpenClawDefaultModelSuggestionsByProvider(
+    mainAgentModels: ModelsFile | null,
+    defaultModel: string
+): Record<string, string[]> {
+    const suggestionsByProvider = getBuiltInOpenClawDefaultModelsByProvider();
+
+    for (const [providerId, providerConfig] of Object.entries(mainAgentModels?.providers || {})) {
+        const normalizedProviderId = normalizeProviderId(providerId);
+        if (!normalizedProviderId) {
+            continue;
+        }
+
+        const dynamicModelRefs = (providerConfig.models || [])
+            .map(modelConfig => buildQualifiedModelRef(normalizedProviderId, modelConfig?.id))
+            .filter((modelRef): modelRef is string => Boolean(modelRef));
+
+        suggestionsByProvider[normalizedProviderId] = dedupeStringList([
+            ...(suggestionsByProvider[normalizedProviderId] || []),
+            ...dynamicModelRefs
+        ]);
+    }
+
+    const normalizedDefaultModel = defaultModel.trim();
+    const defaultProviderId = inferProviderIdFromModel(normalizedDefaultModel);
+    if (defaultProviderId && normalizedDefaultModel) {
+        suggestionsByProvider[defaultProviderId] = dedupeStringList([
+            ...(suggestionsByProvider[defaultProviderId] || []),
+            normalizedDefaultModel
+        ]);
+    }
+
+    return suggestionsByProvider;
+}
+
+function buildQualifiedModelRef(providerId: string, modelId: string | undefined): string | undefined {
+    const normalizedProviderId = normalizeProviderId(providerId);
+    const normalizedModelId = modelId?.trim();
+    if (!normalizedProviderId || !normalizedModelId) {
+        return undefined;
+    }
+
+    if (normalizedModelId.startsWith(`${normalizedProviderId}/`)) {
+        return normalizedModelId;
+    }
+
+    return `${normalizedProviderId}/${normalizedModelId}`;
+}
+
+function dedupeStringList(values: string[]): string[] {
+    const seen = new Set<string>();
+    const uniqueValues: string[] = [];
+
+    for (const value of values) {
+        const normalizedValue = value.trim();
+        if (!normalizedValue || seen.has(normalizedValue)) {
+            continue;
+        }
+
+        seen.add(normalizedValue);
+        uniqueValues.push(normalizedValue);
+    }
+
+    return uniqueValues;
 }
 
 function resolveInitialOpenClawAuthProviderId(
@@ -869,7 +1160,7 @@ function resolveInitialOpenClawAuthProviderId(
         return modelProviderId;
     }
 
-    return authProviders[0] || '';
+    return '';
 }
 
 function resolveOpenClawAuthApiKey(

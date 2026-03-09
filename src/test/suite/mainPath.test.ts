@@ -17,6 +17,8 @@ import {
 } from '../../services/openclaw/usageService';
 import {
     GatewayServiceConfig,
+    getBuiltInOpenClawAuthProviderIds,
+    getBuiltInOpenClawDefaultModelsByProvider,
     LocalServiceConfig,
     mergeOpenClawAuthProfilesForSave,
     mergeOpenClawConfigForSave,
@@ -118,6 +120,78 @@ suite('OpenClaw Main Path', () => {
         assert.equal(usage.byModel['kimi-k2.5']?.tokens, 200);
         assert.equal(usage.byModel['unknown'], undefined);
         assert.equal(usage.byModel['moonshot'], undefined);
+    });
+
+    test('ships the documented OpenClaw auth provider catalog for the setup UI', () => {
+        const providers = getBuiltInOpenClawAuthProviderIds();
+        const sortedProviders = [...providers].sort((left, right) => left.localeCompare(right));
+
+        assert.deepEqual(providers, sortedProviders);
+        assert.equal(new Set(providers).size, providers.length);
+
+        for (const providerId of [
+            'amazon-bedrock',
+            'anthropic',
+            'cloudflare-ai-gateway',
+            'github-copilot',
+            'google',
+            'google-antigravity',
+            'google-gemini-cli',
+            'google-vertex',
+            'groq',
+            'kilocode',
+            'kimi-coding',
+            'lmstudio',
+            'moonshot',
+            'ollama',
+            'openai',
+            'openai-codex',
+            'openrouter',
+            'qwen-portal',
+            'synthetic',
+            'vercel-ai-gateway',
+            'vllm',
+            'xai',
+            'zai'
+        ]) {
+            assert.ok(providers.includes(providerId), `Expected ${providerId} in built-in auth providers`);
+        }
+
+        assert.equal(providers.includes('deepgram'), false);
+    });
+
+    test('ships default model suggestions grouped by auth provider', () => {
+        const suggestionsByProvider = getBuiltInOpenClawDefaultModelsByProvider();
+
+        assert.deepEqual(suggestionsByProvider.openai, [
+            'openai/gpt-5.4',
+            'openai/gpt-5.4-pro',
+            'openai/gpt-5-mini'
+        ]);
+        assert.deepEqual(suggestionsByProvider.anthropic, [
+            'anthropic/claude-opus-4-6',
+            'anthropic/claude-sonnet-4-6',
+            'anthropic/claude-haiku-4-5'
+        ]);
+        assert.deepEqual(suggestionsByProvider.google, [
+            'google/gemini-3.1-pro-preview',
+            'google/gemini-3-flash-preview',
+            'google/gemini-3.1-flash-lite-preview'
+        ]);
+        assert.deepEqual(suggestionsByProvider.moonshot, [
+            'moonshot/kimi-k2.5',
+            'moonshot/kimi-k2-0905-preview',
+            'moonshot/kimi-k2-turbo-preview',
+            'moonshot/kimi-k2-thinking',
+            'moonshot/kimi-k2-thinking-turbo'
+        ]);
+        assert.deepEqual(suggestionsByProvider['qwen-portal'], [
+            'qwen-portal/coder-model',
+            'qwen-portal/vision-model'
+        ]);
+
+        assert.equal(Array.isArray(suggestionsByProvider.qianfan), true);
+        assert.equal(suggestionsByProvider.qianfan.length, 0);
     });
 
     test('merges OpenClaw config edits without dropping unrelated fields', () => {
