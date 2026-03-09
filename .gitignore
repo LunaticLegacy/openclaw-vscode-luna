@@ -6,3 +6,4 @@ node_modules/
 *.log
 .vscode
 README_template.md
+GUIDE.md
