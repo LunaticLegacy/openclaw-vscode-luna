@@ -394,7 +394,7 @@
       "properties": {
         "openclaw.gatewayUrl": {
           "type": "string",
-          "default": "http://localhost:3344",
+          "default": "http://127.0.0.1:18789",
           "description": "%configuration.gatewayUrl.description%"
         },
         "openclaw.gatewayToken": {
@@ -417,6 +417,21 @@
           "type": "string",
           "default": "",
           "description": "%configuration.modelsPath.description%"
+        },
+        "openclaw.stateDir": {
+          "type": "string",
+          "default": "",
+          "description": "%configuration.stateDir.description%"
+        },
+        "openclaw.cliPath": {
+          "type": "string",
+          "default": "",
+          "description": "%configuration.cliPath.description%"
+        },
+        "openclaw.nodePath": {
+          "type": "string",
+          "default": "",
+          "description": "%configuration.nodePath.description%"
         },
         "openclaw.defaultAgent": {
           "type": "string",
