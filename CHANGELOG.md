@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project follows Semantic Versioning.
 
+## [0.5.0] - 2026-03-09
+
+### Added
+- Added the documented OpenClaw auth-provider catalog to the setup panel, including built-in provider choices and support for custom entries.
+- Added provider-aware default model suggestions for OpenClaw setup, so the `Default Model` field updates with the selected `Auth Provider` while still allowing custom models.
+
+### Fixed
+- Fixed the OpenClaw `Auth Provider` control by replacing the fragile datalist flow with stable select-based inputs in the settings panel.
+
 ## [0.4.0] - 2026-03-09
 
 ### Added
