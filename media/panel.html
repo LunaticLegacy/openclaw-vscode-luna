@@ -207,14 +207,21 @@
                                             <input type="text" id="openclaw-config-path" readonly>
                                         </div>
                                     </div>
+                                    <div class="form-group">
+                                        <label for="openclaw-auth-profiles-path" data-i18n="setup.openclawConfig.authProfilesPathLabel">Auth Store</label>
+                                        <input type="text" id="openclaw-auth-profiles-path" readonly>
+                                    </div>
                                     <div class="connection-settings-grid">
                                         <div class="form-group">
                                             <label for="openclaw-gateway-port" data-i18n="setup.openclawConfig.gatewayPortLabel">Gateway Port</label>
                                             <input type="number" id="openclaw-gateway-port" min="1" max="65535" placeholder="18789">
                                         </div>
                                         <div class="form-group">
-                                            <label for="openclaw-default-model" data-i18n="setup.openclawConfig.defaultModelLabel">Default Model</label>
-                                            <input type="text" id="openclaw-default-model" data-i18n-placeholder="setup.openclawConfig.defaultModelPlaceholder" placeholder="moonshot/kimi-k2.5">
+                                            <label for="openclaw-default-model-select" data-i18n="setup.openclawConfig.defaultModelLabel">Default Model</label>
+                                            <div class="auth-provider-inputs">
+                                                <select id="openclaw-default-model-select"></select>
+                                                <input type="text" id="openclaw-default-model-custom" class="hidden" data-i18n-placeholder="setup.openclawConfig.defaultModelPlaceholder" placeholder="moonshot/kimi-k2.5">
+                                            </div>
                                         </div>
                                     </div>
                                     <div class="form-group">
@@ -224,6 +231,19 @@
                                     <div class="form-group">
                                         <label for="openclaw-default-workspace" data-i18n="setup.openclawConfig.defaultWorkspaceLabel">Default Workspace</label>
                                         <input type="text" id="openclaw-default-workspace" data-i18n-placeholder="setup.openclawConfig.defaultWorkspacePlaceholder" placeholder="Optional workspace path for new agents">
+                                    </div>
+                                    <div class="connection-settings-grid">
+                                        <div class="form-group">
+                                            <label for="openclaw-auth-provider-select" data-i18n="setup.openclawConfig.authProviderLabel">Auth Provider</label>
+                                            <div class="auth-provider-inputs">
+                                                <select id="openclaw-auth-provider-select"></select>
+                                                <input type="text" id="openclaw-auth-provider-custom" class="hidden" data-i18n-placeholder="setup.openclawConfig.authProviderPlaceholder" placeholder="ollama">
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="openclaw-auth-api-key" data-i18n="setup.openclawConfig.authApiKeyLabel">API Key</label>
+                                            <input type="password" id="openclaw-auth-api-key" autocomplete="off" data-i18n-placeholder="setup.openclawConfig.authApiKeyPlaceholder" placeholder="API key or local provider token">
+                                        </div>
                                     </div>
                                     <div id="openclaw-config-hint" class="form-hint"></div>
                                     <div id="openclaw-config-status" class="console-setup-status hidden"></div>

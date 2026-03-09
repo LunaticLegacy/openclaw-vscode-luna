@@ -8,6 +8,8 @@
     const ONBOARD_COMMAND = 'openclaw onboard --install-daemon';
     const START_OPENCLAW_COMMAND = 'openclaw gateway start';
     const CUSTOM_AGENT_PRESET_ID = 'custom';
+    const CUSTOM_OPENCLAW_AUTH_PROVIDER_OPTION_VALUE = '__custom__';
+    const CUSTOM_OPENCLAW_DEFAULT_MODEL_OPTION_VALUE = '__custom__';
     
     // State
     let state = {
@@ -137,10 +139,15 @@
         elements.formOpenClawConfig = document.getElementById('form-openclaw-config');
         elements.openclawStateDir = document.getElementById('openclaw-state-dir');
         elements.openclawConfigPath = document.getElementById('openclaw-config-path');
+        elements.openclawAuthProfilesPath = document.getElementById('openclaw-auth-profiles-path');
         elements.openclawGatewayPort = document.getElementById('openclaw-gateway-port');
         elements.openclawGatewayToken = document.getElementById('openclaw-gateway-token');
         elements.openclawDefaultWorkspace = document.getElementById('openclaw-default-workspace');
-        elements.openclawDefaultModel = document.getElementById('openclaw-default-model');
+        elements.openclawDefaultModel = document.getElementById('openclaw-default-model-select');
+        elements.openclawDefaultModelCustom = document.getElementById('openclaw-default-model-custom');
+        elements.openclawAuthProvider = document.getElementById('openclaw-auth-provider-select');
+        elements.openclawAuthProviderCustom = document.getElementById('openclaw-auth-provider-custom');
+        elements.openclawAuthApiKey = document.getElementById('openclaw-auth-api-key');
         elements.openclawConfigHint = document.getElementById('openclaw-config-hint');
         elements.openclawConfigStatus = document.getElementById('openclaw-config-status');
         elements.btnRefreshOpenclawConfig = document.getElementById('btn-refresh-openclaw-config');
@@ -285,17 +292,37 @@
             saveOpenClawConfig();
         });
 
+        const markOpenClawConfigFormDirty = () => {
+            state.openClawConfigFormDirty = true;
+            state.openClawConfigStatus = null;
+            renderOpenClawConfigStatus();
+        };
+
         [
             elements.openclawGatewayPort,
             elements.openclawGatewayToken,
             elements.openclawDefaultWorkspace,
-            elements.openclawDefaultModel
+            elements.openclawDefaultModelCustom,
+            elements.openclawAuthProviderCustom,
+            elements.openclawAuthApiKey
         ].forEach(input => {
             input?.addEventListener('input', () => {
-                state.openClawConfigFormDirty = true;
-                state.openClawConfigStatus = null;
-                renderOpenClawConfigStatus();
+                if (input === elements.openclawAuthProviderCustom) {
+                    refreshOpenClawDefaultModelOptions();
+                }
+                markOpenClawConfigFormDirty();
             });
+        });
+
+        elements.openclawDefaultModel?.addEventListener('change', () => {
+            syncOpenClawDefaultModelCustomVisibility();
+            markOpenClawConfigFormDirty();
+        });
+
+        elements.openclawAuthProvider?.addEventListener('change', () => {
+            syncOpenClawAuthProviderCustomVisibility();
+            refreshOpenClawDefaultModelOptions();
+            markOpenClawConfigFormDirty();
         });
 
         elements.btnRefreshOpenclawConfig?.addEventListener('click', () => {
@@ -936,21 +963,104 @@
         return {
             stateDir: openClawConfig?.stateDir || diagnostics?.configuredStateDir || diagnostics?.detectedStateDir || '',
             configPath: openClawConfig?.configPath || diagnostics?.detectedConfigPath || '',
+            authProfilesPath: openClawConfig?.authProfilesPath || '',
             gatewayPort: String(openClawConfig?.gatewayPort || 18789),
             gatewayToken: openClawConfig?.gatewayToken || '',
             defaultWorkspace: openClawConfig?.defaultWorkspace || '',
-            defaultModel: openClawConfig?.defaultModel || ''
+            defaultModel: openClawConfig?.defaultModel || '',
+            authProviderId: openClawConfig?.authProviderId || '',
+            authApiKey: openClawConfig?.authApiKey || '',
+            authProviders: Array.isArray(openClawConfig?.authProviders) ? openClawConfig.authProviders : [],
+            defaultModelSuggestionsByProvider: openClawConfig?.defaultModelSuggestionsByProvider || {}
         };
+    }
+
+    function inferOpenClawProviderIdFromModel(modelRef) {
+        const normalizedModelRef = String(modelRef || '').trim();
+        if (!normalizedModelRef) {
+            return '';
+        }
+
+        const slashIndex = normalizedModelRef.indexOf('/');
+        if (slashIndex <= 0) {
+            return '';
+        }
+
+        return normalizedModelRef.slice(0, slashIndex).trim();
+    }
+
+    function resolveOpenClawAuthProviderIdFromForm() {
+        const selectedProviderId = elements.openclawAuthProvider?.value?.trim() || '';
+        if (selectedProviderId === CUSTOM_OPENCLAW_AUTH_PROVIDER_OPTION_VALUE) {
+            return elements.openclawAuthProviderCustom?.value?.trim() || '';
+        }
+
+        return selectedProviderId;
+    }
+
+    function resolveOpenClawDefaultModelFromForm() {
+        const selectedModelRef = elements.openclawDefaultModel?.value?.trim() || '';
+        if (selectedModelRef === CUSTOM_OPENCLAW_DEFAULT_MODEL_OPTION_VALUE) {
+            return elements.openclawDefaultModelCustom?.value?.trim() || '';
+        }
+
+        return selectedModelRef;
+    }
+
+    function syncOpenClawAuthProviderCustomVisibility(selectedProviderId) {
+        if (!elements.openclawAuthProviderCustom) {
+            return;
+        }
+
+        const nextValue = selectedProviderId ?? (elements.openclawAuthProvider?.value?.trim() || '');
+        const shouldShowCustomProvider = nextValue === CUSTOM_OPENCLAW_AUTH_PROVIDER_OPTION_VALUE;
+
+        elements.openclawAuthProviderCustom.classList.toggle('hidden', !shouldShowCustomProvider);
+        elements.openclawAuthProviderCustom.disabled = !shouldShowCustomProvider;
+
+        if (!shouldShowCustomProvider) {
+            elements.openclawAuthProviderCustom.value = '';
+        }
+    }
+
+    function syncOpenClawDefaultModelCustomVisibility(selectedModelRef) {
+        if (!elements.openclawDefaultModelCustom) {
+            return;
+        }
+
+        const nextValue = selectedModelRef ?? (elements.openclawDefaultModel?.value?.trim() || '');
+        const shouldShowCustomModel = nextValue === CUSTOM_OPENCLAW_DEFAULT_MODEL_OPTION_VALUE;
+
+        elements.openclawDefaultModelCustom.classList.toggle('hidden', !shouldShowCustomModel);
+        elements.openclawDefaultModelCustom.disabled = !shouldShowCustomModel;
+
+        if (!shouldShowCustomModel) {
+            elements.openclawDefaultModelCustom.value = '';
+        }
+    }
+
+    function refreshOpenClawDefaultModelOptions() {
+        const formState = resolveOpenClawConfigFormState();
+        renderOpenClawDefaultModelOptions(
+            formState.defaultModelSuggestionsByProvider,
+            resolveOpenClawAuthProviderIdFromForm() || inferOpenClawProviderIdFromModel(resolveOpenClawDefaultModelFromForm()),
+            resolveOpenClawDefaultModelFromForm()
+        );
     }
 
     function syncOpenClawConfigForm(force = false) {
         if (
             !elements.openclawStateDir
             || !elements.openclawConfigPath
+            || !elements.openclawAuthProfilesPath
             || !elements.openclawGatewayPort
             || !elements.openclawGatewayToken
             || !elements.openclawDefaultWorkspace
             || !elements.openclawDefaultModel
+            || !elements.openclawDefaultModelCustom
+            || !elements.openclawAuthProvider
+            || !elements.openclawAuthProviderCustom
+            || !elements.openclawAuthApiKey
         ) {
             return;
         }
@@ -962,10 +1072,17 @@
         const formState = resolveOpenClawConfigFormState();
         elements.openclawStateDir.value = formState.stateDir;
         elements.openclawConfigPath.value = formState.configPath;
+        elements.openclawAuthProfilesPath.value = formState.authProfilesPath;
         elements.openclawGatewayPort.value = formState.gatewayPort;
         elements.openclawGatewayToken.value = formState.gatewayToken;
         elements.openclawDefaultWorkspace.value = formState.defaultWorkspace;
-        elements.openclawDefaultModel.value = formState.defaultModel;
+        elements.openclawAuthApiKey.value = formState.authApiKey;
+        renderOpenClawAuthProviderOptions(formState.authProviders, formState.authProviderId);
+        renderOpenClawDefaultModelOptions(
+            formState.defaultModelSuggestionsByProvider,
+            formState.authProviderId || inferOpenClawProviderIdFromModel(formState.defaultModel),
+            formState.defaultModel
+        );
     }
 
     function collectOpenClawConfigSettings() {
@@ -973,7 +1090,9 @@
             gatewayPort: elements.openclawGatewayPort?.value?.trim() || '',
             gatewayToken: elements.openclawGatewayToken?.value?.trim() || '',
             defaultWorkspace: elements.openclawDefaultWorkspace?.value?.trim() || '',
-            defaultModel: elements.openclawDefaultModel?.value?.trim() || ''
+            defaultModel: resolveOpenClawDefaultModelFromForm(),
+            authProviderId: resolveOpenClawAuthProviderIdFromForm(),
+            authApiKey: elements.openclawAuthApiKey?.value?.trim() || ''
         };
     }
 
@@ -986,13 +1105,22 @@
             };
         }
 
+        if (settings.authApiKey && !settings.authProviderId) {
+            return {
+                ok: false,
+                message: window.OpenClawI18n ? window.OpenClawI18n.t('setup.openclawConfig.authProviderRequired') : 'Choose or enter a provider before saving an API key.'
+            };
+        }
+
         return {
             ok: true,
             settings: {
                 gatewayPort,
                 gatewayToken: settings.gatewayToken,
                 defaultWorkspace: settings.defaultWorkspace,
-                defaultModel: settings.defaultModel
+                defaultModel: settings.defaultModel,
+                authProviderId: settings.authProviderId,
+                authApiKey: settings.authApiKey
             }
         };
     }
@@ -1034,15 +1162,89 @@
             return t('setup.openclawConfig.hintUnavailable');
         }
 
+        if (openClawConfig.exists && openClawConfig.authProfilesExists) {
+            return t('setup.openclawConfig.hintExistingWithAuth', {
+                path: openClawConfig.configPath,
+                authPath: openClawConfig.authProfilesPath
+            });
+        }
+
         if (openClawConfig.exists) {
             return t('setup.openclawConfig.hintExisting', {
                 path: openClawConfig.configPath
             });
         }
 
+        if (openClawConfig.authProfilesExists) {
+            return t('setup.openclawConfig.hintCreateWithAuth', {
+                path: openClawConfig.configPath,
+                authPath: openClawConfig.authProfilesPath
+            });
+        }
+
         return t('setup.openclawConfig.hintCreate', {
             path: openClawConfig.configPath
         });
+    }
+
+    function renderOpenClawAuthProviderOptions(authProviders, selectedProviderId = '') {
+        if (!elements.openclawAuthProvider) {
+            return;
+        }
+
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : key => key;
+        const normalizedProviderIds = Array.from(new Set((authProviders || [])
+            .map(providerId => String(providerId || '').trim())
+            .filter(Boolean)))
+            .sort((left, right) => left.localeCompare(right));
+        const resolvedSelectedProviderId = selectedProviderId && normalizedProviderIds.includes(selectedProviderId)
+            ? selectedProviderId
+            : selectedProviderId
+                ? CUSTOM_OPENCLAW_AUTH_PROVIDER_OPTION_VALUE
+                : '';
+
+        elements.openclawAuthProvider.innerHTML = [
+            `<option value="">${escapeHtml(t('setup.openclawConfig.authProviderSelectPlaceholder'))}</option>`,
+            ...normalizedProviderIds.map(providerId => `<option value="${escapeHtml(providerId)}">${escapeHtml(providerId)}</option>`),
+            `<option value="${CUSTOM_OPENCLAW_AUTH_PROVIDER_OPTION_VALUE}">${escapeHtml(t('setup.openclawConfig.authProviderCustomOption'))}</option>`
+        ].join('');
+        elements.openclawAuthProvider.value = resolvedSelectedProviderId;
+
+        if (resolvedSelectedProviderId === CUSTOM_OPENCLAW_AUTH_PROVIDER_OPTION_VALUE && elements.openclawAuthProviderCustom) {
+            elements.openclawAuthProviderCustom.value = selectedProviderId;
+        }
+
+        syncOpenClawAuthProviderCustomVisibility(resolvedSelectedProviderId);
+    }
+
+    function renderOpenClawDefaultModelOptions(defaultModelSuggestionsByProvider, providerId, selectedModelRef = '') {
+        if (!elements.openclawDefaultModel) {
+            return;
+        }
+
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : key => key;
+        const resolvedProviderId = String(providerId || '').trim();
+        const providerSuggestions = Array.from(new Set((defaultModelSuggestionsByProvider?.[resolvedProviderId] || [])
+            .map(modelRef => String(modelRef || '').trim())
+            .filter(Boolean)));
+        const resolvedSelectedModelRef = selectedModelRef && providerSuggestions.includes(selectedModelRef)
+            ? selectedModelRef
+            : selectedModelRef
+                ? CUSTOM_OPENCLAW_DEFAULT_MODEL_OPTION_VALUE
+                : '';
+
+        elements.openclawDefaultModel.innerHTML = [
+            `<option value="">${escapeHtml(t('setup.openclawConfig.defaultModelSelectPlaceholder'))}</option>`,
+            ...providerSuggestions.map(modelRef => `<option value="${escapeHtml(modelRef)}">${escapeHtml(modelRef)}</option>`),
+            `<option value="${CUSTOM_OPENCLAW_DEFAULT_MODEL_OPTION_VALUE}">${escapeHtml(t('setup.openclawConfig.defaultModelCustomOption'))}</option>`
+        ].join('');
+        elements.openclawDefaultModel.value = resolvedSelectedModelRef;
+
+        if (resolvedSelectedModelRef === CUSTOM_OPENCLAW_DEFAULT_MODEL_OPTION_VALUE && elements.openclawDefaultModelCustom) {
+            elements.openclawDefaultModelCustom.value = selectedModelRef;
+        }
+
+        syncOpenClawDefaultModelCustomVisibility(resolvedSelectedModelRef);
     }
 
     function renderOpenClawConfig() {

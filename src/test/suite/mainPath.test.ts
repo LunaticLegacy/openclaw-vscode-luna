@@ -17,7 +17,10 @@ import {
 } from '../../services/openclaw/usageService';
 import {
     GatewayServiceConfig,
+    getBuiltInOpenClawAuthProviderIds,
+    getBuiltInOpenClawDefaultModelsByProvider,
     LocalServiceConfig,
+    mergeOpenClawAuthProfilesForSave,
     mergeOpenClawConfigForSave,
     OpenClawCliServiceConfig
 } from '../../services/openclawConfig';
@@ -119,6 +122,78 @@ suite('OpenClaw Main Path', () => {
         assert.equal(usage.byModel['moonshot'], undefined);
     });
 
+    test('ships the documented OpenClaw auth provider catalog for the setup UI', () => {
+        const providers = getBuiltInOpenClawAuthProviderIds();
+        const sortedProviders = [...providers].sort((left, right) => left.localeCompare(right));
+
+        assert.deepEqual(providers, sortedProviders);
+        assert.equal(new Set(providers).size, providers.length);
+
+        for (const providerId of [
+            'amazon-bedrock',
+            'anthropic',
+            'cloudflare-ai-gateway',
+            'github-copilot',
+            'google',
+            'google-antigravity',
+            'google-gemini-cli',
+            'google-vertex',
+            'groq',
+            'kilocode',
+            'kimi-coding',
+            'lmstudio',
+            'moonshot',
+            'ollama',
+            'openai',
+            'openai-codex',
+            'openrouter',
+            'qwen-portal',
+            'synthetic',
+            'vercel-ai-gateway',
+            'vllm',
+            'xai',
+            'zai'
+        ]) {
+            assert.ok(providers.includes(providerId), `Expected ${providerId} in built-in auth providers`);
+        }
+
+        assert.equal(providers.includes('deepgram'), false);
+    });
+
+    test('ships default model suggestions grouped by auth provider', () => {
+        const suggestionsByProvider = getBuiltInOpenClawDefaultModelsByProvider();
+
+        assert.deepEqual(suggestionsByProvider.openai, [
+            'openai/gpt-5.4',
+            'openai/gpt-5.4-pro',
+            'openai/gpt-5-mini'
+        ]);
+        assert.deepEqual(suggestionsByProvider.anthropic, [
+            'anthropic/claude-opus-4-6',
+            'anthropic/claude-sonnet-4-6',
+            'anthropic/claude-haiku-4-5'
+        ]);
+        assert.deepEqual(suggestionsByProvider.google, [
+            'google/gemini-3.1-pro-preview',
+            'google/gemini-3-flash-preview',
+            'google/gemini-3.1-flash-lite-preview'
+        ]);
+        assert.deepEqual(suggestionsByProvider.moonshot, [
+            'moonshot/kimi-k2.5',
+            'moonshot/kimi-k2-0905-preview',
+            'moonshot/kimi-k2-turbo-preview',
+            'moonshot/kimi-k2-thinking',
+            'moonshot/kimi-k2-thinking-turbo'
+        ]);
+        assert.deepEqual(suggestionsByProvider['qwen-portal'], [
+            'qwen-portal/coder-model',
+            'qwen-portal/vision-model'
+        ]);
+
+        assert.equal(Array.isArray(suggestionsByProvider.qianfan), true);
+        assert.equal(suggestionsByProvider.qianfan.length, 0);
+    });
+
     test('merges OpenClaw config edits without dropping unrelated fields', () => {
         const merged = mergeOpenClawConfigForSave({
             telemetry: {
@@ -180,6 +255,118 @@ suite('OpenClaw Main Path', () => {
         assert.equal((merged as any).gateway.port, 18789);
         assert.equal((merged as any).gateway.auth, undefined);
         assert.equal((merged as any).agents, undefined);
+    });
+
+    test('merges OpenClaw auth metadata and API keys without dropping unrelated entries', () => {
+        const mergedConfig = mergeOpenClawConfigForSave({
+            auth: {
+                profiles: {
+                    'moonshot:default': {
+                        provider: 'moonshot',
+                        mode: 'api_key'
+                    }
+                }
+            }
+        }, {
+            gatewayPort: 18789,
+            gatewayToken: '',
+            defaultWorkspace: '',
+            defaultModel: 'ollama/qwen3:8b',
+            authProviderId: 'ollama',
+            authApiKey: 'ollama-local'
+        });
+        const mergedAuthProfiles = mergeOpenClawAuthProfilesForSave({
+            version: 1,
+            profiles: {
+                'moonshot:default': {
+                    type: 'api_key',
+                    provider: 'moonshot',
+                    key: 'moonshot-secret'
+                }
+            },
+            lastGood: {
+                moonshot: 'moonshot:default'
+            },
+            usageStats: {
+                'moonshot:default': {
+                    errorCount: 0
+                }
+            }
+        }, {
+            gatewayPort: 18789,
+            gatewayToken: '',
+            defaultWorkspace: '',
+            defaultModel: 'ollama/qwen3:8b',
+            authProviderId: 'ollama',
+            authApiKey: 'ollama-local'
+        });
+
+        assert.equal((mergedConfig as any).auth.profiles['moonshot:default'].provider, 'moonshot');
+        assert.equal((mergedConfig as any).auth.profiles['ollama:default'].provider, 'ollama');
+        assert.equal((mergedConfig as any).auth.profiles['ollama:default'].mode, 'api_key');
+
+        assert.equal((mergedAuthProfiles as any).profiles['moonshot:default'].key, 'moonshot-secret');
+        assert.equal((mergedAuthProfiles as any).profiles['ollama:default'].key, 'ollama-local');
+        assert.equal((mergedAuthProfiles as any).lastGood.ollama, 'ollama:default');
+        assert.equal((mergedAuthProfiles as any).usageStats['moonshot:default'].errorCount, 0);
+    });
+
+    test('clears saved OpenClaw auth API keys for the selected provider without touching others', () => {
+        const mergedConfig = mergeOpenClawConfigForSave({
+            auth: {
+                profiles: {
+                    'moonshot:default': {
+                        provider: 'moonshot',
+                        mode: 'api_key'
+                    },
+                    'ollama:default': {
+                        provider: 'ollama',
+                        mode: 'api_key'
+                    }
+                }
+            }
+        }, {
+            gatewayPort: 18789,
+            gatewayToken: '',
+            defaultWorkspace: '',
+            defaultModel: 'ollama/qwen3:8b',
+            authProviderId: 'ollama',
+            authApiKey: ''
+        });
+        const mergedAuthProfiles = mergeOpenClawAuthProfilesForSave({
+            version: 1,
+            profiles: {
+                'moonshot:default': {
+                    type: 'api_key',
+                    provider: 'moonshot',
+                    key: 'moonshot-secret'
+                },
+                'ollama:default': {
+                    type: 'api_key',
+                    provider: 'ollama',
+                    key: 'ollama-local'
+                }
+            },
+            lastGood: {
+                moonshot: 'moonshot:default',
+                ollama: 'ollama:default'
+            }
+        }, {
+            gatewayPort: 18789,
+            gatewayToken: '',
+            defaultWorkspace: '',
+            defaultModel: 'ollama/qwen3:8b',
+            authProviderId: 'ollama',
+            authApiKey: ''
+        });
+
+        assert.equal((mergedConfig as any).auth.profiles['moonshot:default'].provider, 'moonshot');
+        assert.equal((mergedConfig as any).auth.profiles['ollama:default'], undefined);
+
+        assert.equal((mergedAuthProfiles as any).profiles['moonshot:default'].key, 'moonshot-secret');
+        assert.equal((mergedAuthProfiles as any).profiles['ollama:default'], undefined);
+        assert.equal((mergedAuthProfiles as any).lastGood.moonshot, 'moonshot:default');
+        assert.equal((mergedAuthProfiles as any).lastGood.ollama, undefined);
     });
 
     test('runs the primary smoke flow across local chat, usage, and scheduled tasks', async function() {

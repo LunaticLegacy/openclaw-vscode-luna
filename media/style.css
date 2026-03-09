@@ -1921,6 +1921,11 @@ form {
     margin-bottom: 16px;
 }
 
+.auth-provider-inputs {
+    display: grid;
+    gap: 8px;
+}
+
 .form-group label {
     display: block;
     margin-bottom: 6px;
