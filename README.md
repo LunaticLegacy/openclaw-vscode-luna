@@ -8,6 +8,8 @@
 
 # OpenClaw Luna
 
+(Public Alpha)
+
 ### OpenClaw 的 VS Code 控制台
 
 **把 Agent、AI Swarm、OpenClaw cron、连接切换和 7/30 日用量收进一个面板，而不是散落在一堆命令里。**

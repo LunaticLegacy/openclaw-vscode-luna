@@ -1942,11 +1942,16 @@
     }
 
     function shouldHideMessage(msg) {
-        if (msg.role !== 'user') {
+        if (!msg) {
             return false;
         }
 
-        return !getDisplayContent(msg).trim();
+        const hasStructuredParts = Array.isArray(msg.parts) && msg.parts.length > 0;
+        if ((msg.role === 'user' || msg.role === 'assistant') && !hasStructuredParts) {
+            return !getDisplayContent(msg).trim();
+        }
+
+        return false;
     }
 
     function renderMessageContent(msg) {
@@ -4093,23 +4098,53 @@
 
     function buildBroadcastConversationMessages(responses) {
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
-        return Object.values(responses || {}).map(entry => {
-            if (entry.ok && entry.message) {
-                return {
-                    ...entry.message,
-                    displayName: resolveAgentLabel(entry.agentId),
-                    contextLabel: t('clusters.broadcast')
-                };
+        const messages = [];
+        Object.values(responses || {}).forEach(entry => {
+            const displayName = resolveAgentLabel(entry.agentId);
+            const contextLabel = t('clusters.broadcast');
+            if (entry.ok) {
+                messages.push(...buildAgentTraceMessages(entry, displayName, contextLabel));
+                return;
             }
 
-            return {
+            messages.push({
                 role: 'assistant',
                 content: entry.error || t('clusters.resultUnknownError'),
                 timestamp: new Date().toISOString(),
-                displayName: resolveAgentLabel(entry.agentId),
-                contextLabel: t('clusters.broadcast')
-            };
+                displayName,
+                contextLabel
+            });
         });
+        return messages;
+    }
+
+    function buildAgentTraceMessages(entry, displayName, contextLabel) {
+        const trace = Array.isArray(entry?.trace) ? entry.trace : [];
+        const source = trace.length > 0
+            ? trace
+            : (entry?.message ? [entry.message] : []);
+        const deduped = [];
+        const seen = new Set();
+
+        source.forEach(message => {
+            if (!message || message.role === 'user') {
+                return;
+            }
+
+            const id = message.id || `${message.role}:${message.timestamp || ''}:${message.content || ''}`;
+            if (seen.has(id)) {
+                return;
+            }
+            seen.add(id);
+
+            deduped.push({
+                ...message,
+                displayName,
+                contextLabel
+            });
+        });
+
+        return deduped;
     }
 
     function buildCollaborationConversationMessages(result) {
@@ -4132,13 +4167,16 @@
         rounds.forEach(round => {
             const roundLabel = getCollaborationRoundLabel(round.kind, t);
             Object.entries(round.entries || {}).forEach(([agentId, entry]) => {
-                messages.push(entry.ok && entry.message
-                    ? {
-                        ...entry.message,
-                        displayName: resolveAgentLabel(agentId),
-                        contextLabel: roundLabel
-                    }
-                    : {
+                if (entry.ok) {
+                    messages.push(...buildAgentTraceMessages(
+                        entry,
+                        resolveAgentLabel(agentId),
+                        roundLabel
+                    ));
+                    return;
+                }
+
+                messages.push({
                         role: 'assistant',
                         content: entry.error || t('clusters.resultUnknownError'),
                         timestamp: new Date().toISOString(),
