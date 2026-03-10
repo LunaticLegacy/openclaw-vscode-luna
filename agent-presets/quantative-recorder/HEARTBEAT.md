@@ -1,9 +1,58 @@
-# HEARTBEAT.md - Quant Ledger Checklist
+# HEARTBEAT.md - 周期检查清单
 
-## Each heartbeat
+## 目标
 
-1. Read the latest pool snapshot.
-2. Verify that holdings market value reconciles with quantity times price.
-3. Verify that available cash, invested cost, and total assets reconcile.
-4. Check whether fees are configured and recent trades were recorded.
-5. If the ledger is inconsistent, mark the state as anomalous before any summary is produced.
+在空闲轮询中做真正有价值的后台维护，而不是制造不存在的忙碌感。
+
+## 每次心跳检查
+
+1. 读取 `memory/heartbeat-state.json`
+   - 如果不存在，视为首次检查
+   - 只有在需要写回状态时才创建
+
+2. 检查数据新鲜度
+   - 如果 `data/market/` 存在，核对最新行情文件时间
+   - 如果超过 `QUANT_SETUP.md` 中的保鲜阈值，标记为 `delayed`
+   - 如果没有任何行情文件，标记为 `not_initialized`
+
+3. 检查组合状态
+   - 如果 `data/portfolio/latest.json` 存在，检查仓位、集中度、回撤和制度约束
+   - 如果不存在，不要假设“空仓”或“正常”，只记录“未初始化”
+
+4. 检查事件与观察池
+   - 关注 `STOCKS.md` 中的 Active Focus
+   - 如果已有事件数据源，检查未来 24-48 小时的重要事件
+   - 如果没有事件数据，不要编造催化剂
+
+5. 维护记忆
+   - 只把已核验的变化写入当天日志
+   - 对长期有效的方法论结论，再更新 `MEMORY.md`
+
+## 何时联系用户
+
+- 已确认的风控阈值被触发
+- 关键数据缺失或过期，已影响分析结论
+- 重点标的在未来 24 小时内有重要事件
+- 需要确认参数、持仓或数据口径
+
+## 何时保持安静
+
+回复 `HEARTBEAT_OK` 的典型条件：
+
+- 没有新的已核验变化
+- 上次完整检查距离现在不到 30 分钟
+- 当前处于用户静默时段，且没有紧急风险
+- 数据仍然缺失，但状态与上次检查完全相同
+
+## 最小状态示例
+
+```json
+{
+  "lastChecks": {
+    "market": null,
+    "portfolio": null,
+    "events": null,
+    "memoryMaintenance": null
+  }
+}
+```

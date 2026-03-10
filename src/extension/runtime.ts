@@ -2,6 +2,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { t } from '../i18n';
 import { AgentManager } from '../managers/agentManager';
+import { ChannelManager } from '../managers/channelManager';
 import { ClusterManager } from '../managers/clusterManager';
 import { ScheduledTaskManager } from '../managers/scheduledTaskManager';
 import { UsageManager } from '../managers/usageManager';
@@ -16,6 +17,7 @@ import { OpenClawService } from '../services/openclawService';
 export class OpenClawExtensionRuntime {
     public readonly service: OpenClawService;
     public readonly agentManager: AgentManager;
+    public readonly channelManager: ChannelManager;
     public readonly clusterManager: ClusterManager;
     public readonly usageManager: UsageManager;
     public readonly taskManager: ScheduledTaskManager;
@@ -29,12 +31,14 @@ export class OpenClawExtensionRuntime {
         public readonly context: vscode.ExtensionContext,
         service: OpenClawService,
         agentManager: AgentManager,
+        channelManager: ChannelManager,
         clusterManager: ClusterManager,
         usageManager: UsageManager,
         taskManager: ScheduledTaskManager
     ) {
         this.service = service;
         this.agentManager = agentManager;
+        this.channelManager = channelManager;
         this.clusterManager = clusterManager;
         this.usageManager = usageManager;
         this.taskManager = taskManager;
@@ -59,6 +63,9 @@ export class OpenClawExtensionRuntime {
             service,
             new AgentPresetScaffolder(context.extensionPath, service)
         );
+        const channelManager = new ChannelManager(
+            path.join(context.globalStorageUri.fsPath, 'channels.json')
+        );
         const clusterManager = new ClusterManager(
             service,
             path.join(context.globalStorageUri.fsPath, 'clusters.json')
@@ -70,6 +77,7 @@ export class OpenClawExtensionRuntime {
             context,
             service,
             agentManager,
+            channelManager,
             clusterManager,
             usageManager,
             taskManager
@@ -108,6 +116,7 @@ export class OpenClawExtensionRuntime {
             this.context.extensionUri,
             this.service,
             this.agentManager,
+            this.channelManager,
             this.clusterManager,
             this.taskManager
         );
@@ -133,6 +142,7 @@ export class OpenClawExtensionRuntime {
     public dispose(): void {
         OpenClawPanel.disposePanel();
         this.agentManager.dispose();
+        this.channelManager.dispose();
         this.clusterManager.dispose();
         this.usageManager.dispose();
         this.taskManager.dispose();

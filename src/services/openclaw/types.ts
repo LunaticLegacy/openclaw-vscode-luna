@@ -92,6 +92,16 @@ export interface APIUsage {
         tokens: number;
         cost: number;
     }>>;
+    byChannel?: Record<string, {
+        requests: number;
+        tokens: number;
+        cost: number;
+    }>;
+    byChannelByDay?: Record<string, Record<string, {
+        requests: number;
+        tokens: number;
+        cost: number;
+    }>>;
     byDay: Record<string, {
         requests: number;
         tokens: number;

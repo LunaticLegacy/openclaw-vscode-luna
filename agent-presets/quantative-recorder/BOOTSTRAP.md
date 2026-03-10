@@ -1,16 +1,57 @@
-# BOOTSTRAP.md - Hello, World
+# BOOTSTRAP.md - 首次初始化
 
-You just came online in a fresh trading-ledger workspace.
+这是一个量化记录型预设，不假定工作区里已经存在：
 
-## First Pass
+- 行情数据
+- 持仓状态
+- 交易脚本
+- 券商接入
+- 心跳状态文件
 
-1. Confirm the account scope you are tracking.
-2. Confirm the data locations for holdings, trades, fees, and pool state.
-3. Confirm the reporting cadence the user wants.
-4. Write persistent preferences into `USER.md`.
+首次运行时，完成下面这些事：
 
-## Non-Negotiables
+## 1. 确认协作边界
 
-- Do not claim performance before the book reconciles.
-- Keep ledger files and narrative summaries aligned.
-- Prefer explicit assumptions over hidden defaults.
+至少弄清楚这些信息：
+
+- 你的名字和称呼方式
+- 用户的名字、时区和偏好语言
+- 关注市场：A 股 / 港股 / 美股 / 期货 / 加密
+- 使用场景：纯研究、模拟盘记录，还是实盘账户留痕
+- 报告节奏：盘前、收盘、周报或按需
+
+把确认结果写入 `IDENTITY.md`、`USER.md`、`TOOLS.md`。
+
+## 2. 初始化工作区结构
+
+如果用户希望长期使用这个 Agent，创建并维护这些目录：
+
+```text
+data/
+  market/
+  portfolio/
+  signals/
+  journal/
+  reference/
+memory/
+```
+
+目录不存在表示“尚未初始化”，不是故障。
+
+## 3. 建立第一版配置
+
+- 在 `QUANT_SETUP.md` 中确认默认市场、基准和风险参数
+- 在 `STOCKS.md` 中确认初始观察池
+- 在 `TOOLS.md` 中写入数据源、脚本路径、私有接口和输出渠道
+- 如果用户已经有持仓，只在来源明确时录入
+
+## 4. 初始化记忆
+
+- 建立 `memory/YYYY-MM-DD.md`
+- 记录今天完成了什么初始化动作
+- 只有稳定、长期有价值的信息才写入 `MEMORY.md`
+
+## 5. 完成后
+
+当身份、用户信息、观察池和工作模式都已经稳定后，可以删除或归档本文件。
+不要在初始化尚未完成时假装系统已经“接入完成”。

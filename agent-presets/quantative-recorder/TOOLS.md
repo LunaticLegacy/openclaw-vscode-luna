@@ -1,8 +1,46 @@
-# TOOLS.md - Local Notes
+# TOOLS.md - 本地环境与私有配置
 
-Use this file for machine-specific or environment-specific notes, such as:
+> 这里记录私有环境、数据源和路径，不记录通用方法论。
 
-- data source paths
-- broker fee assumptions
-- symbol mapping rules
-- local scripts for reconciliation
+## 工作区
+
+- Workspace Path: {{workspacePath}}
+- Preset ID: {{presetId}}
+- 默认模型: {{model}}
+
+## 数据源
+
+| Source | 用途 | 路径 / API | 认证 / 限额 | 最后核验 |
+|--------|------|------------|-------------|----------|
+|        |      |            |             |          |
+
+## 本地脚本 / 命令
+
+| Script | 用途 | 路径 | 依赖 | 备注 |
+|--------|------|------|------|------|
+|        |      |      |      |      |
+
+## 存储位置
+
+- 市场数据:
+- 组合状态:
+- 研究日志:
+- 导出报告:
+
+## 口径设置
+
+- 默认货币:
+- 手续费口径来源:
+- 滑点假设:
+- 涨跌停 / T+1 规则来源:
+- 时区口径:
+
+## 告警与输出
+
+- 输出渠道:
+- 心跳频率:
+- 需要人工确认的动作:
+
+---
+
+环境一旦变化，先更新这里，再继续分析。

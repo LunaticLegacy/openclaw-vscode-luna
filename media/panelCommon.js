@@ -42,6 +42,58 @@
         };
     }
 
+    function buildChannelWindow(usage, days) {
+        const safeUsage = usage || {
+            totalRequests: 0,
+            totalTokens: 0,
+            cost: 0,
+            currencySymbol: '$',
+            byDay: {},
+            byChannel: {},
+            byChannelByDay: {}
+        };
+        const dayKeys = buildRecentDateKeys(days);
+        const channels = Object.entries(aggregateUsageChannelsByWindow(safeUsage, dayKeys))
+            .map(([channel, data]) => ({
+                channel,
+                requests: data.requests || 0,
+                tokens: data.tokens || 0,
+                cost: data.cost || 0
+            }))
+            .sort((left, right) => {
+                if (right.tokens !== left.tokens) {
+                    return right.tokens - left.tokens;
+                }
+
+                if (right.requests !== left.requests) {
+                    return right.requests - left.requests;
+                }
+
+                return right.cost - left.cost;
+            });
+
+        const totals = channels.reduce((acc, channel) => {
+            acc.totalRequests += channel.requests;
+            acc.totalTokens += channel.tokens;
+            acc.totalCost += channel.cost;
+            return acc;
+        }, {
+            totalRequests: 0,
+            totalTokens: 0,
+            totalCost: 0
+        });
+
+        return {
+            channels,
+            totalChannels: channels.length,
+            dominantChannel: channels[0]?.channel || '',
+            dominantRequests: channels[0]?.requests || 0,
+            dominantTokens: channels[0]?.tokens || 0,
+            currencySymbol: safeUsage.currencySymbol || '$',
+            ...totals
+        };
+    }
+
     function aggregateUsageModelsByWindow(usage, dayKeys) {
         const aggregated = {};
         const byModelByDay = usage?.byModelByDay;
@@ -64,6 +116,57 @@
         }
 
         return usage?.byModel || {};
+    }
+
+    function aggregateUsageChannelsByWindow(usage, dayKeys) {
+        const aggregated = {};
+        const byChannelByDay = usage?.byChannelByDay;
+
+        if (byChannelByDay && Object.keys(byChannelByDay).length > 0) {
+            dayKeys.forEach(date => {
+                const dayChannels = byChannelByDay[date] || {};
+                Object.entries(dayChannels).forEach(([channel, data]) => {
+                    if (!aggregated[channel]) {
+                        aggregated[channel] = { requests: 0, tokens: 0, cost: 0 };
+                    }
+
+                    aggregated[channel].requests += data.requests || 0;
+                    aggregated[channel].tokens += data.tokens || 0;
+                    aggregated[channel].cost += data.cost || 0;
+                });
+            });
+
+            return aggregated;
+        }
+
+        if (usage?.byChannel && Object.keys(usage.byChannel).length > 0) {
+            return usage.byChannel;
+        }
+
+        const fallbackTotals = Object.entries(usage?.byDay || {})
+            .filter(([date]) => dayKeys.includes(date))
+            .reduce((acc, [, data]) => {
+                acc.requests += data.requests || 0;
+                acc.tokens += data.tokens || 0;
+                acc.cost += data.cost || 0;
+                return acc;
+            }, { requests: 0, tokens: 0, cost: 0 });
+
+        if (fallbackTotals.requests > 0 || fallbackTotals.tokens > 0 || fallbackTotals.cost > 0) {
+            return { chat: fallbackTotals };
+        }
+
+        if ((usage?.totalRequests || 0) > 0 || (usage?.totalTokens || 0) > 0 || (usage?.cost || 0) > 0) {
+            return {
+                chat: {
+                    requests: usage.totalRequests || 0,
+                    tokens: usage.totalTokens || 0,
+                    cost: usage.cost || 0
+                }
+            };
+        }
+
+        return {};
     }
 
     function buildRecentDateKeys(days) {
@@ -106,6 +209,7 @@
     window.OpenClawPanelCommon = {
         escapeHtml,
         buildUsageWindow,
+        buildChannelWindow,
         computeUsageBarHeight,
         formatCompactNumber,
         formatUsageCurrency

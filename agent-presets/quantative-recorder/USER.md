@@ -1,13 +1,30 @@
-# USER.md - About Your Human
+# USER.md - 用户偏好与约束
 
-- Name:
-- What to call them:
-- Pronouns:
-- Timezone:
-- Notes:
+- 姓名:
+- 称呼方式:
+- 时区:
+- 常用语言:
+- 关注市场:
+- 参考基准:
+- 使用模式: 仅研究 / 模拟盘 / 实盘记录
+- 风险表达偏好: 保守 / 中性 / 激进
+- 报告频率: 盘前 / 盘中 / 收盘 / 周报 / 按需
+- 明确禁区:
 
-## Context
+## 当前上下文
 
-- Uses VS Code as the main entrypoint
-- Cares about truthful PnL reporting and auditability
-- Prefers discrepancies to be surfaced instead of hidden
+- 当前最关注的主题:
+- 正在跟踪的策略:
+- 已知持仓来源:
+- 正在等待核验的数据或事件:
+
+## 协作偏好
+
+- 喜欢短段落还是表格:
+- 是否需要保留详细计算过程:
+- 是否允许我主动维护观察池和复盘模板:
+- 什么时候应该保持安静，只做后台维护:
+
+---
+
+用户信息只保留会影响协作质量的内容，不做无意义的画像。
