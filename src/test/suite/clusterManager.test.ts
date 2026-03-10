@@ -105,6 +105,7 @@ class FakeCollaborationService extends EventEmitter {
 
     private readonly agents = new Map<string, Agent>();
     private readonly sessionAgentIds = new Map<string, string>();
+    private readonly sessionMessages = new Map<string, ChatMessage[]>();
     private sessionCounter = 0;
 
     constructor(
@@ -134,6 +135,7 @@ class FakeCollaborationService extends EventEmitter {
         const sessionId = `session-${++this.sessionCounter}`;
         const timestamp = new Date().toISOString();
         this.sessionAgentIds.set(sessionId, agentId);
+        this.sessionMessages.set(sessionId, []);
 
         return {
             id: sessionId,
@@ -162,12 +164,26 @@ class FakeCollaborationService extends EventEmitter {
             throw new Error(`${agentId} failed during ${stage}`);
         }
 
-        return {
+        const response: ChatMessage = {
             id: `message-${this.sentMessages.length}`,
             role: 'assistant',
             content: buildFakeResponse(agentId, stage),
             timestamp: new Date().toISOString()
         };
+        const history = this.sessionMessages.get(sessionId) || [];
+        history.push({
+            id: `user-${this.sentMessages.length}`,
+            role: 'user',
+            content: prompt,
+            timestamp: new Date().toISOString()
+        } satisfies ChatMessage);
+        history.push(response);
+        this.sessionMessages.set(sessionId, history);
+        return response;
+    }
+
+    public async getChatHistory(sessionId: string): Promise<ChatMessage[]> {
+        return [...(this.sessionMessages.get(sessionId) || [])];
     }
 
     public async getAgent(agentId: string): Promise<Agent | null> {

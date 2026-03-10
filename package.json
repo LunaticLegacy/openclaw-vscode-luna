@@ -2,7 +2,7 @@
   "name": "openclaw-vscode-luna",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "0.5.1",
+  "version": "0.5.1.1",
   "publisher": "lunaticlegacy",
   "license": "MIT",
   "repository": {

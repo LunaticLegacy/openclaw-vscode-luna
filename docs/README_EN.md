@@ -8,6 +8,8 @@
 
 # OpenClaw Luna
 
+(Public Alpha)
+
 ### The OpenClaw console for VS Code
 
 **Keep agents, AI Swarms, OpenClaw cron, connection switching, and 7/30-day usage inside one panel instead of scattering them across commands.**

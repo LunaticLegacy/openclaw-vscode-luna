@@ -26,6 +26,7 @@ export interface ClusterBroadcastResult {
     agentId: string;
     ok: boolean;
     message?: ChatMessage;
+    trace?: ChatMessage[];
     error?: string;
 }
 
@@ -66,6 +67,7 @@ export class ClusterManager extends EventEmitter {
     private storageFilePath: string;
     private localClustersLoaded = false;
     private localLoadPromise: Promise<void> | null = null;
+    private swarmSessionIds: Map<string, string> = new Map();
 
     constructor(service: OpenClawService, storageFilePath: string) {
         super();
@@ -187,11 +189,13 @@ export class ClusterManager extends EventEmitter {
         if (this.service.supportsRemoteClusters()) {
             await this.service.deleteCluster(clusterId);
             this.clusters.delete(clusterId);
+            this.clearSwarmSessionsForCluster(clusterId);
             return;
         }
 
         await this.ensureLocalClustersLoaded();
         this.clusters.delete(clusterId);
+        this.clearSwarmSessionsForCluster(clusterId);
         await this.persistLocalClusters();
         this.emit('clusterDeleted', clusterId);
     }
@@ -219,14 +223,14 @@ export class ClusterManager extends EventEmitter {
         const results = await Promise.all(
             cluster.agentIds.map(async agentId => {
                 try {
-                    const session = await this.service.createChatSession(agentId);
-                    const response = await this.service.sendMessage(session.id, message);
+                    const result = await this.sendMessageToAgent(agentId, message, {
+                        clusterId,
+                        mode: 'broadcast'
+                    });
                     return [
                         agentId,
                         {
-                            agentId,
-                            ok: true,
-                            message: response
+                            ...result
                         } satisfies ClusterBroadcastResult
                     ] as const;
                 } catch (error) {
@@ -260,7 +264,11 @@ export class ClusterManager extends EventEmitter {
         const rounds: ClusterCollaborationRound[] = [];
 
         const openingPrompt = buildOpeningContributionPrompt(cluster.name, message);
-        const openingEntries = await this.sendMessageToAgents(cluster.agentIds, openingPrompt, debateSessionIds);
+        const openingEntries = await this.sendMessageToAgents(cluster.agentIds, openingPrompt, {
+            clusterId: cluster.id,
+            mode: 'collaborate',
+            debateSessionIds
+        });
         rounds.push({
             kind: 'opening',
             entries: openingEntries
@@ -281,7 +289,11 @@ export class ClusterManager extends EventEmitter {
                 latestUsableContributions,
                 debateRound.reviewRound
             );
-            const critiqueEntries = await this.sendMessageToAgents(successfulAgentIds, critiquePrompt, debateSessionIds);
+            const critiqueEntries = await this.sendMessageToAgents(successfulAgentIds, critiquePrompt, {
+                clusterId: cluster.id,
+                mode: 'collaborate',
+                debateSessionIds
+            });
             rounds.push({
                 kind: debateRound.critiqueKind,
                 entries: critiqueEntries
@@ -295,7 +307,11 @@ export class ClusterManager extends EventEmitter {
                 critiqueEntries,
                 debateRound.reviewRound
             );
-            const revisionEntries = await this.sendMessageToAgents(successfulAgentIds, revisionPrompt, debateSessionIds);
+            const revisionEntries = await this.sendMessageToAgents(successfulAgentIds, revisionPrompt, {
+                clusterId: cluster.id,
+                mode: 'collaborate',
+                debateSessionIds
+            });
             rounds.push({
                 kind: debateRound.revisionKind,
                 entries: revisionEntries
@@ -320,7 +336,11 @@ export class ClusterManager extends EventEmitter {
                 latestUsableContributions,
                 rounds
             );
-            synthesis = await this.sendMessageToAgent(coordinatorAgentId, synthesisPrompt);
+            synthesis = await this.sendMessageToAgent(coordinatorAgentId, synthesisPrompt, {
+                clusterId: cluster.id,
+                mode: 'collaborate',
+                debateSessionIds
+            });
         }
 
         await this.updateCluster(clusterId, { status: 'active' });
@@ -387,6 +407,7 @@ export class ClusterManager extends EventEmitter {
         this.clusters.clear();
         this.localClustersLoaded = false;
         this.localLoadPromise = null;
+        this.swarmSessionIds.clear();
     }
 
     private async ensureLocalClustersLoaded(forceRefresh: boolean = false): Promise<void> {
@@ -454,12 +475,16 @@ export class ClusterManager extends EventEmitter {
     private async sendMessageToAgents(
         agentIds: string[],
         message: string,
-        debateSessionIds?: Map<string, string>
+        options: {
+            clusterId: string;
+            mode: 'broadcast' | 'collaborate';
+            debateSessionIds?: Map<string, string>;
+        }
     ): Promise<Record<string, ClusterBroadcastResult>> {
         const results = await Promise.all(
             agentIds.map(async agentId => [
                 agentId,
-                await this.sendMessageToAgent(agentId, message, debateSessionIds)
+                await this.sendMessageToAgent(agentId, message, options)
             ] as const)
         );
 
@@ -469,17 +494,22 @@ export class ClusterManager extends EventEmitter {
     private async sendMessageToAgent(
         agentId: string,
         message: string,
-        debateSessionIds?: Map<string, string>
+        options: {
+            clusterId: string;
+            mode: 'broadcast' | 'collaborate';
+            debateSessionIds?: Map<string, string>;
+        }
     ): Promise<ClusterBroadcastResult> {
         try {
-            const sessionId = debateSessionIds
-                ? await this.ensureDebateSession(agentId, debateSessionIds)
-                : (await this.service.createChatSession(agentId)).id;
-            const response = await this.service.sendMessage(sessionId, message);
+            const sessionId = options.debateSessionIds
+                ? await this.ensureDebateSession(agentId, options.debateSessionIds, options.clusterId, options.mode)
+                : await this.ensureSwarmSession(agentId, options.clusterId, options.mode);
+            const traceResult = await this.sendMessageWithTrace(sessionId, message);
             return {
                 agentId,
                 ok: true,
-                message: response
+                message: traceResult.message,
+                trace: traceResult.trace
             };
         } catch (error) {
             return {
@@ -490,15 +520,101 @@ export class ClusterManager extends EventEmitter {
         }
     }
 
-    private async ensureDebateSession(agentId: string, debateSessionIds: Map<string, string>): Promise<string> {
+    private async ensureDebateSession(
+        agentId: string,
+        debateSessionIds: Map<string, string>,
+        clusterId: string,
+        mode: 'broadcast' | 'collaborate'
+    ): Promise<string> {
         const existingSessionId = debateSessionIds.get(agentId);
         if (existingSessionId) {
             return existingSessionId;
         }
 
+        const sessionId = await this.ensureSwarmSession(agentId, clusterId, mode);
+        debateSessionIds.set(agentId, sessionId);
+        return sessionId;
+    }
+
+    private async ensureSwarmSession(
+        agentId: string,
+        clusterId: string,
+        mode: 'broadcast' | 'collaborate'
+    ): Promise<string> {
+        const key = this.buildSwarmSessionKey(clusterId, mode, agentId);
+        const existingSessionId = this.swarmSessionIds.get(key);
+        if (existingSessionId) {
+            return existingSessionId;
+        }
+
         const session = await this.service.createChatSession(agentId);
-        debateSessionIds.set(agentId, session.id);
+        this.swarmSessionIds.set(key, session.id);
         return session.id;
+    }
+
+    private buildSwarmSessionKey(clusterId: string, mode: 'broadcast' | 'collaborate', agentId: string): string {
+        return `cluster:${clusterId}:swarm:${mode}:agent:${agentId}`;
+    }
+
+    private clearSwarmSessionsForCluster(clusterId: string): void {
+        const prefix = `cluster:${clusterId}:`;
+        for (const key of this.swarmSessionIds.keys()) {
+            if (key.startsWith(prefix)) {
+                this.swarmSessionIds.delete(key);
+            }
+        }
+    }
+
+    private async sendMessageWithTrace(
+        sessionId: string,
+        message: string
+    ): Promise<{ message: ChatMessage; trace: ChatMessage[] }> {
+        const before = await this.service.getChatHistory(sessionId).catch(() => []);
+        const knownIds = new Set(before.map(item => item.id));
+        const response = await this.service.sendMessage(sessionId, message);
+        const after = await this.service.getChatHistory(sessionId).catch(() => []);
+
+        const trace = this.normalizeTraceMessages(
+            after.filter(item => !knownIds.has(item.id))
+        );
+
+        if (trace.length === 0) {
+            return {
+                message: response,
+                trace: response ? [response] : []
+            };
+        }
+
+        let finalMessage = response;
+        for (let i = trace.length - 1; i >= 0; i--) {
+            if (trace[i].role === 'assistant') {
+                finalMessage = trace[i];
+                break;
+            }
+        }
+        return {
+            message: finalMessage,
+            trace
+        };
+    }
+
+    private normalizeTraceMessages(messages: ChatMessage[]): ChatMessage[] {
+        const deduped = new Map<string, ChatMessage>();
+        for (const message of messages) {
+            if (!message || message.role === 'user') {
+                continue;
+            }
+
+            if (message.id) {
+                deduped.set(message.id, message);
+                continue;
+            }
+
+            const fallbackId = `${message.role}:${message.timestamp || ''}:${message.content || ''}`;
+            deduped.set(fallbackId, message);
+        }
+
+        return Array.from(deduped.values());
     }
 
     private async buildSynthesisPrompt(
