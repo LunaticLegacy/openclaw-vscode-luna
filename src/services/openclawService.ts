@@ -19,6 +19,7 @@ import type {
     AgentCluster,
     APIUsage,
     ChatMessage,
+    DiscoveredChannel,
     ChatSession,
     CreateAgentParams,
     CreateClusterParams,
@@ -35,6 +36,7 @@ export type {
     AgentCluster,
     APIUsage,
     ChatMessage,
+    DiscoveredChannel,
     ChatMessagePart,
     ChatSession,
     CreateAgentParams,
@@ -73,8 +75,11 @@ export class OpenClawService extends EventEmitter {
 
     public async checkConnection(): Promise<boolean> {
         const connected = await this.getConnectionProbe();
+        const hasChanged = connected !== this.connected;
         this.connected = connected;
-        this.emit('connectionChange', connected);
+        if (hasChanged) {
+            this.emit('connectionChange', connected);
+        }
         return connected;
     }
 
@@ -444,6 +449,14 @@ export class OpenClawService extends EventEmitter {
         this.removeAllListeners();
         this.connected = false;
         this.resetState();
+    }
+
+    public async getDiscoveredChannels(): Promise<DiscoveredChannel[]> {
+        if (this.openClawRuntime) {
+            return this.openClawRuntime.getDiscoveredChannels();
+        }
+
+        return [];
     }
 
     private applyConfig(config: ResolvedServiceConfig): void {

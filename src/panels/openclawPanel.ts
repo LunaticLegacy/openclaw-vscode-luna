@@ -11,7 +11,7 @@ import {
     saveOpenClawConfigEditorState,
     startOpenClawGateway
 } from '../services/openclawConfig';
-import type { OpenClawBooleanCapabilityId } from '../services/openclawService';
+import type { DiscoveredChannel, OpenClawBooleanCapabilityId } from '../services/openclawService';
 import { showSuccessStatus } from '../utils/statusFeedback';
 import { getCapabilityUnavailableMessage } from '../utils/capabilitySupport';
 import { AgentManager } from '../managers/agentManager';
@@ -20,6 +20,22 @@ import { ChannelManager } from '../managers/channelManager';
 import { ClusterManager } from '../managers/clusterManager';
 import { ScheduledTask, ScheduledTaskManager } from '../managers/scheduledTaskManager';
 import { getAgentPresets } from '../config/agentPresets';
+
+const SESSION_SYNC_INTERVAL_MS = 450;
+const CHANNEL_SYNC_INTERVAL_MS = 450;
+
+type PanelChannelRecord = {
+    id: string;
+    name: string;
+    agentId?: string;
+    description?: string;
+    sessionId?: string;
+    createdAt?: string;
+    updatedAt?: string;
+    source?: 'local' | 'openclaw';
+    providerId?: string;
+    accountId?: string;
+};
 
 export class OpenClawPanel {
     public static currentPanel: OpenClawPanel | undefined;
@@ -42,6 +58,9 @@ export class OpenClawPanel {
     private _viewMode: 'chat' | 'clusters' | 'usage' | 'channel' | 'tasks' = 'chat';
     private _contextLoadToken: number = 0;
     private _chatRunToken: number = 0;
+    private _channelRunToken: number = 0;
+    private _clusterSwarmRunToken: number = 0;
+    private _clusterAgentRunToken: number = 0;
     private _sessionSyncToken: number = 0;
     private _channelLoadToken: number = 0;
     private _channelSyncToken: number = 0;
@@ -154,6 +173,11 @@ export class OpenClawPanel {
         }));
 
         this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
+        this._panel.onDidChangeViewState(
+            event => this._handlePanelVisibilityChange(event.webviewPanel.visible),
+            null,
+            this._disposables
+        );
 
         this._panel.webview.onDidReceiveMessage(
             message => this._handleMessage(message),
@@ -180,6 +204,25 @@ export class OpenClawPanel {
         this._pendingMessages = [];
         for (const message of pendingMessages) {
             void this._panel.webview.postMessage(message);
+        }
+    }
+
+    private _handlePanelVisibilityChange(visible: boolean) {
+        if (!visible) {
+            this._stopActiveSessionSync();
+            this._stopActiveChannelSync();
+            return;
+        }
+
+        if (this._currentAgentId && this._currentSessionId) {
+            const session = this._sessionManager.getSession(this._currentSessionId);
+            if (session) {
+                this._startActiveSessionSync(session, this._currentAgentId, this._contextLoadToken);
+            }
+        }
+
+        if (this._currentChannelId && this._currentChannelSessionId) {
+            this._startActiveChannelSync(this._currentChannelId, this._currentChannelSessionId, this._channelLoadToken);
         }
     }
 
@@ -253,6 +296,10 @@ export class OpenClawPanel {
                 await this._handleSendMessage(message.content, message.agentId, {
                     optimisticEcho: Boolean(message.optimistic)
                 });
+                break;
+
+            case 'stopActiveRun':
+                this._handleStopActiveRun(message.scope);
                 break;
 
             case 'selectAgent':
@@ -507,6 +554,7 @@ export class OpenClawPanel {
             if (streamResponse) {
                 // 流式响应
                 let fullContent = '';
+                const streamedMessageIds = new Set<string>();
                 
                 for await (const chunk of this._sessionManager.streamMessage(normalizedContent)) {
                     if (!this._isCurrentChatRun(chatRunToken, targetAgentId, sessionId)) {
@@ -514,6 +562,20 @@ export class OpenClawPanel {
                     }
 
                     if (chunk.message) {
+                        const messageId = typeof chunk.message.id === 'string'
+                            ? chunk.message.id.trim()
+                            : '';
+                        if (messageId) {
+                            if (streamedMessageIds.has(messageId)) {
+                                continue;
+                            }
+                            streamedMessageIds.add(messageId);
+                        }
+
+                        if (options.optimisticEcho && chunk.message.role === 'user') {
+                            continue;
+                        }
+
                         this._postMessage({
                             type: 'addMessage',
                             message: chunk.message
@@ -621,18 +683,10 @@ export class OpenClawPanel {
             if (loadToken !== undefined && loadToken !== this._contextLoadToken) {
                 return;
             }
-            this._postMessage({ type: 'clearChat' });
-
-            for (const message of messages) {
-                if (loadToken !== undefined && loadToken !== this._contextLoadToken) {
-                    return;
-                }
-
-                this._postMessage({
-                    type: 'addMessage',
-                    message
-                });
-            }
+            this._postMessage({
+                type: 'replaceMessages',
+                messages
+            });
         } catch (error) {
             this._postMessage({
                 type: 'setContextLoading',
@@ -667,7 +721,7 @@ export class OpenClawPanel {
 
         void (async () => {
             while (this._isCurrentSessionSyncTarget(syncToken, agentId, sessionId, loadToken)) {
-                await delay(120);
+                await delay(SESSION_SYNC_INTERVAL_MS);
 
                 if (!this._isCurrentSessionSyncTarget(syncToken, agentId, sessionId, loadToken)) {
                     return;
@@ -702,7 +756,8 @@ export class OpenClawPanel {
         return this._sessionSyncToken === syncToken
             && this._currentAgentId === agentId
             && this._currentSessionId === sessionId
-            && this._contextLoadToken === loadToken;
+            && this._contextLoadToken === loadToken
+            && this._panel.visible;
     }
 
     private _isCurrentChatRun(chatRunToken: number, agentId: string, sessionId: string | null): boolean {
@@ -744,16 +799,20 @@ export class OpenClawPanel {
 
     private async _loadChannels(selectedChannelId?: string) {
         try {
-            const channels = await this._channelManager.getChannels();
-            const resolvedSelectedChannelId = selectedChannelId && channels.some(channel => channel.id === selectedChannelId)
+            const [channels, discoveredChannels] = await Promise.all([
+                this._channelManager.getChannels(),
+                this._service.getDiscoveredChannels()
+            ]);
+            const mergedChannels = mergePanelChannels(channels, discoveredChannels);
+            const resolvedSelectedChannelId = selectedChannelId && mergedChannels.some(channel => channel.id === selectedChannelId)
                 ? selectedChannelId
-                : this._currentChannelId && channels.some(channel => channel.id === this._currentChannelId)
+                : this._currentChannelId && mergedChannels.some(channel => channel.id === this._currentChannelId)
                     ? this._currentChannelId
-                    : channels[0]?.id || null;
+                    : mergedChannels[0]?.id || null;
 
             this._postMessage({
                 type: 'channelsLoaded',
-                channels,
+                channels: mergedChannels,
                 selectedChannelId: resolvedSelectedChannelId
             });
 
@@ -793,7 +852,18 @@ export class OpenClawPanel {
         try {
             const channel = await this._channelManager.getChannel(channelId);
             if (!channel) {
-                this._clearChannelSelection();
+                const discoveredChannel = await this._resolveDiscoveredChannel(channelId);
+                if (!discoveredChannel) {
+                    this._clearChannelSelection();
+                    return;
+                }
+
+                this._currentChannelSessionId = null;
+                this._postMessage({
+                    type: 'replaceChannelMessages',
+                    channelId: discoveredChannel.id,
+                    messages: []
+                });
                 return;
             }
 
@@ -891,7 +961,7 @@ export class OpenClawPanel {
 
         void (async () => {
             while (this._isCurrentChannelSyncTarget(syncToken, channelId, sessionId, loadToken)) {
-                await delay(120);
+                await delay(CHANNEL_SYNC_INTERVAL_MS);
 
                 if (!this._isCurrentChannelSyncTarget(syncToken, channelId, sessionId, loadToken)) {
                     return;
@@ -925,7 +995,8 @@ export class OpenClawPanel {
         return this._channelSyncToken === syncToken
             && this._currentChannelId === channelId
             && this._currentChannelSessionId === sessionId
-            && this._channelLoadToken === loadToken;
+            && this._channelLoadToken === loadToken
+            && this._panel.visible;
     }
 
     private async _handleCreateChannel(data: { name?: string; agentId?: string; description?: string }) {
@@ -952,6 +1023,11 @@ export class OpenClawPanel {
         }
 
         try {
+            const existing = await this._channelManager.getChannel(channelId);
+            if (!existing) {
+                throw new Error(t('channel.importedReadOnly'));
+            }
+
             const channel = await this._channelManager.updateChannel(channelId, {
                 name: data?.name,
                 agentId: data?.agentId,
@@ -972,7 +1048,7 @@ export class OpenClawPanel {
         try {
             const channel = await this._channelManager.getChannel(channelId);
             if (!channel) {
-                vscode.window.showErrorMessage(t('channel.notFound'));
+                vscode.window.showErrorMessage(t('channel.importedReadOnly'));
                 return;
             }
 
@@ -1000,9 +1076,15 @@ export class OpenClawPanel {
             return;
         }
 
+        const channelRunToken = ++this._channelRunToken;
+
         try {
             const channel = await this._channelManager.getChannel(channelId);
             if (!channel) {
+                const discoveredChannel = await this._resolveDiscoveredChannel(channelId);
+                if (discoveredChannel) {
+                    throw new Error(t('channel.importedReadOnly'));
+                }
                 throw new Error(t('channel.notFound'));
             }
 
@@ -1017,7 +1099,7 @@ export class OpenClawPanel {
 
             const response = await this._service.sendMessage(sessionId, normalizedContent);
 
-            if (this._currentChannelId === channel.id) {
+            if (this._currentChannelId === channel.id && this._channelRunToken === channelRunToken) {
                 this._postMessage({
                     type: 'addChannelMessage',
                     channelId: channel.id,
@@ -1025,32 +1107,69 @@ export class OpenClawPanel {
                 });
             }
         } catch (error) {
-            this._postMessage({
-                type: 'channelSendFailed',
-                channelId,
-                message: t('panel.failedSendMessage', { error: String(error) })
-            });
+            if (this._channelRunToken === channelRunToken) {
+                this._postMessage({
+                    type: 'channelSendFailed',
+                    channelId,
+                    message: t('panel.failedSendMessage', { error: String(error) })
+                });
+            }
         }
     }
 
     private async _handleCreateAgent(data: any) {
-        try {
-            await this._agentManager.createAgent(data);
-            await this._loadAgents();
-            this._postMessage({
-                type: 'agentCreated',
-                success: true
-            });
-        } catch (error) {
-            this._postMessage({
-                type: 'agentCreated',
-                success: false,
-                error: String(error)
-            });
-        }
+        const agentName = typeof data?.name === 'string' ? data.name.trim() : '';
+        this._postMessage({
+            type: 'agentMutationState',
+            action: 'create',
+            pending: true,
+            agentName
+        });
+
+        const progressAgentName = agentName || 'agent';
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: t('agent.operationCreating', { name: progressAgentName }),
+                cancellable: false
+            },
+            async () => {
+                try {
+                    await this._agentManager.createAgent(data);
+                    await this._loadAgents();
+                    this._postMessage({
+                        type: 'agentMutationState',
+                        action: 'create',
+                        pending: false,
+                        success: true,
+                        agentName
+                    });
+                } catch (error) {
+                    this._postMessage({
+                        type: 'agentMutationState',
+                        action: 'create',
+                        pending: false,
+                        success: false,
+                        agentName,
+                        error: String(error)
+                    });
+                    this._postMessage({
+                        type: 'error',
+                        message: t('newAgent.createFailed', { error: String(error) })
+                    });
+                }
+            }
+        );
     }
 
     private async _handleDeleteAgent(agentId: string) {
+        this._postMessage({
+            type: 'agentMutationState',
+            action: 'delete',
+            pending: true,
+            agentId
+        });
+
         try {
             await this._agentManager.deleteAgent(agentId);
             if (this._currentAgentId === agentId) {
@@ -1060,7 +1179,22 @@ export class OpenClawPanel {
                 this._postMessage({ type: 'setActiveAgent', agentId: null });
             }
             await this._loadAgents();
+            this._postMessage({
+                type: 'agentMutationState',
+                action: 'delete',
+                pending: false,
+                success: true,
+                agentId
+            });
         } catch (error) {
+            this._postMessage({
+                type: 'agentMutationState',
+                action: 'delete',
+                pending: false,
+                success: false,
+                agentId,
+                error: String(error)
+            });
             this._postMessage({
                 type: 'error',
                 message: t('panel.failedDeleteAgent', { error: String(error) })
@@ -1069,23 +1203,28 @@ export class OpenClawPanel {
     }
 
     private async _handleBroadcast(clusterId: string, message: string) {
+        const swarmRunToken = ++this._clusterSwarmRunToken;
         try {
             const responses = await this._clusterManager.broadcastToCluster(clusterId, message);
-            this._postMessage({
-                type: 'broadcastResults',
-                clusterId,
-                responses
-            });
+            if (this._clusterSwarmRunToken === swarmRunToken) {
+                this._postMessage({
+                    type: 'broadcastResults',
+                    clusterId,
+                    responses
+                });
+            }
         } catch (error) {
-            this._postMessage({
-                type: 'clusterRunFailed',
-                clusterId,
-                mode: 'broadcast'
-            });
-            this._postMessage({
-                type: 'error',
-                message: t('panel.failedBroadcast', { error: String(error) })
-            });
+            if (this._clusterSwarmRunToken === swarmRunToken) {
+                this._postMessage({
+                    type: 'clusterRunFailed',
+                    clusterId,
+                    mode: 'broadcast'
+                });
+                this._postMessage({
+                    type: 'error',
+                    message: t('panel.failedBroadcast', { error: String(error) })
+                });
+            }
         }
     }
 
@@ -1121,25 +1260,30 @@ export class OpenClawPanel {
     }
 
     private async _handleCollaborate(clusterId: string, message: string) {
+        const swarmRunToken = ++this._clusterSwarmRunToken;
         try {
             const result = await this._clusterManager.collaborateOnCluster(clusterId, normalizeOutgoingMessageContent(message), {
                 coordinatorAgentId: this._currentAgentId || undefined
             });
 
-            this._postMessage({
-                type: 'collaborationResults',
-                result
-            });
+            if (this._clusterSwarmRunToken === swarmRunToken) {
+                this._postMessage({
+                    type: 'collaborationResults',
+                    result
+                });
+            }
         } catch (error) {
-            this._postMessage({
-                type: 'clusterRunFailed',
-                clusterId,
-                mode: 'collaborate'
-            });
-            this._postMessage({
-                type: 'error',
-                message: t('panel.failedCollaborate', { error: String(error) })
-            });
+            if (this._clusterSwarmRunToken === swarmRunToken) {
+                this._postMessage({
+                    type: 'clusterRunFailed',
+                    clusterId,
+                    mode: 'collaborate'
+                });
+                this._postMessage({
+                    type: 'error',
+                    message: t('panel.failedCollaborate', { error: String(error) })
+                });
+            }
         }
     }
 
@@ -1201,22 +1345,45 @@ export class OpenClawPanel {
             return;
         }
 
+        const clusterAgentRunToken = ++this._clusterAgentRunToken;
+
         try {
             const session = await this._clusterSessionManager.getOrCreateSession(agentId);
             this._clusterSessionManager.setCurrentSession(session.id);
             const response = await this._clusterSessionManager.sendMessage(normalizedContent);
 
-            this._postMessage({
-                type: 'clusterAgentResponse',
-                clusterId,
-                agentId,
-                message: response
-            });
+            if (this._clusterAgentRunToken === clusterAgentRunToken) {
+                this._postMessage({
+                    type: 'clusterAgentResponse',
+                    clusterId,
+                    agentId,
+                    message: response
+                });
+            }
         } catch (error) {
-            this._postMessage({
-                type: 'error',
-                message: t('panel.failedSendMessage', { error: String(error) })
-            });
+            if (this._clusterAgentRunToken === clusterAgentRunToken) {
+                this._postMessage({
+                    type: 'error',
+                    message: t('panel.failedSendMessage', { error: String(error) })
+                });
+            }
+        }
+    }
+
+    private _handleStopActiveRun(scope: unknown) {
+        switch (scope) {
+            case 'chat':
+                this._chatRunToken += 1;
+                break;
+            case 'channel':
+                this._channelRunToken += 1;
+                break;
+            case 'cluster-swarm':
+                this._clusterSwarmRunToken += 1;
+                break;
+            case 'cluster-agent':
+                this._clusterAgentRunToken += 1;
+                break;
         }
     }
 
@@ -1805,6 +1972,15 @@ export class OpenClawPanel {
     private _ensureCapability(capabilityId: OpenClawBooleanCapabilityId): boolean {
         return this._service.supportsCapability(capabilityId);
     }
+
+    private async _resolveDiscoveredChannel(channelId: string): Promise<DiscoveredChannel | null> {
+        if (!channelId) {
+            return null;
+        }
+
+        const channels = await this._service.getDiscoveredChannels();
+        return channels.find(channel => channel.id === channelId) || null;
+    }
 }
 
 function normalizeOutgoingMessageContent(content: string): string {
@@ -1816,7 +1992,6 @@ function buildMessageSyncSignature(messages: ChatMessage[]): string {
         id: message.id,
         role: message.role,
         content: message.content,
-        timestamp: message.timestamp,
         tokenCount: message.tokenCount,
         parts: message.parts,
         toolCallId: message.toolCallId,
@@ -1830,5 +2005,53 @@ function buildMessageSyncSignature(messages: ChatMessage[]): string {
 
 function delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function mergePanelChannels(
+    localChannels: Array<{
+        id: string;
+        name: string;
+        agentId: string;
+        description?: string;
+        sessionId?: string;
+        createdAt: string;
+        updatedAt: string;
+    }>,
+    discoveredChannels: DiscoveredChannel[]
+): PanelChannelRecord[] {
+    const merged = new Map<string, PanelChannelRecord>();
+
+    for (const channel of localChannels) {
+        merged.set(channel.id, {
+            ...channel,
+            source: 'local'
+        });
+    }
+
+    for (const channel of discoveredChannels) {
+        if (merged.has(channel.id)) {
+            continue;
+        }
+
+        merged.set(channel.id, {
+            ...channel,
+            source: 'openclaw',
+            agentId: ''
+        });
+    }
+
+    return Array.from(merged.values()).sort((left, right) => {
+        if ((left.source || 'local') !== (right.source || 'local')) {
+            return left.source === 'local' ? -1 : 1;
+        }
+
+        const leftUpdated = left.updatedAt || '';
+        const rightUpdated = right.updatedAt || '';
+        if (leftUpdated && rightUpdated && leftUpdated !== rightUpdated) {
+            return rightUpdated.localeCompare(leftUpdated);
+        }
+
+        return left.name.localeCompare(right.name);
+    });
 }
 

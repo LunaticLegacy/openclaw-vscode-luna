@@ -61,10 +61,18 @@
         chatHomePinned: false,
         forceSetupPanel: false,
         installGuideStatus: null,
-        installGuideBusy: false
+        installGuideBusy: false,
+        agentMutation: null
     };
     let activeTraceContainer = null;
     let activeChannelTraceContainer = null;
+    let isBulkRenderingChat = false;
+    let isBulkRenderingChannel = false;
+    let pendingStreamingRender = null;
+    let streamRenderFrame = null;
+    let agentMutationTimer = null;
+    const renderedChatMessageIds = new Set();
+    const renderedChannelMessageIds = new Set();
 
     // DOM Elements cache
     const elements = {};
@@ -116,6 +124,7 @@
         elements.messageInput = document.getElementById('message-input');
         elements.btnSend = document.getElementById('btn-send');
         elements.btnClear = document.getElementById('btn-clear');
+        elements.btnStop = document.getElementById('btn-stop');
         elements.connectionStatus = document.getElementById('connection-status');
         elements.connectionLabel = document.getElementById('connection-label');
         elements.connectionCaption = document.getElementById('connection-caption');
@@ -184,6 +193,7 @@
         elements.clusterMessageInput = document.getElementById('cluster-message-input');
         elements.clusterTargetHint = document.getElementById('cluster-target-hint');
         elements.btnSendCluster = document.getElementById('btn-send-cluster');
+        elements.btnStopCluster = document.getElementById('btn-stop-cluster');
         elements.btnNewAgent = document.getElementById('btn-new-agent');
         elements.btnRefreshAgents = document.getElementById('btn-refresh-agents');
         elements.btnNewCluster = document.getElementById('btn-new-cluster');
@@ -234,6 +244,7 @@
         elements.channelMessages = document.getElementById('channel-messages');
         elements.channelMessageInput = document.getElementById('channel-message-input');
         elements.btnSendChannel = document.getElementById('btn-send-channel');
+        elements.btnStopChannel = document.getElementById('btn-stop-channel');
         elements.modalAgentSettings = document.getElementById('modal-agent-settings');
         elements.formAgentSettings = document.getElementById('form-agent-settings');
         elements.modalTask = document.getElementById('modal-task');
@@ -248,6 +259,7 @@
 
         // Send message
         elements.btnSend?.addEventListener('click', sendMessage);
+        bindStopButton(elements.btnStop, stopChatRun);
         elements.messageInput?.addEventListener('keydown', (e) => {
             if (e.key !== 'Enter' || e.isComposing) {
                 return;
@@ -262,6 +274,7 @@
         });
 
         elements.btnSendCluster?.addEventListener('click', sendClusterMessage);
+        bindStopButton(elements.btnStopCluster, stopClusterRun);
         elements.clusterMessageInput?.addEventListener('keydown', (e) => {
             if (e.key !== 'Enter' || e.isComposing) {
                 return;
@@ -465,6 +478,7 @@
         });
 
         elements.btnSendChannel?.addEventListener('click', sendChannelMessage);
+        bindStopButton(elements.btnStopChannel, stopChannelRun);
         elements.channelMessageInput?.addEventListener('keydown', (e) => {
             if (e.key !== 'Enter' || e.isComposing) {
                 return;
@@ -551,6 +565,12 @@
                 return;
             }
 
+            const envelopeToggle = target.closest('[data-user-input-toggle]');
+            if (envelopeToggle) {
+                toggleUserInputEnvelopeRaw(envelopeToggle);
+                return;
+            }
+
             const clusterSidebarItem = target.closest('[data-sidebar-cluster-id]');
             if (clusterSidebarItem) {
                 const clusterId = clusterSidebarItem.getAttribute('data-sidebar-cluster-id');
@@ -629,6 +649,28 @@
             e.preventDefault();
             toggleThinkingBlock(thinkingHeader);
         });
+
+        document.addEventListener('toggle', (e) => {
+            const target = e.target;
+            if (!(target instanceof HTMLDetailsElement)) {
+                return;
+            }
+
+            if (!target.hasAttribute('data-user-input-extra-card') || !target.open) {
+                return;
+            }
+
+            const list = target.closest('[data-user-input-extra-list]');
+            if (!list) {
+                return;
+            }
+
+            list.querySelectorAll('details[data-user-input-extra-card][open]').forEach(item => {
+                if (item !== target) {
+                    item.open = false;
+                }
+            });
+        }, true);
     }
 
     function updateUIText() {
@@ -649,11 +691,20 @@
         if (elements.btnSend) {
             elements.btnSend.textContent = t('chat.send');
         }
+        if (elements.btnStop) {
+            elements.btnStop.textContent = t('chat.stop');
+        }
         if (elements.btnSendCluster) {
             elements.btnSendCluster.textContent = t('chat.send');
         }
+        if (elements.btnStopCluster) {
+            elements.btnStopCluster.textContent = t('chat.stop');
+        }
         if (elements.btnSendChannel) {
             elements.btnSendChannel.textContent = t('chat.send');
+        }
+        if (elements.btnStopChannel) {
+            elements.btnStopChannel.textContent = t('chat.stop');
         }
         if (elements.btnClear) {
             elements.btnClear.title = t('chat.clear');
@@ -1670,6 +1721,7 @@
         
         state.isStreaming = true;
         elements.btnSend.disabled = true;
+        updateChatInputState();
         
         vscode.postMessage({
             type: 'sendMessage',
@@ -1681,6 +1733,27 @@
 
     function normalizeOutgoingMessage(content) {
         return String(content || '').replace(/\r\n?/g, '\n');
+    }
+
+    function updateChatInputState() {
+        if (elements.btnSend) {
+            elements.btnSend.disabled = state.isStreaming;
+        }
+
+        if (elements.btnStop) {
+            elements.btnStop.classList.toggle('hidden', !state.isStreaming);
+            elements.btnStop.disabled = !state.isStreaming;
+        }
+    }
+
+    function stopChatRun() {
+        if (!state.isStreaming) {
+            return;
+        }
+
+        resetTransientChatState();
+        updateChatInputState();
+        vscode.postMessage({ type: 'stopActiveRun', scope: 'chat' });
     }
 
     function sendClusterMessage() {
@@ -1768,6 +1841,11 @@
     function resetTransientChatState() {
         clearThinkingIndicator();
         document.querySelector('.message-streaming')?.remove();
+        pendingStreamingRender = null;
+        if (streamRenderFrame !== null) {
+            window.cancelAnimationFrame(streamRenderFrame);
+            streamRenderFrame = null;
+        }
         activeTraceContainer = null;
         finalizeStreamingState();
     }
@@ -1778,16 +1856,7 @@
         
         const thinkingContent = state.currentThinking.querySelector('.thinking-content');
         if (thinkingContent) {
-            // Parse thinking blocks if they follow OpenClaw format
-            const lines = content.split('\n').filter(l => l.trim());
-            thinkingContent.innerHTML = lines.map(line => {
-                // Check for step markers like "Step 1:" or "1."
-                const stepMatch = line.match(/^(?:Step\s+)?(\d+)[:.]/i);
-                if (stepMatch) {
-                    return `<div class="thinking-step"><span class="step-number">${stepMatch[1]}</span>${escapeHtml(line.substring(stepMatch[0].length).trim())}</div>`;
-                }
-                return `<div class="thinking-line">${escapeHtml(line)}</div>`;
-            }).join('');
+            thinkingContent.innerHTML = `<div class="message-content thinking-markdown">${formatContent(String(content || ''))}</div>`;
         }
     }
 
@@ -1804,13 +1873,16 @@
 
     function finalizeStreamingState() {
         state.isStreaming = false;
-        if (elements.btnSend) {
-            elements.btnSend.disabled = false;
-        }
+        updateChatInputState();
     }
 
     function finalizeStreamingMessage() {
         clearThinkingIndicator();
+        pendingStreamingRender = null;
+        if (streamRenderFrame !== null) {
+            window.cancelAnimationFrame(streamRenderFrame);
+            streamRenderFrame = null;
+        }
 
         const streamingMsg = document.querySelector('.message-streaming');
         if (streamingMsg) {
@@ -1824,9 +1896,24 @@
         finalizeStreamingState();
     }
 
+    function rememberRenderedMessageId(msg, renderedIds) {
+        const messageId = typeof msg?.id === 'string' ? msg.id.trim() : '';
+        if (!messageId) {
+            return false;
+        }
+
+        if (renderedIds.has(messageId)) {
+            return true;
+        }
+
+        renderedIds.add(messageId);
+        return false;
+    }
+
     // Add message to chat
     function addMessage(msg) {
         if (!msg) return;
+        if (rememberRenderedMessageId(msg, renderedChatMessageIds)) return;
         if (shouldHideMessage(msg)) return;
 
         if ((msg.role === 'assistant' || msg.role === 'tool') && state.currentThinking) {
@@ -1836,19 +1923,25 @@
         if (msg.role === 'user') {
             activeTraceContainer = null;
             appendStandaloneMessage(msg);
-            updateChatHomeVisibility();
+            if (!isBulkRenderingChat) {
+                updateChatHomeVisibility();
+            }
             return;
         }
 
         if (shouldAppendToTrace(msg)) {
             appendTraceMessage(msg);
-            updateChatHomeVisibility();
+            if (!isBulkRenderingChat) {
+                updateChatHomeVisibility();
+            }
             return;
         }
 
         activeTraceContainer = null;
         appendStandaloneMessage(msg);
-        updateChatHomeVisibility();
+        if (!isBulkRenderingChat) {
+            updateChatHomeVisibility();
+        }
     }
 
     function appendStandaloneMessage(msg) {
@@ -1869,7 +1962,9 @@
         `;
         
         elements.chatMessages.appendChild(div);
-        scrollToBottom();
+        if (!isBulkRenderingChat) {
+            scrollToBottom();
+        }
 
         if (msg.role === 'assistant' && !isToolUseMessage(msg)) {
             state.isStreaming = false;
@@ -1886,11 +1981,30 @@
             return;
         }
 
+        if (msg.role === 'tool') {
+            const toolContext = getToolResultContext(msg);
+            const pendingCard = findPendingToolCard(body, toolContext.toolCallId, toolContext.toolName);
+            if (pendingCard) {
+                const rendered = document.createElement('div');
+                rendered.innerHTML = renderToolMessage(msg, toolContext.parts).trim();
+                const nextCard = rendered.firstElementChild;
+                if (nextCard) {
+                    pendingCard.replaceWith(nextCard);
+                    if (!isBulkRenderingChat) {
+                        scrollToBottom();
+                    }
+                    return;
+                }
+            }
+        }
+
         const segment = document.createElement('div');
         segment.className = `trace-segment trace-segment-${msg.role}`;
         segment.innerHTML = renderTraceSegment(msg);
         body.appendChild(segment);
-        scrollToBottom();
+        if (!isBulkRenderingChat) {
+            scrollToBottom();
+        }
 
         if (msg.role === 'assistant' && !isToolUseMessage(msg)) {
             activeTraceContainer = null;
@@ -1958,6 +2072,11 @@
         const displayContent = getDisplayContent(msg);
 
         if (msg.role === 'user') {
+            const envelope = parseUserInputEnvelope(displayContent);
+            if (envelope) {
+                return renderUserInputEnvelope(envelope);
+            }
+
             const { mainContent, thinkingHtml } = processMessageContent(displayContent);
             return `${thinkingHtml}<div class="message-content">${formatContent(mainContent)}</div>`;
         }
@@ -2007,6 +2126,450 @@
         return visible;
     }
 
+    function parseUserInputEnvelope(content) {
+        const normalized = String(content || '').trim();
+        if (!normalized || !/\buser request\s*[:\uFF1A]/i.test(normalized)) {
+            return null;
+        }
+
+        const sections = collectStructuredEnvelopeSections(normalized);
+        if (sections.length === 0) {
+            return null;
+        }
+
+        const requestIndex = sections.findIndex(section => isUserRequestSectionTitle(section.title));
+        if (requestIndex < 0) {
+            return null;
+        }
+
+        const userRequest = sections[requestIndex]?.content?.trim() || '';
+        if (!userRequest) {
+            return null;
+        }
+
+        const extras = sections
+            .filter((_, index) => index !== requestIndex)
+            .filter(section => section.content.trim().length > 0);
+
+        return {
+            raw: normalized,
+            userRequest,
+            extras
+        };
+    }
+
+    function isUserRequestSectionTitle(title) {
+        const normalized = String(title || '').toLowerCase().replace(/\s+/g, ' ').trim();
+        return normalized === 'user request';
+    }
+
+    function stopClusterRun() {
+        const cluster = getCurrentCluster();
+        if (!cluster) {
+            return;
+        }
+
+        const target = getCurrentClusterTargetInfo(cluster);
+        const conversation = ensureClusterConversation(target.key);
+        if (!conversation.pending && !conversation.loading) {
+            return;
+        }
+
+        conversation.pending = false;
+        conversation.loading = false;
+        renderClusterWorkspace();
+        vscode.postMessage({
+            type: 'stopActiveRun',
+            scope: target.kind === 'agent' ? 'cluster-agent' : 'cluster-swarm',
+            clusterId: cluster.id,
+            agentId: target.kind === 'agent' ? target.agentId : undefined,
+            mode: target.kind === 'swarm' ? target.mode : undefined
+        });
+    }
+
+    function bindStopButton(button, handler) {
+        if (!button) {
+            return;
+        }
+
+        button.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) {
+                return;
+            }
+
+            e.preventDefault();
+            handler();
+        });
+
+        button.addEventListener('click', (e) => {
+            e.preventDefault();
+        });
+    }
+
+    function collectStructuredEnvelopeSections(content) {
+        const lines = String(content || '').split(/\r?\n/);
+        const sections = [];
+        let cursor = 0;
+
+        const systemLines = [];
+        while (cursor < lines.length) {
+            const trimmed = lines[cursor].trim();
+            if (!trimmed) {
+                if (systemLines.length > 0) {
+                    systemLines.push('');
+                }
+                cursor += 1;
+                continue;
+            }
+
+            if (!trimmed.startsWith('System:')) {
+                break;
+            }
+
+            systemLines.push(trimmed.replace(/^System:\s*/, ''));
+            cursor += 1;
+        }
+
+        pushEnvelopeSection(sections, 'System Information', systemLines.join('\n').trim());
+
+        const senderSection = extractNamedEnvelopeSection(lines, cursor, /^Sender\s+\(untrusted metadata\)\s*:\s*$/i, [
+            /^\[[^\]]+\]/,
+            /^User request\s*[:\uFF1A]/i,
+            /^Current positions\s*[:\uFF1A]/i,
+            /^#{1,6}\s+.+$/
+        ]);
+        if (senderSection) {
+            pushEnvelopeSection(sections, 'Sender (untrusted metadata)', senderSection.content);
+            cursor = senderSection.nextIndex;
+        }
+
+        const swarmContextSection = extractLeadingEnvelopeBlock(lines, cursor, /^User request\s*[:\uFF1A]/i);
+        if (swarmContextSection && /^\[[^\]]+\]/.test(swarmContextSection.content.trim())) {
+            pushEnvelopeSection(sections, 'Swarm Context', swarmContextSection.content);
+            cursor = swarmContextSection.nextIndex;
+        }
+
+        const userRequestSection = extractNamedEnvelopeSection(lines, cursor, /^User request\s*[:\uFF1A]/i, [
+            /^Current positions\s*[:\uFF1A]/i,
+            /^#{1,6}\s+.+$/,
+            /^Requirements?\s*[:\uFF1A]/i
+        ]);
+        if (userRequestSection) {
+            pushEnvelopeSection(sections, 'User request', userRequestSection.content);
+            cursor = userRequestSection.nextIndex;
+        }
+
+        const positionsSection = extractNamedEnvelopeSection(lines, cursor, /^Current positions\s*[:\uFF1A]/i, [
+            /^Peer reviews\s*[:\uFF1A]/i,
+            /^#{1,6}\s+.+$/,
+            /^Requirements?\s*[:\uFF1A]/i
+        ]);
+        if (positionsSection) {
+            pushEnvelopeSection(sections, 'Current positions', positionsSection.content);
+            cursor = positionsSection.nextIndex;
+        }
+
+        const peerReviewsSection = extractNamedEnvelopeSection(lines, cursor, /^Peer reviews\s*[:\uFF1A]/i, [
+            /^#{1,6}\s+.+$/,
+            /^Requirements?\s*[:\uFF1A]/i
+        ]);
+        if (peerReviewsSection) {
+            pushEnvelopeSection(sections, 'Peer reviews', peerReviewsSection.content);
+            cursor = peerReviewsSection.nextIndex;
+        }
+
+        const remainder = lines.slice(cursor).join('\n').trim();
+        if (remainder) {
+            const fallbackSections = collectInputEnvelopeSections(remainder);
+            if (fallbackSections.length > 0) {
+                fallbackSections.forEach(section => pushEnvelopeSection(sections, section.title, section.content));
+            } else {
+                pushEnvelopeSection(sections, 'Additional Context', remainder);
+            }
+        }
+
+        return sections;
+    }
+
+    function pushEnvelopeSection(sections, title, content) {
+        const normalizedTitle = String(title || '').trim();
+        const normalizedContent = String(content || '').trim();
+        if (!normalizedTitle || !normalizedContent) {
+            return;
+        }
+
+        sections.push({
+            title: normalizedTitle,
+            content: normalizedContent
+        });
+    }
+
+    function extractNamedEnvelopeSection(lines, startIndex, headingPattern, stopPatterns) {
+        for (let index = startIndex; index < lines.length; index += 1) {
+            const line = lines[index];
+            const trimmed = line.trim();
+            if (!trimmed) {
+                continue;
+            }
+
+            if (!headingPattern.test(trimmed)) {
+                return null;
+            }
+
+            const inlineContent = trimmed.replace(headingPattern, '').trim();
+            const bodyLines = [];
+            if (inlineContent) {
+                bodyLines.push(inlineContent);
+            }
+
+            let cursor = index + 1;
+            let activeFence = null;
+            while (cursor < lines.length) {
+                const candidate = lines[cursor];
+                const candidateTrimmed = candidate.trim();
+                if (!activeFence && candidateTrimmed && stopPatterns.some(pattern => pattern.test(candidateTrimmed))) {
+                    break;
+                }
+                bodyLines.push(candidate);
+                activeFence = updateEnvelopeFenceState(activeFence, candidateTrimmed);
+                cursor += 1;
+            }
+
+            return {
+                content: bodyLines.join('\n').trim(),
+                nextIndex: cursor
+            };
+        }
+
+        return null;
+    }
+
+    function extractLeadingEnvelopeBlock(lines, startIndex, stopPattern) {
+        let cursor = startIndex;
+        const bodyLines = [];
+        let activeFence = null;
+
+        while (cursor < lines.length) {
+            const trimmed = lines[cursor].trim();
+            if (!activeFence && trimmed && stopPattern.test(trimmed)) {
+                break;
+            }
+            bodyLines.push(lines[cursor]);
+            activeFence = updateEnvelopeFenceState(activeFence, trimmed);
+            cursor += 1;
+        }
+
+        const content = bodyLines.join('\n').trim();
+        if (!content) {
+            return null;
+        }
+
+        return {
+            content,
+            nextIndex: cursor
+        };
+    }
+
+    function collectInputEnvelopeSections(content) {
+        const sections = [];
+        const leadingLines = [];
+        const lines = String(content || '').split(/\r?\n/);
+        let current = null;
+        let activeFence = null;
+
+        const pushCurrent = () => {
+            if (!current) {
+                return;
+            }
+
+            const body = current.lines.join('\n').trim();
+            if (current.title && body) {
+                sections.push({
+                    title: current.title,
+                    content: body
+                });
+            }
+            current = null;
+        };
+
+        for (const rawLine of lines) {
+            const trimmed = String(rawLine || '').trim();
+            const heading = activeFence ? null : detectInputEnvelopeHeading(rawLine);
+            if (heading) {
+                if (current && current.title === heading.title) {
+                    if (heading.inlineContent) {
+                        current.lines.push(heading.inlineContent);
+                    }
+                    continue;
+                }
+
+                pushCurrent();
+                current = {
+                    title: heading.title,
+                    lines: []
+                };
+                if (heading.inlineContent) {
+                    current.lines.push(heading.inlineContent);
+                }
+                continue;
+            }
+
+            if (current) {
+                current.lines.push(rawLine);
+            } else {
+                leadingLines.push(rawLine);
+            }
+
+            activeFence = updateEnvelopeFenceState(activeFence, trimmed);
+        }
+
+        pushCurrent();
+
+        const leadingContent = leadingLines.join('\n').trim();
+        if (leadingContent) {
+            sections.unshift({
+                title: 'Context',
+                content: leadingContent
+            });
+        }
+
+        return sections;
+    }
+
+    function updateEnvelopeFenceState(activeFence, trimmedLine) {
+        const match = String(trimmedLine || '').match(/^(`{3,}|~{3,})/);
+        if (!match) {
+            return activeFence;
+        }
+
+        const fenceType = match[1].charAt(0);
+        if (!activeFence) {
+            return fenceType;
+        }
+
+        return activeFence === fenceType ? null : activeFence;
+    }
+
+    function detectInputEnvelopeHeading(rawLine) {
+        const trimmed = String(rawLine || '').trim();
+        if (!trimmed || trimmed.startsWith('```')) {
+            return null;
+        }
+
+        const hashHeadingMatch = trimmed.match(/^#{1,6}\s*(.+?)\s*[:\uFF1A]?\s*$/);
+        if (hashHeadingMatch) {
+            return {
+                title: hashHeadingMatch[1].trim(),
+                inlineContent: ''
+            };
+        }
+
+        const colonHeadingMatch = trimmed.match(/^([^:\uFF1A]{1,80})\s*[:\uFF1A]\s*(.*)$/);
+        if (!colonHeadingMatch) {
+            return null;
+        }
+
+        const headingTitle = colonHeadingMatch[1].trim();
+        const inlineContent = colonHeadingMatch[2].trim();
+        if (!headingTitle) {
+            return null;
+        }
+
+        return {
+            title: headingTitle,
+            inlineContent
+        };
+    }
+
+    function renderUserInputEnvelope(parsed) {
+        const requestHtml = `
+            <div class="user-input-request">
+                <div class="user-input-title">User request</div>
+                <div class="message-content">${formatContent(parsed.userRequest)}</div>
+            </div>
+        `;
+
+        const extrasHtml = (parsed.extras || []).map((section, index) => {
+            const summary = describeInputEnvelopeSection(section.content);
+            return `
+                <details class="user-input-extra-card" data-user-input-extra-card>
+                    <summary>
+                        <span class="user-input-extra-title">${escapeHtml(section.title || `Context ${index + 1}`)}</span>
+                        <span class="user-input-extra-meta">${escapeHtml(summary)}</span>
+                    </summary>
+                    <div class="user-input-extra-body">
+                        <div class="message-content">${formatContent(section.content)}</div>
+                    </div>
+                </details>
+            `;
+        }).join('');
+
+        return `
+            <div class="user-input-envelope" data-user-input-envelope>
+                <div class="user-input-toolbar">
+                    <button type="button" class="btn btn-secondary btn-small user-input-toggle" data-user-input-toggle>${escapeHtml(getUserInputToggleLabel(false))}</button>
+                </div>
+                <div class="user-input-rendered-view">
+                    ${requestHtml}
+                    <div class="user-input-extra-list${extrasHtml ? '' : ' hidden'}" data-user-input-extra-list>
+                        ${extrasHtml}
+                    </div>
+                </div>
+                <div class="user-input-raw-view hidden">
+                    <pre class="user-input-raw-pre">${escapeHtml(buildRawUserInputEnvelope(parsed))}</pre>
+                </div>
+            </div>
+        `;
+    }
+
+    function describeInputEnvelopeSection(content) {
+        const text = String(content || '');
+        const lineCount = text ? text.split(/\r?\n/).filter(Boolean).length : 0;
+        if (lineCount > 1) {
+            return `${lineCount} lines`;
+        }
+
+        return `${text.length} chars`;
+    }
+
+    function buildRawUserInputEnvelope(parsed) {
+        if (parsed.raw) {
+            return String(parsed.raw);
+        }
+
+        const sections = [];
+        if (parsed.userRequest) {
+            sections.push(`User request:\n${parsed.userRequest.trim()}`);
+        }
+
+        (parsed.extras || []).forEach(section => {
+            sections.push(`${section.title}:\n${String(section.content || '').trim()}`);
+        });
+
+        return sections.join('\n\n');
+    }
+
+    function getUserInputToggleLabel(showRaw) {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        return showRaw ? t('input.showRendered') : t('input.showRaw');
+    }
+
+    function toggleUserInputEnvelopeRaw(trigger) {
+        const container = trigger.closest('[data-user-input-envelope]');
+        if (!container) {
+            return;
+        }
+
+        const renderedView = container.querySelector('.user-input-rendered-view');
+        const rawView = container.querySelector('.user-input-raw-view');
+        const nextShowRaw = container.getAttribute('data-show-raw') !== 'true';
+
+        container.setAttribute('data-show-raw', nextShowRaw ? 'true' : 'false');
+        renderedView?.classList.toggle('hidden', nextShowRaw);
+        rawView?.classList.toggle('hidden', !nextShowRaw);
+        trigger.textContent = getUserInputToggleLabel(nextShowRaw);
+    }
+
     function renderStructuredMessage(msg) {
         const parts = Array.isArray(msg.parts) ? msg.parts : [];
         const fallbackContent = getDisplayContent(msg);
@@ -2022,9 +2585,9 @@
             ? `
                 <div class="thinking-block collapsed">
                     <div class="thinking-header" role="button" tabindex="0" aria-expanded="false">
-                        <span class="thinking-icon">💭</span>
+                        <span class="thinking-icon">&#128173;</span>
                         <span class="thinking-label">${window.OpenClawI18n ? window.OpenClawI18n.t('common.thinking') : 'Thinking'}</span>
-                        <span class="thinking-toggle">▼</span>
+                        <span class="thinking-toggle">&#9660;</span>
                     </div>
                     <div class="thinking-body">${formatThinking(thinkingParts.map(part => part.thinking).join('\n\n'))}</div>
                 </div>
@@ -2034,21 +2597,35 @@
             ? `
                 <div class="tool-call-list">
                     ${toolCalls.map(toolCall => `
-                        <div class="tool-card tool-card-pending">
-                            <div class="tool-card-header">
-                                <span class="tool-card-status">⏳</span>
-                                <span class="tool-card-name">${escapeHtml(toolCall.name || 'tool')}</span>
+                        <details class="tool-card tool-card-pending"${buildToolCardDataAttributes(toolCall.id, toolCall.name)}>
+                            <summary class="tool-card-summary">
+                                <div class="tool-card-header">
+                                    <span class="tool-card-status">&#9203;</span>
+                                    <span class="tool-card-name">${escapeHtml(toolCall.name || 'tool')}</span>
+                                </div>
+                            </summary>
+                            <div class="tool-card-body">
+                                ${renderToolSection('Input', toolCall.arguments, {
+                                    toolName: toolCall.name,
+                                    format: 'pre'
+                                })}
+                                ${renderToolSection('Result', '', {
+                                    toolName: toolCall.name,
+                                    format: 'pre'
+                                })}
+                                ${renderToolSection('Details', '', {
+                                    toolName: toolCall.name,
+                                    format: 'pre'
+                                })}
                             </div>
-                            ${renderToolSection('Input', toolCall.arguments, {
-                                toolName: toolCall.name,
-                                format: 'pre'
-                            })}
-                        </div>
+                        </details>
                     `).join('')}
                 </div>
             `
             : '';
-        const mainContent = textParts.map(part => part.text).join('') || fallbackContent;
+        const textContent = textParts.map(part => part.text).join('');
+        const hasStructuredNonTextContent = thinkingParts.length > 0 || toolCalls.length > 0;
+        const mainContent = textContent || (hasStructuredNonTextContent ? '' : fallbackContent);
 
         return `
             ${thinkingHtml}
@@ -2060,39 +2637,43 @@
     function renderToolMessage(msg, parts) {
         const toolPart = parts.find(part => part.type === 'toolResult');
         const toolName = toolPart?.name || msg.toolName || 'tool';
-        const toolArguments = toolPart?.arguments ?? msg.toolArguments;
+        const toolCallId = normalizeToolCallId(toolPart?.toolCallId ?? msg.toolCallId);
+        const toolArguments = toolPart?.arguments ?? msg.toolArguments ?? '';
         const toolResult = toolPart?.result ?? msg.content ?? '';
-        const toolDetails = toolPart?.details ?? msg.toolDetails;
-        const isError = Boolean(toolPart?.isError ?? msg.isError);
+        const toolDetails = toolPart?.details ?? msg.toolDetails ?? '';
+        const toolStatus = extractToolStatus(toolPart?.result) || extractToolStatus(toolDetails);
+        const isError = Boolean(toolPart?.isError ?? msg.isError) || toolStatus === 'error';
 
         return `
-            <div class="tool-card ${isError ? 'tool-card-error' : 'tool-card-success'}">
-                <div class="tool-card-header">
-                    <span class="tool-card-status">${isError ? '❌' : '✅'}</span>
-                    <span class="tool-card-name">${escapeHtml(toolName)}</span>
+            <details class="tool-card ${isError ? 'tool-card-error' : 'tool-card-success'}"${buildToolCardDataAttributes(toolCallId, toolName)}>
+                <summary class="tool-card-summary">
+                    <div class="tool-card-header">
+                        <span class="tool-card-status">${isError ? '&#10060;' : '&#9989;'}</span>
+                        <span class="tool-card-name">${escapeHtml(toolName)}</span>
+                    </div>
+                </summary>
+                <div class="tool-card-body">
+                    ${renderToolSection('Input', toolArguments, {
+                        toolName,
+                        format: 'pre'
+                    })}
+                    ${renderToolSection('Result', toolResult, {
+                        toolName,
+                        format: 'pre'
+                    })}
+                    ${renderToolSection('Details', toolDetails, {
+                        toolName,
+                        format: 'pre'
+                    })}
                 </div>
-                ${renderToolSection('Input', toolArguments, {
-                    toolName,
-                    format: 'pre'
-                })}
-                ${renderToolSection('Result', toolResult, {
-                    toolName,
-                    format: 'content'
-                })}
-                ${renderToolSection('Details', toolDetails, {
-                    toolName,
-                    format: 'pre',
-                    forceCollapsible: true,
-                    defaultCollapsed: true
-                })}
-            </div>
+            </details>
         `;
     }
-
     function getMessageRoleLabel(msg) {
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
         if (msg?.displayName) return msg.displayName;
         if (msg.role === 'user') return t('chat.roleUser');
+        if (msg.role === 'system') return t('chat.roleNotice');
         if (msg.role === 'tool') return t('chat.roleTool');
         return t('chat.roleAssistant');
     }
@@ -2101,20 +2682,117 @@
         return msg?.role === 'assistant' && msg?.metadata?.stopReason === 'toolUse';
     }
 
-    function formatToolData(value) {
-        if (typeof value === 'string') {
-            return value;
+    function extractToolStatus(value) {
+        if (!value) {
+            return '';
+        }
+
+        if (typeof value === 'object') {
+            const record = value;
+            if (typeof record.status === 'string') {
+                return record.status.trim().toLowerCase();
+            }
+            if (record.result && typeof record.result === 'object' && typeof record.result.status === 'string') {
+                return record.result.status.trim().toLowerCase();
+            }
+            return '';
+        }
+
+        if (typeof value !== 'string') {
+            return '';
+        }
+
+        const trimmed = value.trim();
+        if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+            return '';
         }
 
         try {
-            return JSON.stringify(value, null, 2);
+            const parsed = JSON.parse(trimmed);
+            if (parsed && typeof parsed === 'object' && typeof parsed.status === 'string') {
+                return parsed.status.trim().toLowerCase();
+            }
         } catch {
-            return String(value);
+            return '';
+        }
+
+        return '';
+    }
+
+    function formatToolData(value) {
+        if (typeof value === 'string') {
+            return normalizeVisibleNewlines(value);
+        }
+
+        try {
+            return normalizeVisibleNewlines(JSON.stringify(value, null, 2));
+        } catch {
+            return normalizeVisibleNewlines(String(value));
         }
     }
 
     function normalizeToolName(name) {
         return String(name || '').trim().toLowerCase().replace(/\s+/g, '_');
+    }
+
+    function normalizeToolCallId(value) {
+        return typeof value === 'string' ? value.trim() : '';
+    }
+
+    function encodeToolCallId(value) {
+        if (!value) {
+            return '';
+        }
+
+        try {
+            return encodeURIComponent(value);
+        } catch {
+            return value;
+        }
+    }
+
+    function buildToolCardDataAttributes(toolCallId, toolName) {
+        const normalizedCallId = normalizeToolCallId(toolCallId);
+        const normalizedName = normalizeToolName(toolName || 'tool');
+        const attributes = [`data-tool-name="${escapeHtml(normalizedName)}"`];
+
+        if (normalizedCallId) {
+            attributes.push(`data-tool-call-id="${escapeHtml(encodeToolCallId(normalizedCallId))}"`);
+        }
+
+        return ` ${attributes.join(' ')}`;
+    }
+
+    function findPendingToolCard(container, toolCallId, toolName) {
+        if (!container) {
+            return null;
+        }
+
+        const normalizedCallId = normalizeToolCallId(toolCallId);
+        if (normalizedCallId) {
+            const byId = container.querySelector(`.tool-card-pending[data-tool-call-id="${encodeToolCallId(normalizedCallId)}"]`);
+            if (byId) {
+                return byId;
+            }
+        }
+
+        const normalizedName = normalizeToolName(toolName || 'tool');
+        const cards = container.querySelectorAll(`.tool-card-pending[data-tool-name="${normalizedName}"]`);
+        if (cards.length === 0) {
+            return null;
+        }
+
+        return cards[cards.length - 1];
+    }
+
+    function getToolResultContext(msg) {
+        const parts = Array.isArray(msg.parts) ? msg.parts : [];
+        const toolPart = parts.find(part => part.type === 'toolResult');
+        return {
+            parts,
+            toolCallId: normalizeToolCallId(toolPart?.toolCallId ?? msg.toolCallId),
+            toolName: toolPart?.name || msg.toolName || 'tool'
+        };
     }
 
     function getToolSectionMetrics(value) {
@@ -2163,7 +2841,7 @@
         const {
             toolName = '',
             format = 'pre',
-            forceCollapsible = false,
+            forceCollapsible = true,
             defaultCollapsed
         } = options;
         const metrics = getToolSectionMetrics(value);
@@ -2237,17 +2915,7 @@
 
     // Format thinking content
     function formatThinking(content) {
-        const lines = content.split('\n').filter(l => l.trim());
-        return lines.map(line => {
-            const stepMatch = line.match(/^(?:Step\s+)?(\d+)[:.]/i);
-            if (stepMatch) {
-                return `<div class="thinking-step"><span class="step-number">${stepMatch[1]}</span>${escapeHtml(line.substring(stepMatch[0].length).trim())}</div>`;
-            }
-            if (line.startsWith('- ') || line.startsWith('* ')) {
-                return `<div class="thinking-bullet">${escapeHtml(line.substring(2))}</div>`;
-            }
-            return `<div class="thinking-line">${escapeHtml(line)}</div>`;
-        }).join('');
+        return `<div class="message-content thinking-markdown">${formatContent(String(content || ''))}</div>`;
     }
 
     function toggleThinkingBlock(header) {
@@ -2272,10 +2940,32 @@
             return;
         }
 
+        pendingStreamingRender = {
+            content,
+            done: Boolean(done)
+        };
+
+        if (streamRenderFrame !== null) {
+            return;
+        }
+
+        streamRenderFrame = window.requestAnimationFrame(() => {
+            streamRenderFrame = null;
+            const nextRender = pendingStreamingRender;
+            pendingStreamingRender = null;
+            if (!nextRender) {
+                return;
+            }
+
+            renderStreamingMessage(nextRender.content, nextRender.done);
+        });
+    }
+
+    function renderStreamingMessage(content, done) {
         // Check if we're still in thinking phase (opening tag but no closing tag)
         const hasOpening = content.includes('<thinking>');
         const hasClosing = content.includes('</thinking>');
-        
+
         if (hasOpening && !hasClosing) {
             // Still in thinking phase - update thinking indicator
             const thinkingStart = content.indexOf('<thinking>') + 10;
@@ -2283,24 +2973,24 @@
             updateThinking(thinkingContent);
             return;
         }
-        
+
         // Get or create streaming message element
         let streamingMsg = document.querySelector('.message-streaming');
-        
+
         if (!streamingMsg) {
             // Remove thinking indicator if exists
             clearThinkingIndicator();
-            
+
             streamingMsg = document.createElement('div');
             streamingMsg.className = 'message message-assistant message-streaming';
             elements.chatMessages.appendChild(streamingMsg);
             scrollToBottom();
         }
-        
+
         // Process content for display
         const { mainContent, thinkingHtml } = processMessageContent(content);
         const time = new Date().toLocaleTimeString();
-        
+
         // Build message HTML
         let messageHtml = `
             <div class="message-header">
@@ -2309,15 +2999,15 @@
                 <span class="streaming-indicator">●</span>
             </div>
         `;
-        
+
         if (thinkingHtml) {
             messageHtml += thinkingHtml;
         }
-        
+
         messageHtml += `<div class="message-content">${formatContent(mainContent)}</div>`;
-        
+
         streamingMsg.innerHTML = messageHtml;
-        
+
         if (done) {
             finalizeStreamingMessage();
         }
@@ -2347,12 +3037,86 @@
         window.OpenClawPanelFeedback.showChatError(elements.chatMessages, msg, scrollToBottom);
     }
 
+    function clearAgentMutationBanner(delayMs = 0) {
+        if (agentMutationTimer) {
+            window.clearTimeout(agentMutationTimer);
+            agentMutationTimer = null;
+        }
+
+        if (delayMs <= 0) {
+            state.agentMutation = null;
+            renderAgents(state.agents);
+            return;
+        }
+
+        agentMutationTimer = window.setTimeout(() => {
+            state.agentMutation = null;
+            agentMutationTimer = null;
+            renderAgents(state.agents);
+        }, delayMs);
+    }
+
+    function applyAgentActionAvailability() {
+        const isBusy = Boolean(state.agentMutation?.pending);
+        if (elements.btnNewAgent) {
+            elements.btnNewAgent.disabled = isBusy;
+        }
+        if (elements.btnRefreshAgents) {
+            elements.btnRefreshAgents.disabled = isBusy;
+        }
+    }
+
+    function renderAgentMutationBanner() {
+        const mutation = state.agentMutation;
+        if (!mutation) {
+            return '';
+        }
+
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        const targetName = mutation.agentName || mutation.agentId || 'agent';
+
+        if (mutation.pending) {
+            if (mutation.action === 'delete') {
+                const label = t('agent.operationDeleting', { name: targetName });
+                return `<div class="loading agent-mutation-banner">${escapeHtml(label)}</div>`;
+            }
+
+            // Creating status is shown in VS Code's notification progress UI.
+            return '';
+        }
+
+        if (mutation.success === false && mutation.error) {
+            const label = mutation.action === 'delete'
+                ? t('panel.failedDeleteAgent', { error: mutation.error })
+                : t('newAgent.createFailed', { error: mutation.error });
+            return `<div class="empty agent-mutation-banner-error">${escapeHtml(label)}</div>`;
+        }
+
+        return '';
+    }
+
+    function normalizeVisibleNewlines(value) {
+        return String(value || '')
+            .replace(/\r\n?/g, '\n')
+            .replace(/\\n/g, '\n');
+    }
+
+    function resolveAgentIndicatorStatus(agent) {
+        if (agent?.id && state.currentAgentId === agent.id) {
+            return 'active';
+        }
+
+        return 'idle';
+    }
+
     // Render agents
     function renderAgents(agentData) {
         state.agents = agentData;
+        const mutationBanner = renderAgentMutationBanner();
+        applyAgentActionAvailability();
         
         if (state.agents.length === 0) {
-            elements.agentList.innerHTML = '<div class="empty">No agents yet. Create one!</div>';
+            elements.agentList.innerHTML = `${mutationBanner}<div class="empty">No agents yet. Create one!</div>`;
             if (state.viewMode === 'channel') {
                 renderChannelWorkspace();
             }
@@ -2366,9 +3130,9 @@
             ? t('common.settings')
             : resolveCapabilityUnavailableMessage('agentEditing');
         
-        elements.agentList.innerHTML = state.agents.map(agent => `
+        elements.agentList.innerHTML = `${mutationBanner}${state.agents.map(agent => `
             <div class="agent-item ${agent.id === state.currentAgentId ? 'active' : ''}" data-id="${agent.id}">
-                <span class="agent-status status-${agent.status}"></span>
+                <span class="agent-status status-${resolveAgentIndicatorStatus(agent)}"></span>
                 <div class="agent-info">
                     <div class="agent-name">${escapeHtml(agent.name)}</div>
                     <div class="agent-model">${escapeHtml(agent.model)}</div>
@@ -2378,7 +3142,7 @@
                     <button class="agent-action-btn" data-action="folder" title="${t('common.openInExplorer')}">📁</button>
                 </div>
             </div>
-        `).join('');
+        `).join('')}`;
         
         document.querySelectorAll('.agent-item').forEach(item => {
             item.addEventListener('click', (e) => {
@@ -2463,9 +3227,14 @@
 
         elements.channelList.innerHTML = state.channels.map(channel => {
             const agent = resolveAgent(channel.agentId);
-            const meta = agent
-                ? t('channel.listMeta', { agent: agent.name, model: agent.model })
-                : t('channel.listMetaMissingAgent', { agentId: channel.agentId });
+            const meta = isImportedChannel(channel)
+                ? t('channel.importedMeta', {
+                    provider: channel.providerId || 'openclaw',
+                    account: channel.accountId || channel.name
+                })
+                : agent
+                    ? t('channel.listMeta', { agent: agent.name, model: agent.model })
+                    : t('channel.listMetaMissingAgent', { agentId: channel.agentId });
 
             return `
                 <div class="channel-list-item ${channel.id === state.currentChannelId && !state.channelDraft ? 'active' : ''}" data-channel-id="${channel.id}">
@@ -2509,16 +3278,21 @@
 
         const agentId = formData.agentId || state.agents[0]?.id || '';
         const agent = resolveAgent(agentId);
+        const importedChannel = !state.channelDraft && isImportedChannel(formData);
 
         if (elements.channelEditorTitle) {
             elements.channelEditorTitle.textContent = isDraft
                 ? t('channel.editorTitleNew')
-                : t('channel.editorTitleExisting', { name: formData.name });
+                : importedChannel
+                    ? t('channel.editorTitleImported', { name: formData.name })
+                    : t('channel.editorTitleExisting', { name: formData.name });
         }
         if (elements.channelEditorSummary) {
             elements.channelEditorSummary.textContent = isDraft
                 ? t('channel.editorSummaryNew')
-                : t('channel.editorSummaryExisting');
+                : importedChannel
+                    ? t('channel.editorSummaryImported')
+                    : t('channel.editorSummaryExisting');
         }
 
         populateChannelAgentOptions(agentId);
@@ -2533,7 +3307,7 @@
             elements.channelAgentId.value = agentId;
         }
         if (elements.btnDeleteChannel) {
-            elements.btnDeleteChannel.disabled = isDraft;
+            elements.btnDeleteChannel.disabled = isDraft || importedChannel;
         }
         if (elements.channelChatTitle) {
             elements.channelChatTitle.textContent = isDraft
@@ -2541,7 +3315,12 @@
                 : t('channel.chatTitleNamed', { name: formData.name });
         }
         if (elements.channelChatSubtitle) {
-            if (agent) {
+            if (importedChannel) {
+                elements.channelChatSubtitle.textContent = t('channel.chatSubtitleImported', {
+                    provider: formData.providerId || 'openclaw',
+                    account: formData.accountId || formData.name
+                });
+            } else if (agent) {
                 elements.channelChatSubtitle.textContent = t('channel.chatSubtitleBound', {
                     agent: agent.name,
                     model: agent.model
@@ -2564,6 +3343,7 @@
         }
 
         resetTransientChannelState();
+        renderedChannelMessageIds.clear();
         elements.channelMessages.innerHTML = '';
 
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
@@ -2585,6 +3365,11 @@
             return;
         }
 
+        if (isImportedChannel(channel)) {
+            elements.channelMessages.innerHTML = `<div class="empty">${escapeHtml(t('channel.importedHint'))}</div>`;
+            return;
+        }
+
         if (!resolveAgent(channel.agentId)) {
             elements.channelMessages.innerHTML = `<div class="empty">${escapeHtml(t('channel.missingAgentHint'))}</div>`;
             return;
@@ -2595,7 +3380,10 @@
             return;
         }
 
+        isBulkRenderingChannel = true;
         state.channelMessages.forEach(message => addChannelMessage(message));
+        isBulkRenderingChannel = false;
+        scrollChannelToBottom();
     }
 
     function populateChannelAgentOptions(selectedAgentId) {
@@ -2640,6 +3428,10 @@
         }
 
         return state.agents.find(agent => agent.id === agentId) || null;
+    }
+
+    function isImportedChannel(channel) {
+        return Boolean(channel && channel.source === 'openclaw');
     }
 
     function startNewChannelDraft(options = {}) {
@@ -2699,6 +3491,15 @@
             return;
         }
 
+        const existingChannel = getCurrentChannel();
+        if (isImportedChannel(existingChannel)) {
+            vscode.postMessage({
+                type: 'createChannel',
+                data: payload
+            });
+            return;
+        }
+
         vscode.postMessage({
             type: 'updateChannel',
             channelId: state.currentChannelId,
@@ -2720,6 +3521,9 @@
         } else if (!channel) {
             disabled = true;
             hint = t('channel.selectHint');
+        } else if (isImportedChannel(channel)) {
+            disabled = true;
+            hint = t('channel.importedHint');
         } else if (!agent) {
             disabled = true;
             hint = t('channel.missingAgentHint');
@@ -2742,6 +3546,10 @@
         if (elements.btnSendChannel) {
             elements.btnSendChannel.disabled = disabled;
         }
+        if (elements.btnStopChannel) {
+            elements.btnStopChannel.classList.toggle('hidden', !state.channelSending);
+            elements.btnStopChannel.disabled = !state.channelSending;
+        }
     }
 
     function sendChannelMessage() {
@@ -2755,6 +3563,11 @@
         const channel = getCurrentChannel();
         if (!channel) {
             showChannelError(window.OpenClawI18n ? window.OpenClawI18n.t('channel.selectHint') : 'Select a channel first.');
+            return;
+        }
+
+        if (isImportedChannel(channel)) {
+            showChannelError(window.OpenClawI18n ? window.OpenClawI18n.t('channel.importedHint') : 'Imported channels are read-only in Luna.');
             return;
         }
 
@@ -2830,8 +3643,22 @@
         updateChannelInputState();
     }
 
+    function stopChannelRun() {
+        if (!state.channelSending) {
+            return;
+        }
+
+        resetTransientChannelState();
+        vscode.postMessage({
+            type: 'stopActiveRun',
+            scope: 'channel',
+            channelId: state.currentChannelId
+        });
+    }
+
     function addChannelMessage(msg) {
         if (!msg || !elements.channelMessages) return;
+        if (rememberRenderedMessageId(msg, renderedChannelMessageIds)) return;
         if (shouldHideMessage(msg)) return;
 
         if ((msg.role === 'assistant' || msg.role === 'tool') && state.currentChannelThinking) {
@@ -2871,7 +3698,9 @@
         `;
 
         elements.channelMessages.appendChild(div);
-        scrollChannelToBottom();
+        if (!isBulkRenderingChannel) {
+            scrollChannelToBottom();
+        }
 
         if (msg.role === 'assistant' && !isToolUseMessage(msg)) {
             state.channelSending = false;
@@ -2890,7 +3719,9 @@
         segment.className = `trace-segment trace-segment-${msg.role}`;
         segment.innerHTML = renderTraceSegment(msg);
         body.appendChild(segment);
-        scrollChannelToBottom();
+        if (!isBulkRenderingChannel) {
+            scrollChannelToBottom();
+        }
 
         if (msg.role === 'assistant' && !isToolUseMessage(msg)) {
             activeChannelTraceContainer = null;
@@ -3161,7 +3992,19 @@
         if (!data.name || !data.model) {
             return;
         }
-        
+
+        if (agentMutationTimer) {
+            window.clearTimeout(agentMutationTimer);
+            agentMutationTimer = null;
+        }
+        state.agentMutation = {
+            action: 'create',
+            pending: true,
+            agentName: data.name,
+            agentId: ''
+        };
+        renderAgents(state.agents);
+
         vscode.postMessage({ type: 'createAgent', data });
         closeAllModals();
         resetNewAgentForm();
@@ -3714,6 +4557,12 @@
             elements.btnSendCluster.disabled = disabled;
         }
 
+        if (elements.btnStopCluster) {
+            const canStop = Boolean(cluster) && (conversation.loading || conversation.pending);
+            elements.btnStopCluster.classList.toggle('hidden', !canStop);
+            elements.btnStopCluster.disabled = !canStop;
+        }
+
         if (elements.clusterTargetHint) {
             elements.clusterTargetHint.textContent = getClusterTargetHint(cluster, target);
         }
@@ -4127,7 +4976,7 @@
         const seen = new Set();
 
         source.forEach(message => {
-            if (!message || message.role === 'user') {
+            if (!message) {
                 return;
             }
 
@@ -4815,7 +5664,40 @@
                 populateModelSelect(message.models || []);
                 setAgentPresets(message.presets || state.agentPresets);
                 break;
-                
+
+            case 'agentMutationState':
+                if (message.pending) {
+                    if (agentMutationTimer) {
+                        window.clearTimeout(agentMutationTimer);
+                        agentMutationTimer = null;
+                    }
+                    state.agentMutation = {
+                        action: message.action === 'delete' ? 'delete' : 'create',
+                        pending: true,
+                        agentName: typeof message.agentName === 'string' ? message.agentName : '',
+                        agentId: typeof message.agentId === 'string' ? message.agentId : ''
+                    };
+                    renderAgents(state.agents);
+                    break;
+                }
+
+                if (message.success === false) {
+                    state.agentMutation = {
+                        action: message.action === 'delete' ? 'delete' : 'create',
+                        pending: false,
+                        success: false,
+                        error: typeof message.error === 'string' ? message.error : '',
+                        agentName: typeof message.agentName === 'string' ? message.agentName : '',
+                        agentId: typeof message.agentId === 'string' ? message.agentId : ''
+                    };
+                    renderAgents(state.agents);
+                    clearAgentMutationBanner(8000);
+                    break;
+                }
+
+                clearAgentMutationBanner(0);
+                break;
+                 
             case 'addMessage':
                 addMessage(message.message);
                 break;
@@ -4826,23 +5708,27 @@
 
             case 'replaceMessages':
                 resetTransientChatState();
+                renderedChatMessageIds.clear();
                 elements.chatMessages.innerHTML = '';
+                isBulkRenderingChat = true;
                 (message.messages || []).forEach(item => addMessage(item));
+                isBulkRenderingChat = false;
                 updateChatHomeVisibility();
+                scrollToBottom();
                 break;
-                
+                 
             case 'clearChat':
                 resetTransientChatState();
+                renderedChatMessageIds.clear();
                 elements.chatMessages.innerHTML = '';
                 updateChatHomeVisibility();
                 break;
-                
+                 
             case 'setActiveAgent':
                 resetTransientChatState();
+                renderedChatMessageIds.clear();
                 state.currentAgentId = message.agentId;
-                document.querySelectorAll('.agent-item').forEach(item => {
-                    item.classList.toggle('active', item.dataset.id === message.agentId);
-                });
+                renderAgents(state.agents);
                 renderConsoleOverview();
                 break;
                 
@@ -5085,3 +5971,5 @@
         init();
     }
 })();
+
+

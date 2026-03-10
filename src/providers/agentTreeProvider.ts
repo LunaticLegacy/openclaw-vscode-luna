@@ -6,6 +6,7 @@ import { Agent } from '../services/openclawService';
 export class AgentTreeItem extends vscode.TreeItem {
     constructor(
         public readonly agent: Agent,
+        isActive: boolean,
         public readonly collapsibleState: vscode.TreeItemCollapsibleState
     ) {
         super(agent.name, collapsibleState);
@@ -14,16 +15,10 @@ export class AgentTreeItem extends vscode.TreeItem {
         this.description = agent.model;
         
         // 根据状态设置图标
-        switch (agent.status) {
-            case 'active':
-                this.iconPath = new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('testing.iconPassed'));
-                break;
-            case 'idle':
-                this.iconPath = new vscode.ThemeIcon('circle-outline');
-                break;
-            case 'offline':
-                this.iconPath = new vscode.ThemeIcon('circle-slash', new vscode.ThemeColor('errorForeground'));
-                break;
+        if (isActive) {
+            this.iconPath = new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('testing.iconPassed'));
+        } else {
+            this.iconPath = new vscode.ThemeIcon('circle-outline');
         }
 
         this.contextValue = 'agent';
@@ -49,6 +44,7 @@ export class AgentTreeProvider implements vscode.TreeDataProvider<AgentTreeItem>
         this.agentManager.on('agentCreated', () => this.refresh());
         this.agentManager.on('agentUpdated', () => this.refresh());
         this.agentManager.on('agentDeleted', () => this.refresh());
+        this.agentManager.on('activeAgentChanged', () => this.refresh());
     }
 
     refresh(): void {
@@ -77,8 +73,9 @@ export class AgentTreeProvider implements vscode.TreeDataProvider<AgentTreeItem>
             return statusOrder[a.status] - statusOrder[b.status];
         });
 
+        const activeAgentId = this.agentManager.getActiveAgentId();
         return sortedAgents.map(agent => 
-            new AgentTreeItem(agent, vscode.TreeItemCollapsibleState.None)
+            new AgentTreeItem(agent, activeAgentId === agent.id, vscode.TreeItemCollapsibleState.None)
         );
     }
 

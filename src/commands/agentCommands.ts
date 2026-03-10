@@ -70,11 +70,17 @@ export function registerAgentCommands(
             }
 
             try {
-                await runtime.agentManager.createAgent({
-                    name,
-                    model,
-                    systemPrompt: selectedPreset?.systemPrompt || t('newAgent.defaultSystemPrompt'),
-                    presetId: selectedPreset?.id
+                await vscode.window.withProgress({
+                    location: vscode.ProgressLocation.Notification,
+                    title: t('agent.operationCreating', { name }),
+                    cancellable: false
+                }, async () => {
+                    await runtime.agentManager.createAgent({
+                        name,
+                        model,
+                        systemPrompt: selectedPreset?.systemPrompt || t('newAgent.defaultSystemPrompt'),
+                        presetId: selectedPreset?.id
+                    });
                 });
 
                 showSuccessStatus(t('newAgent.created', { name }));
@@ -131,7 +137,13 @@ export function registerAgentCommands(
             }
 
             try {
-                await runtime.agentManager.deleteAgent(agentId);
+                await vscode.window.withProgress({
+                    location: vscode.ProgressLocation.Notification,
+                    title: t('agent.operationDeleting', { name: agentId }),
+                    cancellable: false
+                }, async () => {
+                    await runtime.agentManager.deleteAgent(agentId);
+                });
                 showSuccessStatus(t('agent.deleted'));
                 runtime.sidebarTreeProvider.refresh();
             } catch (error) {
