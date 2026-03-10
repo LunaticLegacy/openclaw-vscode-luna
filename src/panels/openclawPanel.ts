@@ -16,6 +16,7 @@ import { showSuccessStatus } from '../utils/statusFeedback';
 import { getCapabilityUnavailableMessage } from '../utils/capabilitySupport';
 import { AgentManager } from '../managers/agentManager';
 import { ChatSessionManager } from '../managers/chatSessionManager';
+import { ChannelManager } from '../managers/channelManager';
 import { ClusterManager } from '../managers/clusterManager';
 import { ScheduledTask, ScheduledTaskManager } from '../managers/scheduledTaskManager';
 import { getAgentPresets } from '../config/agentPresets';
@@ -29,16 +30,21 @@ export class OpenClawPanel {
     private _disposables: vscode.Disposable[] = [];
     private _service: OpenClawService;
     private _agentManager: AgentManager;
+    private _channelManager: ChannelManager;
     private _clusterManager: ClusterManager;
     private _taskManager: ScheduledTaskManager;
     private _sessionManager: ChatSessionManager;
     private _clusterSessionManager: ChatSessionManager;
     private _currentSessionId: string | null = null;
     private _currentAgentId: string | null = null;
-    private _viewMode: 'chat' | 'clusters' | 'usage' | 'tasks' = 'chat';
+    private _currentChannelId: string | null = null;
+    private _currentChannelSessionId: string | null = null;
+    private _viewMode: 'chat' | 'clusters' | 'usage' | 'channel' | 'tasks' = 'chat';
     private _contextLoadToken: number = 0;
     private _chatRunToken: number = 0;
     private _sessionSyncToken: number = 0;
+    private _channelLoadToken: number = 0;
+    private _channelSyncToken: number = 0;
     private _isWebviewReady = false;
     private _initialDataLoaded = false;
     private _pendingMessages: Array<Record<string, unknown>> = [];
@@ -49,6 +55,7 @@ export class OpenClawPanel {
         extensionUri: vscode.Uri,
         service: OpenClawService,
         agentManager: AgentManager,
+        channelManager: ChannelManager,
         clusterManager: ClusterManager,
         taskManager: ScheduledTaskManager
     ): OpenClawPanel {
@@ -72,7 +79,7 @@ export class OpenClawPanel {
             }
         );
 
-        OpenClawPanel.currentPanel = new OpenClawPanel(panel, extensionUri, service, agentManager, clusterManager, taskManager);
+        OpenClawPanel.currentPanel = new OpenClawPanel(panel, extensionUri, service, agentManager, channelManager, clusterManager, taskManager);
         return OpenClawPanel.currentPanel;
     }
 
@@ -90,6 +97,7 @@ export class OpenClawPanel {
         extensionUri: vscode.Uri,
         service: OpenClawService,
         agentManager: AgentManager,
+        channelManager: ChannelManager,
         clusterManager: ClusterManager,
         taskManager: ScheduledTaskManager
     ) {
@@ -97,6 +105,7 @@ export class OpenClawPanel {
         this._extensionUri = extensionUri;
         this._service = service;
         this._agentManager = agentManager;
+        this._channelManager = channelManager;
         this._clusterManager = clusterManager;
         this._taskManager = taskManager;
         this._sessionManager = new ChatSessionManager(service);
@@ -233,6 +242,7 @@ export class OpenClawPanel {
                     this._initialDataLoaded = true;
                     await Promise.all([
                         this._loadAgents(),
+                        this._loadChannels(),
                         this._loadClusters(),
                         this._loadTasks()
                     ]);
@@ -265,6 +275,10 @@ export class OpenClawPanel {
                 await this._loadUsage();
                 break;
 
+            case 'getChannels':
+                await this._loadChannels(this._currentChannelId || undefined);
+                break;
+
             case 'getTasks':
                 await this._loadTasks();
                 break;
@@ -279,6 +293,30 @@ export class OpenClawPanel {
 
             case 'createCluster':
                 await this._handleCreateCluster();
+                break;
+
+            case 'selectChannel':
+                await this._activateChannel(message.channelId);
+                break;
+
+            case 'refreshChannelMessages':
+                await this._refreshActiveChannelMessages(message.channelId);
+                break;
+
+            case 'createChannel':
+                await this._handleCreateChannel(message.data);
+                break;
+
+            case 'updateChannel':
+                await this._handleUpdateChannel(message.channelId, message.data);
+                break;
+
+            case 'deleteChannel':
+                await this._handleDeleteChannel(message.channelId);
+                break;
+
+            case 'sendChannelMessage':
+                await this._handleSendChannelMessage(message.channelId, message.content);
                 break;
 
             case 'addAgentsToCluster':
@@ -319,6 +357,8 @@ export class OpenClawPanel {
                     await this._loadClusters(message.clusterId);
                 } else if (message.view === 'usage') {
                     await this._loadUsage();
+                } else if (message.view === 'channel') {
+                    await this._loadChannels(this._currentChannelId || undefined);
                 } else if (message.view === 'tasks') {
                     await this._loadTasks();
                 }
@@ -698,6 +738,297 @@ export class OpenClawPanel {
             this._postMessage({
                 type: 'error',
                 message: t('panel.failedLoadUsage', { error: String(error) })
+            });
+        }
+    }
+
+    private async _loadChannels(selectedChannelId?: string) {
+        try {
+            const channels = await this._channelManager.getChannels();
+            const resolvedSelectedChannelId = selectedChannelId && channels.some(channel => channel.id === selectedChannelId)
+                ? selectedChannelId
+                : this._currentChannelId && channels.some(channel => channel.id === this._currentChannelId)
+                    ? this._currentChannelId
+                    : channels[0]?.id || null;
+
+            this._postMessage({
+                type: 'channelsLoaded',
+                channels,
+                selectedChannelId: resolvedSelectedChannelId
+            });
+
+            if (resolvedSelectedChannelId) {
+                await this._activateChannel(resolvedSelectedChannelId);
+                return;
+            }
+
+            this._clearChannelSelection();
+        } catch (error) {
+            this._postMessage({
+                type: 'error',
+                message: t('channel.loadFailed', { error: String(error) })
+            });
+        }
+    }
+
+    private async _activateChannel(channelId: string | null | undefined) {
+        if (!channelId) {
+            this._clearChannelSelection();
+            return;
+        }
+
+        const loadToken = ++this._channelLoadToken;
+        this._stopActiveChannelSync();
+        this._currentChannelId = channelId;
+        this._postMessage({
+            type: 'setActiveChannel',
+            channelId
+        });
+        this._postMessage({
+            type: 'setChannelContextLoading',
+            channelId,
+            loading: true
+        });
+
+        try {
+            const channel = await this._channelManager.getChannel(channelId);
+            if (!channel) {
+                this._clearChannelSelection();
+                return;
+            }
+
+            this._currentChannelSessionId = channel.sessionId || null;
+            await this._loadChannelMessages(channel, loadToken);
+
+            if (channel.sessionId) {
+                this._startActiveChannelSync(channel.id, channel.sessionId, loadToken);
+            }
+        } catch (error) {
+            if (loadToken === this._channelLoadToken) {
+                this._postMessage({
+                    type: 'error',
+                    message: t('channel.loadFailed', { error: String(error) })
+                });
+            }
+        } finally {
+            if (loadToken === this._channelLoadToken && this._currentChannelId === channelId) {
+                this._postMessage({
+                    type: 'setChannelContextLoading',
+                    channelId,
+                    loading: false
+                });
+            }
+        }
+    }
+
+    private async _loadChannelMessages(
+        channel: { id: string; sessionId?: string },
+        loadToken?: number
+    ) {
+        if ((loadToken !== undefined && loadToken !== this._channelLoadToken) || this._currentChannelId !== channel.id) {
+            return;
+        }
+
+        if (!channel.sessionId) {
+            this._postMessage({
+                type: 'replaceChannelMessages',
+                channelId: channel.id,
+                messages: []
+            });
+            return;
+        }
+
+        const messages = this._service.supportsLiveSessionSync()
+            ? await this._service.getLiveChatHistory(channel.sessionId)
+            : await this._service.getChatHistory(channel.sessionId);
+
+        if ((loadToken !== undefined && loadToken !== this._channelLoadToken) || this._currentChannelId !== channel.id) {
+            return;
+        }
+
+        this._postMessage({
+            type: 'replaceChannelMessages',
+            channelId: channel.id,
+            messages
+        });
+    }
+
+    private async _refreshActiveChannelMessages(channelId?: string) {
+        const resolvedChannelId = channelId || this._currentChannelId;
+        if (!resolvedChannelId) {
+            return;
+        }
+
+        await this._activateChannel(resolvedChannelId);
+    }
+
+    private _clearChannelSelection() {
+        this._stopActiveChannelSync();
+        this._currentChannelId = null;
+        this._currentChannelSessionId = null;
+        this._postMessage({
+            type: 'setActiveChannel',
+            channelId: null
+        });
+        this._postMessage({
+            type: 'replaceChannelMessages',
+            channelId: null,
+            messages: []
+        });
+    }
+
+    private _stopActiveChannelSync() {
+        this._channelSyncToken += 1;
+    }
+
+    private _startActiveChannelSync(channelId: string, sessionId: string, loadToken: number) {
+        if (!this._service.supportsLiveSessionSync()) {
+            return;
+        }
+
+        const syncToken = ++this._channelSyncToken;
+        let previousSignature = '';
+
+        void (async () => {
+            while (this._isCurrentChannelSyncTarget(syncToken, channelId, sessionId, loadToken)) {
+                await delay(120);
+
+                if (!this._isCurrentChannelSyncTarget(syncToken, channelId, sessionId, loadToken)) {
+                    return;
+                }
+
+                const messages = await this._service.getLiveChatHistory(sessionId);
+                const nextSignature = buildMessageSyncSignature(messages);
+                if (nextSignature === previousSignature) {
+                    continue;
+                }
+
+                previousSignature = nextSignature;
+                if (!this._isCurrentChannelSyncTarget(syncToken, channelId, sessionId, loadToken)) {
+                    return;
+                }
+
+                this._postMessage({
+                    type: 'replaceChannelMessages',
+                    channelId,
+                    messages
+                });
+            }
+        })().catch(() => {
+            if (syncToken === this._channelSyncToken) {
+                this._stopActiveChannelSync();
+            }
+        });
+    }
+
+    private _isCurrentChannelSyncTarget(syncToken: number, channelId: string, sessionId: string, loadToken: number): boolean {
+        return this._channelSyncToken === syncToken
+            && this._currentChannelId === channelId
+            && this._currentChannelSessionId === sessionId
+            && this._channelLoadToken === loadToken;
+    }
+
+    private async _handleCreateChannel(data: { name?: string; agentId?: string; description?: string }) {
+        try {
+            const channel = await this._channelManager.createChannel({
+                name: data?.name || '',
+                agentId: data?.agentId || '',
+                description: data?.description || ''
+            });
+            showSuccessStatus(t('channel.created'));
+            await this._loadChannels(channel.id);
+        } catch (error) {
+            vscode.window.showErrorMessage(t('channel.saveFailed', { error: String(error) }));
+        }
+    }
+
+    private async _handleUpdateChannel(
+        channelId: string,
+        data: { name?: string; agentId?: string; description?: string }
+    ) {
+        if (!channelId) {
+            vscode.window.showErrorMessage(t('channel.notFound'));
+            return;
+        }
+
+        try {
+            const channel = await this._channelManager.updateChannel(channelId, {
+                name: data?.name,
+                agentId: data?.agentId,
+                description: data?.description
+            });
+            showSuccessStatus(t('channel.saved'));
+            await this._loadChannels(channel.id);
+        } catch (error) {
+            vscode.window.showErrorMessage(t('channel.saveFailed', { error: String(error) }));
+        }
+    }
+
+    private async _handleDeleteChannel(channelId: string) {
+        if (!channelId) {
+            return;
+        }
+
+        try {
+            const channel = await this._channelManager.getChannel(channelId);
+            if (!channel) {
+                vscode.window.showErrorMessage(t('channel.notFound'));
+                return;
+            }
+
+            const confirm = await vscode.window.showWarningMessage(
+                t('channel.deleteConfirm', { name: channel.name }),
+                { modal: true },
+                t('common.delete')
+            );
+
+            if (confirm !== t('common.delete')) {
+                return;
+            }
+
+            await this._channelManager.deleteChannel(channelId);
+            showSuccessStatus(t('channel.deleted'));
+            await this._loadChannels();
+        } catch (error) {
+            vscode.window.showErrorMessage(t('channel.deleteFailed', { error: String(error) }));
+        }
+    }
+
+    private async _handleSendChannelMessage(channelId: string, content: string) {
+        const normalizedContent = normalizeOutgoingMessageContent(content);
+        if (!channelId || !normalizedContent.trim()) {
+            return;
+        }
+
+        try {
+            const channel = await this._channelManager.getChannel(channelId);
+            if (!channel) {
+                throw new Error(t('channel.notFound'));
+            }
+
+            let sessionId = channel.sessionId || null;
+            if (!sessionId) {
+                const session = await this._service.createChatSession(channel.agentId);
+                sessionId = session.id;
+                await this._channelManager.setChannelSessionId(channel.id, sessionId);
+                this._currentChannelSessionId = sessionId;
+                this._startActiveChannelSync(channel.id, sessionId, this._channelLoadToken);
+            }
+
+            const response = await this._service.sendMessage(sessionId, normalizedContent);
+
+            if (this._currentChannelId === channel.id) {
+                this._postMessage({
+                    type: 'addChannelMessage',
+                    channelId: channel.id,
+                    message: response
+                });
+            }
+        } catch (error) {
+            this._postMessage({
+                type: 'channelSendFailed',
+                channelId,
+                message: t('panel.failedSendMessage', { error: String(error) })
             });
         }
     }
@@ -1457,6 +1788,7 @@ export class OpenClawPanel {
     public dispose() {
         OpenClawPanel.currentPanel = undefined;
         this._stopActiveSessionSync();
+        this._stopActiveChannelSync();
         this._sessionManager.dispose();
         this._clusterSessionManager.dispose();
 

@@ -72,14 +72,26 @@ export class AgentManager extends EventEmitter {
     }
 
     public async createAgent(params: CreateAgentParams): Promise<Agent> {
-        const agent = await this.service.createAgent(params);
+        const systemPrompt = params.presetId && this.presetScaffolder
+            ? await this.presetScaffolder.buildSystemPrompt({
+                presetId: params.presetId,
+                requestedName: params.name,
+                requestedModel: params.model,
+                systemPrompt: params.systemPrompt
+            })
+            : params.systemPrompt;
+        const agent = await this.service.createAgent({
+            name: params.name,
+            model: params.model,
+            systemPrompt
+        });
         if (params.presetId && this.presetScaffolder) {
             try {
                 await this.presetScaffolder.applyPresetFiles(agent, {
                     presetId: params.presetId,
                     requestedName: params.name,
                     requestedModel: params.model,
-                    systemPrompt: params.systemPrompt
+                    systemPrompt
                 });
             } catch (error) {
                 try {

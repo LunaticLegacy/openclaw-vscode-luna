@@ -31,7 +31,15 @@
         tasksSourcePath: '',
         latestUsage: null,
         usagePeriodDays: 7,
+        channels: [],
+        channelsLoaded: false,
+        currentChannelId: null,
+        channelMessages: [],
+        channelLoading: false,
+        channelSending: false,
+        channelDraft: null,
         isStreaming: false,
+        currentChannelThinking: null,
         currentThinking: null,
         viewMode: 'chat',
         locale: 'en',
@@ -56,6 +64,7 @@
         installGuideBusy: false
     };
     let activeTraceContainer = null;
+    let activeChannelTraceContainer = null;
 
     // DOM Elements cache
     const elements = {};
@@ -205,6 +214,26 @@
         elements.usagePeriodCaption = document.getElementById('usage-period-caption');
         elements.usageChartTitle = document.getElementById('usage-chart-title');
         elements.modelChartTitle = document.getElementById('model-chart-title');
+        elements.btnRefreshChannel = document.getElementById('btn-refresh-channel');
+        elements.btnRefreshChannelMessages = document.getElementById('btn-refresh-channel-messages');
+        elements.btnNewChannel = document.getElementById('btn-new-channel');
+        elements.btnNewChannelEmpty = document.getElementById('btn-new-channel-empty');
+        elements.btnDeleteChannel = document.getElementById('btn-delete-channel');
+        elements.channelList = document.getElementById('channel-list');
+        elements.channelEmptyState = document.getElementById('channel-empty-state');
+        elements.channelWorkspace = document.getElementById('channel-workspace');
+        elements.formChannelConfig = document.getElementById('form-channel-config');
+        elements.channelEditorTitle = document.getElementById('channel-editor-title');
+        elements.channelEditorSummary = document.getElementById('channel-editor-summary');
+        elements.channelName = document.getElementById('channel-name');
+        elements.channelAgentId = document.getElementById('channel-agent-id');
+        elements.channelDescription = document.getElementById('channel-description');
+        elements.channelChatTitle = document.getElementById('channel-chat-title');
+        elements.channelChatSubtitle = document.getElementById('channel-chat-subtitle');
+        elements.channelChatHint = document.getElementById('channel-chat-hint');
+        elements.channelMessages = document.getElementById('channel-messages');
+        elements.channelMessageInput = document.getElementById('channel-message-input');
+        elements.btnSendChannel = document.getElementById('btn-send-channel');
         elements.modalAgentSettings = document.getElementById('modal-agent-settings');
         elements.formAgentSettings = document.getElementById('form-agent-settings');
         elements.modalTask = document.getElementById('modal-task');
@@ -398,6 +427,57 @@
             });
         });
 
+        elements.btnRefreshChannel?.addEventListener('click', () => {
+            vscode.postMessage({ type: 'getChannels' });
+        });
+
+        [elements.btnNewChannel, elements.btnNewChannelEmpty].forEach(button => {
+            button?.addEventListener('click', () => {
+                startNewChannelDraft();
+            });
+        });
+
+        elements.btnRefreshChannelMessages?.addEventListener('click', () => {
+            if (!state.currentChannelId) {
+                return;
+            }
+
+            vscode.postMessage({
+                type: 'refreshChannelMessages',
+                channelId: state.currentChannelId
+            });
+        });
+
+        elements.formChannelConfig?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            saveChannelConfig();
+        });
+
+        elements.btnDeleteChannel?.addEventListener('click', () => {
+            if (!state.currentChannelId || state.channelDraft) {
+                return;
+            }
+
+            vscode.postMessage({
+                type: 'deleteChannel',
+                channelId: state.currentChannelId
+            });
+        });
+
+        elements.btnSendChannel?.addEventListener('click', sendChannelMessage);
+        elements.channelMessageInput?.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' || e.isComposing) {
+                return;
+            }
+
+            if (e.shiftKey) {
+                return;
+            }
+
+            e.preventDefault();
+            sendChannelMessage();
+        });
+
         document.querySelectorAll('.modal-close, .modal-cancel').forEach(btn => {
             btn.addEventListener('click', closeAllModals);
         });
@@ -563,11 +643,17 @@
         if (elements.clusterMessageInput) {
             elements.clusterMessageInput.placeholder = t('clusters.chatPlaceholder');
         }
+        if (elements.channelMessageInput) {
+            elements.channelMessageInput.placeholder = t('channel.chatPlaceholder');
+        }
         if (elements.btnSend) {
             elements.btnSend.textContent = t('chat.send');
         }
         if (elements.btnSendCluster) {
             elements.btnSendCluster.textContent = t('chat.send');
+        }
+        if (elements.btnSendChannel) {
+            elements.btnSendChannel.textContent = t('chat.send');
         }
         if (elements.btnClear) {
             elements.btnClear.title = t('chat.clear');
@@ -608,6 +694,7 @@
         renderOpenClawConfig();
         updateOpenClawConfigEntryState();
         renderClusterWorkspace();
+        renderChannelWorkspace();
         if (state.latestUsage) {
             renderUsage(state.latestUsage);
         }
@@ -2261,6 +2348,9 @@
         
         if (state.agents.length === 0) {
             elements.agentList.innerHTML = '<div class="empty">No agents yet. Create one!</div>';
+            if (state.viewMode === 'channel') {
+                renderChannelWorkspace();
+            }
             renderConsoleOverview();
             return;
         }
@@ -2318,8 +2408,526 @@
         if (state.viewMode === 'clusters') {
             renderClusterWorkspace();
         }
+        if (state.viewMode === 'channel') {
+            renderChannelWorkspace();
+        }
         updateTaskFormFields();
         renderConsoleOverview();
+    }
+
+    function renderChannels(channelData, selectedChannelId) {
+        state.channels = Array.isArray(channelData) ? channelData : [];
+        state.channelsLoaded = true;
+
+        if (selectedChannelId && state.channels.some(channel => channel.id === selectedChannelId)) {
+            state.currentChannelId = selectedChannelId;
+            state.channelDraft = null;
+        } else if (state.currentChannelId && !state.channels.some(channel => channel.id === state.currentChannelId)) {
+            state.currentChannelId = null;
+            state.channelMessages = [];
+        }
+
+        if (!state.currentChannelId && !state.channelDraft && state.channels.length > 0) {
+            state.currentChannelId = state.channels[0].id;
+        }
+
+        if (!state.currentChannelId && !state.channelDraft && state.channels.length === 0) {
+            startNewChannelDraft({ focus: false });
+            return;
+        }
+
+        renderChannelList();
+        renderChannelWorkspace();
+    }
+
+    function renderChannelList() {
+        if (!elements.channelList) {
+            return;
+        }
+
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        if (!state.channelsLoaded) {
+            elements.channelList.innerHTML = `<div class="loading">${escapeHtml(t('common.loading'))}</div>`;
+            return;
+        }
+
+        if (state.channels.length === 0) {
+            elements.channelList.innerHTML = `<div class="empty">${escapeHtml(t('channel.listEmpty'))}</div>`;
+            return;
+        }
+
+        elements.channelList.innerHTML = state.channels.map(channel => {
+            const agent = resolveAgent(channel.agentId);
+            const meta = agent
+                ? t('channel.listMeta', { agent: agent.name, model: agent.model })
+                : t('channel.listMetaMissingAgent', { agentId: channel.agentId });
+
+            return `
+                <div class="channel-list-item ${channel.id === state.currentChannelId && !state.channelDraft ? 'active' : ''}" data-channel-id="${channel.id}">
+                    <div class="channel-list-name">${escapeHtml(channel.name)}</div>
+                    <div class="channel-list-meta">${escapeHtml(meta)}</div>
+                    ${channel.description ? `<div class="channel-list-description">${escapeHtml(channel.description)}</div>` : ''}
+                </div>
+            `;
+        }).join('');
+
+        document.querySelectorAll('[data-channel-id]').forEach(item => {
+            item.addEventListener('click', () => {
+                const channelId = item.getAttribute('data-channel-id');
+                if (!channelId) {
+                    return;
+                }
+
+                selectChannel(channelId);
+            });
+        });
+    }
+
+    function renderChannelWorkspace() {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        const channel = getCurrentChannel();
+        const isDraft = Boolean(state.channelDraft);
+        const formData = state.channelDraft || channel;
+        const hasWorkspace = Boolean(formData);
+
+        if (elements.channelEmptyState) {
+            elements.channelEmptyState.classList.toggle('hidden', hasWorkspace);
+        }
+        if (elements.channelWorkspace) {
+            elements.channelWorkspace.classList.toggle('hidden', !hasWorkspace);
+        }
+
+        if (!hasWorkspace || !formData) {
+            renderChannelList();
+            return;
+        }
+
+        const agentId = formData.agentId || state.agents[0]?.id || '';
+        const agent = resolveAgent(agentId);
+
+        if (elements.channelEditorTitle) {
+            elements.channelEditorTitle.textContent = isDraft
+                ? t('channel.editorTitleNew')
+                : t('channel.editorTitleExisting', { name: formData.name });
+        }
+        if (elements.channelEditorSummary) {
+            elements.channelEditorSummary.textContent = isDraft
+                ? t('channel.editorSummaryNew')
+                : t('channel.editorSummaryExisting');
+        }
+
+        populateChannelAgentOptions(agentId);
+
+        if (elements.channelName) {
+            elements.channelName.value = formData.name || '';
+        }
+        if (elements.channelDescription) {
+            elements.channelDescription.value = formData.description || '';
+        }
+        if (elements.channelAgentId) {
+            elements.channelAgentId.value = agentId;
+        }
+        if (elements.btnDeleteChannel) {
+            elements.btnDeleteChannel.disabled = isDraft;
+        }
+        if (elements.channelChatTitle) {
+            elements.channelChatTitle.textContent = isDraft
+                ? t('channel.chatTitleDraft')
+                : t('channel.chatTitleNamed', { name: formData.name });
+        }
+        if (elements.channelChatSubtitle) {
+            if (agent) {
+                elements.channelChatSubtitle.textContent = t('channel.chatSubtitleBound', {
+                    agent: agent.name,
+                    model: agent.model
+                });
+            } else if (agentId) {
+                elements.channelChatSubtitle.textContent = t('channel.chatSubtitleMissing', { agentId });
+            } else {
+                elements.channelChatSubtitle.textContent = t('channel.chatSubtitleUnbound');
+            }
+        }
+
+        renderChannelConversation();
+        updateChannelInputState();
+        renderChannelList();
+    }
+
+    function renderChannelConversation() {
+        if (!elements.channelMessages) {
+            return;
+        }
+
+        resetTransientChannelState();
+        elements.channelMessages.innerHTML = '';
+
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        const channel = getCurrentChannel();
+        const draft = state.channelDraft;
+
+        if (state.channelLoading) {
+            elements.channelMessages.innerHTML = `<div class="loading">${escapeHtml(t('common.loading'))}</div>`;
+            return;
+        }
+
+        if (draft) {
+            elements.channelMessages.innerHTML = `<div class="empty">${escapeHtml(t('channel.unsavedHint'))}</div>`;
+            return;
+        }
+
+        if (!channel) {
+            elements.channelMessages.innerHTML = `<div class="empty">${escapeHtml(t('channel.selectHint'))}</div>`;
+            return;
+        }
+
+        if (!resolveAgent(channel.agentId)) {
+            elements.channelMessages.innerHTML = `<div class="empty">${escapeHtml(t('channel.missingAgentHint'))}</div>`;
+            return;
+        }
+
+        if (state.channelMessages.length === 0) {
+            elements.channelMessages.innerHTML = `<div class="empty">${escapeHtml(t('channel.emptyConversation'))}</div>`;
+            return;
+        }
+
+        state.channelMessages.forEach(message => addChannelMessage(message));
+    }
+
+    function populateChannelAgentOptions(selectedAgentId) {
+        if (!elements.channelAgentId) {
+            return;
+        }
+
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        if (state.agents.length === 0) {
+            elements.channelAgentId.innerHTML = `<option value="">${escapeHtml(t('sidebar.noAgents'))}</option>`;
+            elements.channelAgentId.disabled = true;
+            return;
+        }
+
+        const hasSelectedAgent = state.agents.some(agent => agent.id === selectedAgentId);
+        const options = state.agents.map(agent => `
+            <option value="${escapeHtml(agent.id)}">${escapeHtml(`${agent.name} · ${agent.model}`)}</option>
+        `);
+
+        if (selectedAgentId && !hasSelectedAgent) {
+            options.unshift(`<option value="${escapeHtml(selectedAgentId)}">${escapeHtml(t('channel.listMetaMissingAgent', { agentId: selectedAgentId }))}</option>`);
+        }
+
+        elements.channelAgentId.disabled = false;
+        elements.channelAgentId.innerHTML = options.join('');
+        elements.channelAgentId.value = selectedAgentId && (hasSelectedAgent || selectedAgentId)
+            ? selectedAgentId
+            : state.agents[0]?.id || '';
+    }
+
+    function getCurrentChannel() {
+        if (!state.currentChannelId) {
+            return null;
+        }
+
+        return state.channels.find(channel => channel.id === state.currentChannelId) || null;
+    }
+
+    function resolveAgent(agentId) {
+        if (!agentId) {
+            return null;
+        }
+
+        return state.agents.find(agent => agent.id === agentId) || null;
+    }
+
+    function startNewChannelDraft(options = {}) {
+        state.channelDraft = {
+            name: '',
+            agentId: state.agents[0]?.id || '',
+            description: ''
+        };
+        state.currentChannelId = null;
+        state.channelMessages = [];
+        state.channelLoading = false;
+        resetTransientChannelState();
+        renderChannelWorkspace();
+
+        if (options.focus === false) {
+            return;
+        }
+
+        window.setTimeout(() => {
+            elements.channelName?.focus();
+        }, 0);
+    }
+
+    function selectChannel(channelId) {
+        if (!channelId || channelId === state.currentChannelId && !state.channelDraft) {
+            return;
+        }
+
+        state.channelDraft = null;
+        state.currentChannelId = channelId;
+        state.channelMessages = [];
+        state.channelLoading = true;
+        resetTransientChannelState();
+        renderChannelWorkspace();
+        vscode.postMessage({
+            type: 'selectChannel',
+            channelId
+        });
+    }
+
+    function saveChannelConfig() {
+        const payload = {
+            name: normalizeOutgoingMessage(elements.channelName?.value || ''),
+            agentId: elements.channelAgentId?.value || '',
+            description: normalizeOutgoingMessage(elements.channelDescription?.value || '')
+        };
+
+        if (state.channelDraft) {
+            vscode.postMessage({
+                type: 'createChannel',
+                data: payload
+            });
+            return;
+        }
+
+        if (!state.currentChannelId) {
+            return;
+        }
+
+        vscode.postMessage({
+            type: 'updateChannel',
+            channelId: state.currentChannelId,
+            data: payload
+        });
+    }
+
+    function updateChannelInputState() {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        const channel = getCurrentChannel();
+        const agent = channel ? resolveAgent(channel.agentId) : null;
+
+        let disabled = false;
+        let hint = '';
+
+        if (state.channelDraft) {
+            disabled = true;
+            hint = t('channel.unsavedHint');
+        } else if (!channel) {
+            disabled = true;
+            hint = t('channel.selectHint');
+        } else if (!agent) {
+            disabled = true;
+            hint = t('channel.missingAgentHint');
+        } else if (state.channelLoading) {
+            disabled = true;
+            hint = t('common.loading');
+        } else if (state.channelSending) {
+            disabled = true;
+            hint = t('chat.thinking');
+        } else {
+            hint = t('channel.chatHintReady', { agent: agent.name });
+        }
+
+        if (elements.channelChatHint) {
+            elements.channelChatHint.textContent = hint;
+        }
+        if (elements.channelMessageInput) {
+            elements.channelMessageInput.disabled = disabled;
+        }
+        if (elements.btnSendChannel) {
+            elements.btnSendChannel.disabled = disabled;
+        }
+    }
+
+    function sendChannelMessage() {
+        const content = normalizeOutgoingMessage(elements.channelMessageInput?.value || '');
+
+        if (state.channelDraft) {
+            showChannelError(window.OpenClawI18n ? window.OpenClawI18n.t('channel.unsavedHint') : 'Save the channel first.');
+            return;
+        }
+
+        const channel = getCurrentChannel();
+        if (!channel) {
+            showChannelError(window.OpenClawI18n ? window.OpenClawI18n.t('channel.selectHint') : 'Select a channel first.');
+            return;
+        }
+
+        if (!resolveAgent(channel.agentId)) {
+            showChannelError(window.OpenClawI18n ? window.OpenClawI18n.t('channel.missingAgentHint') : 'Bind this channel to an available agent first.');
+            return;
+        }
+
+        if (!content.trim() || state.channelSending || state.channelLoading) {
+            return;
+        }
+
+        if (elements.channelMessageInput) {
+            elements.channelMessageInput.value = '';
+        }
+
+        state.channelSending = true;
+        addChannelMessage({
+            role: 'user',
+            content,
+            timestamp: new Date().toISOString()
+        });
+        showChannelThinkingIndicator();
+        updateChannelInputState();
+
+        vscode.postMessage({
+            type: 'sendChannelMessage',
+            channelId: channel.id,
+            content
+        });
+    }
+
+    function showChannelThinkingIndicator() {
+        if (!elements.channelMessages) {
+            return;
+        }
+
+        clearChannelThinkingIndicator();
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+
+        const div = document.createElement('div');
+        div.className = 'message message-thinking thinking-indicator';
+        div.innerHTML = `
+            <div class="message-header">
+                <span class="message-role">${t('chat.thinking')}</span>
+                <span class="thinking-dots">
+                    <span></span><span></span><span></span>
+                </span>
+            </div>
+            <div class="thinking-content">
+                <div class="thinking-line">${t('thinking.started')}</div>
+            </div>
+        `;
+
+        elements.channelMessages.appendChild(div);
+        scrollChannelToBottom();
+        state.currentChannelThinking = div;
+    }
+
+    function clearChannelThinkingIndicator() {
+        if (!state.currentChannelThinking) {
+            return;
+        }
+
+        state.currentChannelThinking.remove();
+        state.currentChannelThinking = null;
+    }
+
+    function resetTransientChannelState() {
+        clearChannelThinkingIndicator();
+        activeChannelTraceContainer = null;
+        state.channelSending = false;
+        updateChannelInputState();
+    }
+
+    function addChannelMessage(msg) {
+        if (!msg || !elements.channelMessages) return;
+        if (shouldHideMessage(msg)) return;
+
+        if ((msg.role === 'assistant' || msg.role === 'tool') && state.currentChannelThinking) {
+            clearChannelThinkingIndicator();
+        }
+
+        if (msg.role === 'user') {
+            activeChannelTraceContainer = null;
+            appendStandaloneChannelMessage(msg);
+            return;
+        }
+
+        if (shouldAppendToTrace(msg)) {
+            appendChannelTraceMessage(msg);
+            return;
+        }
+
+        activeChannelTraceContainer = null;
+        appendStandaloneChannelMessage(msg);
+    }
+
+    function appendStandaloneChannelMessage(msg) {
+        const div = document.createElement('div');
+        div.className = `message message-${msg.role}`;
+
+        const time = new Date(msg.timestamp).toLocaleTimeString();
+        const tokenInfo = msg.tokenCount ? `<span class="token-count">${msg.tokenCount} tokens</span>` : '';
+        const rendered = renderMessageContent(msg);
+
+        div.innerHTML = `
+            <div class="message-header">
+                <span class="message-role">${getMessageRoleLabel(msg)}</span>
+                <span class="message-time">${time}</span>
+                ${tokenInfo}
+            </div>
+            ${rendered}
+        `;
+
+        elements.channelMessages.appendChild(div);
+        scrollChannelToBottom();
+
+        if (msg.role === 'assistant' && !isToolUseMessage(msg)) {
+            state.channelSending = false;
+            updateChannelInputState();
+        }
+    }
+
+    function appendChannelTraceMessage(msg) {
+        const container = getOrCreateChannelTraceContainer(msg);
+        const body = container.querySelector('.trace-body');
+        if (!body) {
+            return;
+        }
+
+        const segment = document.createElement('div');
+        segment.className = `trace-segment trace-segment-${msg.role}`;
+        segment.innerHTML = renderTraceSegment(msg);
+        body.appendChild(segment);
+        scrollChannelToBottom();
+
+        if (msg.role === 'assistant' && !isToolUseMessage(msg)) {
+            activeChannelTraceContainer = null;
+            state.channelSending = false;
+            updateChannelInputState();
+        }
+    }
+
+    function getOrCreateChannelTraceContainer(msg) {
+        if (activeChannelTraceContainer?.isConnected) {
+            return activeChannelTraceContainer;
+        }
+
+        const div = document.createElement('div');
+        div.className = 'message message-assistant message-trace';
+        div.innerHTML = `
+            <div class="message-header">
+                <span class="message-role">${window.OpenClawI18n ? window.OpenClawI18n.t('chat.roleAssistant') : 'Assistant'}</span>
+                <span class="message-time">${new Date(msg.timestamp).toLocaleTimeString()}</span>
+            </div>
+            <div class="trace-body"></div>
+        `;
+
+        elements.channelMessages.appendChild(div);
+        activeChannelTraceContainer = div;
+        return div;
+    }
+
+    function scrollChannelToBottom() {
+        if (!elements.channelMessages) {
+            return;
+        }
+
+        elements.channelMessages.scrollTop = elements.channelMessages.scrollHeight;
+    }
+
+    function showChannelError(msg) {
+        if (!elements.channelMessages) {
+            return;
+        }
+
+        window.OpenClawPanelFeedback.showChatError(elements.channelMessages, msg, scrollChannelToBottom);
     }
 
     function selectAgent(agentId) {
@@ -3229,11 +3837,42 @@
 
         const cluster = state.clusters.find(item => item.id === result.clusterId);
         const clusterName = cluster?.name || result.clusterName || '';
-        const contributionIds = (cluster?.agentIds || Object.keys(result.contributions || {}))
-            .filter(agentId => result.contributions?.[agentId]);
+        const rounds = Array.isArray(result.rounds) && result.rounds.length > 0
+            ? result.rounds
+            : [{
+                kind: 'revision-2',
+                entries: result.contributions || {}
+            }];
         const finalAnswerHtml = result.synthesis?.ok && result.synthesis.message
             ? formatContent(result.synthesis.message.content || '')
             : `<p>${escapeHtml(result.synthesis?.error || (t('clusters.noSuccessfulAgents') || 'No agent produced a usable contribution.'))}</p>`;
+        const roundsHtml = rounds.map(round => {
+            const roundAgentIds = (cluster?.agentIds || Object.keys(round.entries || {}))
+                .filter(agentId => round.entries?.[agentId]);
+            if (roundAgentIds.length === 0) {
+                return '';
+            }
+
+            return `
+                <h4>${escapeHtml(getCollaborationRoundLabel(round.kind, t))}</h4>
+                ${roundAgentIds.map(agentId => {
+                    const entry = round.entries[agentId];
+                    return `
+                        <div class="broadcast-result-item">
+                            <div class="message-header">
+                                <span class="message-role">${escapeHtml(resolveAgentLabel(agentId))}</span>
+                                <span class="message-time">${entry.ok ? (t('clusters.resultOk') || 'Completed') : (t('clusters.resultFailed') || 'Failed')}</span>
+                            </div>
+                            <div class="message-content">
+                                ${entry.ok && entry.message
+                                    ? formatContent(entry.message.content || '')
+                                    : `<p>${escapeHtml(entry.error || (t('clusters.resultUnknownError') || 'Unknown error'))}</p>`}
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            `;
+        }).join('');
         const coordinatorLabel = result.coordinatorAgentId
             ? resolveAgentLabel(result.coordinatorAgentId)
             : '—';
@@ -3251,25 +3890,51 @@
                     </div>
                     <div class="message-content">${finalAnswerHtml}</div>
                 </div>
-                <h4>${t('clusters.contributions') || 'Contributions'}</h4>
-                ${contributionIds.map(agentId => {
-                    const entry = result.contributions[agentId];
-                    return `
-                        <div class="broadcast-result-item">
-                            <div class="message-header">
-                                <span class="message-role">${escapeHtml(resolveAgentLabel(agentId))}</span>
-                                <span class="message-time">${entry.ok ? (t('clusters.resultOk') || 'Completed') : (t('clusters.resultFailed') || 'Failed')}</span>
-                            </div>
-                            <div class="message-content">
-                                ${entry.ok && entry.message
-                                    ? formatContent(entry.message.content || '')
-                                    : `<p>${escapeHtml(entry.error || (t('clusters.resultUnknownError') || 'Unknown error'))}</p>`}
-                            </div>
-                        </div>
-                    `;
-                }).join('')}
+                <h4>${getTranslationOrFallback(t, 'clusters.debateRounds', 'Debate Rounds')}</h4>
+                ${roundsHtml}
             </div>
         `;
+    }
+
+    function getTranslationOrFallback(t, key, fallback) {
+        const translated = t(key);
+        return translated && translated !== key ? translated : fallback;
+    }
+
+    function getCollaborationRoundLabel(kind, t) {
+        const keyMap = {
+            opening: 'clusters.debateRoundOpening',
+            'critique-1': 'clusters.debateRoundCritique1',
+            'revision-1': 'clusters.debateRoundRevision1',
+            'critique-2': 'clusters.debateRoundCritique2',
+            'revision-2': 'clusters.debateRoundRevision2'
+        };
+        const fallbackMap = {
+            opening: 'Round 1 - Opening Positions',
+            'critique-1': 'Round 2 - Peer Review',
+            'revision-1': 'Round 3 - Revised Positions',
+            'critique-2': 'Round 4 - Second Peer Review',
+            'revision-2': 'Round 5 - Final Positions'
+        };
+
+        if (keyMap[kind]) {
+            return getTranslationOrFallback(t, keyMap[kind], fallbackMap[kind]);
+        }
+
+        switch (kind) {
+            case 'opening':
+                return t('clusters.debateRoundOpening') || 'Round 1 · Opening Positions';
+            case 'critique-1':
+                return t('clusters.debateRoundCritique1') || 'Round 2 · Peer Review';
+            case 'revision-1':
+                return t('clusters.debateRoundRevision1') || 'Round 3 · Revised Positions';
+            case 'critique-2':
+                return t('clusters.debateRoundCritique2') || 'Round 4 · Second Peer Review';
+            case 'revision-2':
+                return t('clusters.debateRoundRevision2') || 'Round 5 · Final Positions';
+            default:
+                return t('clusters.contributions') || 'Contributions';
+        }
     }
 
     function getCurrentCluster() {
@@ -3454,41 +4119,48 @@
         }
 
         const messages = [];
+        const rounds = Array.isArray(result.rounds) && result.rounds.length > 0
+            ? result.rounds
+            : [{
+                kind: 'revision-2',
+                entries: result.contributions || {}
+            }];
         const coordinatorLabel = result.coordinatorAgentId
             ? resolveAgentLabel(result.coordinatorAgentId)
             : t('clusters.targetSwarm');
 
-        if (result.synthesis?.ok && result.synthesis.message) {
-            messages.push({
+        rounds.forEach(round => {
+            const roundLabel = getCollaborationRoundLabel(round.kind, t);
+            Object.entries(round.entries || {}).forEach(([agentId, entry]) => {
+                messages.push(entry.ok && entry.message
+                    ? {
+                        ...entry.message,
+                        displayName: resolveAgentLabel(agentId),
+                        contextLabel: roundLabel
+                    }
+                    : {
+                        role: 'assistant',
+                        content: entry.error || t('clusters.resultUnknownError'),
+                        timestamp: new Date().toISOString(),
+                        displayName: resolveAgentLabel(agentId),
+                        contextLabel: roundLabel
+                    });
+            });
+        });
+
+        messages.push(result.synthesis?.ok && result.synthesis.message
+            ? {
                 ...result.synthesis.message,
                 displayName: t('clusters.finalAnswer'),
                 contextLabel: `${t('clusters.coordinator')}: ${coordinatorLabel}`
-            });
-        } else {
-            messages.push({
+            }
+            : {
                 role: 'assistant',
                 content: result.synthesis?.error || t('clusters.noSuccessfulAgents'),
                 timestamp: new Date().toISOString(),
                 displayName: t('clusters.finalAnswer'),
                 contextLabel: `${t('clusters.coordinator')}: ${coordinatorLabel}`
             });
-        }
-
-        Object.entries(result.contributions || {}).forEach(([agentId, entry]) => {
-            messages.push(entry.ok && entry.message
-                ? {
-                    ...entry.message,
-                    displayName: resolveAgentLabel(agentId),
-                    contextLabel: t('clusters.contributions')
-                }
-                : {
-                    role: 'assistant',
-                    content: entry.error || t('clusters.resultUnknownError'),
-                    timestamp: new Date().toISOString(),
-                    displayName: resolveAgentLabel(agentId),
-                    contextLabel: t('clusters.contributions')
-                });
-        });
 
         return messages;
     }
@@ -3959,6 +4631,75 @@
         }
     }
 
+    function renderChannel(usage) {
+        state.latestUsage = usage || null;
+        const channelWindow = buildChannelWindow(state.latestUsage, state.channelPeriodDays);
+        const activeCountEl = document.getElementById('channel-active-count');
+        const topNameEl = document.getElementById('channel-top-name');
+        const topTokensEl = document.getElementById('channel-top-tokens');
+        const topRequestsEl = document.getElementById('channel-top-requests');
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key, vars) => {
+            if (vars && typeof vars.days !== 'undefined') {
+                return `${key} ${vars.days}`;
+            }
+            return key;
+        };
+
+        if (activeCountEl) activeCountEl.textContent = channelWindow.totalChannels.toLocaleString();
+        if (topNameEl) topNameEl.textContent = channelWindow.dominantChannel || t('channel.none');
+        if (topTokensEl) topTokensEl.textContent = formatCompactNumber(channelWindow.dominantTokens);
+        if (topRequestsEl) topRequestsEl.textContent = channelWindow.dominantRequests.toLocaleString();
+
+        if (elements.channelPeriodButtons) {
+            elements.channelPeriodButtons.forEach(btn => {
+                btn.classList.toggle('active', Number(btn.getAttribute('data-channel-period')) === state.channelPeriodDays);
+            });
+        }
+        if (elements.channelPeriodCaption) {
+            elements.channelPeriodCaption.textContent = t('channel.showingPeriod', { days: state.channelPeriodDays });
+        }
+        if (elements.channelChartTitle) {
+            elements.channelChartTitle.textContent = t('channel.byTokensPeriod', { days: state.channelPeriodDays });
+        }
+        if (elements.channelRequestsTitle) {
+            elements.channelRequestsTitle.textContent = t('channel.byRequestsPeriod', { days: state.channelPeriodDays });
+        }
+
+        const channelChart = document.getElementById('channel-chart');
+        if (channelChart) {
+            if (channelWindow.channels.length > 0 && channelWindow.totalTokens > 0) {
+                channelChart.innerHTML = channelWindow.channels.map(channel => `
+                    <div class="model-item">
+                        <div class="model-name">${escapeHtml(channel.channel)}</div>
+                        <div class="model-bar-container">
+                            <div class="model-bar" style="width: ${Math.min((channel.tokens || 0) / channelWindow.totalTokens * 100, 100)}%"></div>
+                        </div>
+                        <div class="model-value">${formatCompactNumber(channel.tokens || 0)} tokens</div>
+                    </div>
+                `).join('');
+            } else {
+                channelChart.innerHTML = `<div class="empty">${escapeHtml(t('channel.noData'))}</div>`;
+            }
+        }
+
+        const requestsChart = document.getElementById('channel-requests-chart');
+        if (requestsChart) {
+            if (channelWindow.channels.length > 0 && channelWindow.totalRequests > 0) {
+                requestsChart.innerHTML = channelWindow.channels.map(channel => `
+                    <div class="model-item">
+                        <div class="model-name">${escapeHtml(channel.channel)}</div>
+                        <div class="model-bar-container">
+                            <div class="model-bar" style="width: ${Math.min((channel.requests || 0) / channelWindow.totalRequests * 100, 100)}%"></div>
+                        </div>
+                        <div class="model-value">${(channel.requests || 0).toLocaleString()} req</div>
+                    </div>
+                `).join('');
+            } else {
+                requestsChart.innerHTML = `<div class="empty">${escapeHtml(t('channel.noData'))}</div>`;
+            }
+        }
+    }
+
     function buildDailyUsageBarTooltip(t, date, data, currencySymbol) {
         return [
             date,
@@ -3979,8 +4720,23 @@
         }
     }
 
+    function setChannelPeriod(days) {
+        if ((days !== 7 && days !== 30) || state.channelPeriodDays === days) {
+            return;
+        }
+
+        state.channelPeriodDays = days;
+        if (state.latestUsage) {
+            renderChannel(state.latestUsage);
+        }
+    }
+
     function buildUsageWindow(usage, days) {
         return window.OpenClawPanelCommon.buildUsageWindow(usage, days);
+    }
+
+    function buildChannelWindow(usage, days) {
+        return window.OpenClawPanelCommon.buildChannelWindow(usage, days);
     }
 
     function computeUsageBarHeight(value, maxValue) {
@@ -4069,6 +4825,63 @@
                 
             case 'usageLoaded':
                 renderUsage(message.usage);
+                break;
+
+            case 'channelsLoaded':
+                renderChannels(message.channels, message.selectedChannelId);
+                break;
+
+            case 'setActiveChannel':
+                state.currentChannelId = message.channelId || null;
+                if (state.currentChannelId) {
+                    state.channelDraft = null;
+                }
+                if (!state.currentChannelId) {
+                    state.channelMessages = [];
+                    state.channelLoading = false;
+                    if (state.channelsLoaded && !state.channelDraft && state.channels.length === 0) {
+                        startNewChannelDraft({ focus: false });
+                        break;
+                    }
+                }
+                renderChannelWorkspace();
+                break;
+
+            case 'setChannelContextLoading':
+                if (!message.channelId || message.channelId === state.currentChannelId) {
+                    state.channelLoading = Boolean(message.loading);
+                    if (!state.channelLoading) {
+                        updateChannelInputState();
+                    }
+                    renderChannelConversation();
+                }
+                break;
+
+            case 'replaceChannelMessages':
+                if (message.channelId === null || message.channelId === state.currentChannelId) {
+                    state.channelMessages = Array.isArray(message.messages) ? message.messages : [];
+                    state.channelLoading = false;
+                    renderChannelConversation();
+                    updateChannelInputState();
+                }
+                break;
+
+            case 'addChannelMessage':
+                if (message.channelId === state.currentChannelId) {
+                    clearChannelThinkingIndicator();
+                    addChannelMessage(message.message);
+                    state.channelSending = false;
+                    updateChannelInputState();
+                }
+                break;
+
+            case 'channelSendFailed':
+                if (message.channelId === state.currentChannelId) {
+                    clearChannelThinkingIndicator();
+                    state.channelSending = false;
+                    updateChannelInputState();
+                    showChannelError(message.message);
+                }
                 break;
 
             case 'switchView':

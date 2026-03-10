@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project follows Semantic Versioning.
 
+## [0.5.1] - 2026-03-10
+
+### Added
+- Optimize (some of) preset agents' behaviour. Their performance will be better... maybe. (this still wip 'cause `0.5.1` is an emergency fix)
+- Optimize behaviour of Swarm.
+
+
 ## [0.5.0] - 2026-03-09
 
 ### Added

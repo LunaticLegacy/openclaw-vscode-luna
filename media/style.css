@@ -1214,7 +1214,8 @@ body {
 }
 
 #message-input,
-#cluster-message-input {
+#cluster-message-input,
+#channel-message-input {
     width: 100%;
     padding: 12px 120px 12px 16px;
     border: 1px solid var(--border);
@@ -1228,7 +1229,8 @@ body {
 }
 
 #message-input:focus,
-#cluster-message-input:focus {
+#cluster-message-input:focus,
+#channel-message-input:focus {
     border-color: var(--accent);
 }
 
@@ -1513,6 +1515,199 @@ body {
 .status-inactive {
     background: var(--warning);
     color: white;
+}
+
+/* Channel View */
+.channel-view {
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+    min-height: 0;
+}
+
+.channel-sidebar {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border-right: 1px solid var(--border);
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 88%, transparent), transparent),
+        var(--bg-primary);
+}
+
+.channel-sidebar-header {
+    padding: 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.channel-sidebar-copy h2 {
+    font-size: 22px;
+    line-height: 1.2;
+}
+
+.channel-sidebar-copy p {
+    margin-top: 8px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.channel-sidebar-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.channel-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.channel-list-item {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 14px 12px;
+    background: color-mix(in srgb, var(--bg-secondary) 84%, transparent);
+    cursor: pointer;
+    transition: border-color 0.18s ease, transform 0.18s ease, background 0.18s ease;
+}
+
+.channel-list-item:hover {
+    border-color: color-mix(in srgb, var(--accent) 46%, var(--border));
+    transform: translateY(-1px);
+}
+
+.channel-list-item.active {
+    border-color: color-mix(in srgb, var(--accent) 65%, var(--border));
+    background: color-mix(in srgb, var(--accent) 12%, var(--bg-secondary));
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.channel-list-name {
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.channel-list-meta {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.channel-list-description {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.55;
+}
+
+.channel-detail {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.channel-empty-state {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+}
+
+.channel-workspace {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.channel-config-card {
+    margin: 20px 20px 0;
+    padding: 18px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background:
+        radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 10%, transparent), transparent 42%),
+        color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+}
+
+.channel-config-header {
+    margin-bottom: 16px;
+}
+
+.channel-config-copy h3 {
+    font-size: 20px;
+    line-height: 1.25;
+}
+
+.channel-editor-summary {
+    margin-top: 8px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.channel-config-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.channel-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.channel-chat-shell {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.channel-chat-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.channel-chat-heading {
+    min-width: 0;
+}
+
+.channel-chat-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.channel-messages {
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 58%, transparent), transparent 35%),
+        var(--bg-primary);
+}
+
+.channel-input-container {
+    border-top: 1px solid var(--border);
+}
+
+.channel-chat-disabled {
+    color: var(--text-secondary);
+    font-size: 12px;
 }
 
 /* Tasks View */
@@ -2595,6 +2790,25 @@ form {
         width: 100%;
     }
 
+    .channel-view {
+        grid-template-columns: 1fr;
+    }
+
+    .channel-sidebar {
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        max-height: 280px;
+    }
+
+    .channel-form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .channel-chat-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
     .chat-home {
         padding: 14px 14px 4px;
     }
@@ -2618,5 +2832,13 @@ form {
     .console-setup-panel,
     .console-setup-card {
         padding: 12px;
+    }
+
+    .channel-sidebar-header,
+    .channel-config-card,
+    .channel-chat-header,
+    .chat-input-container {
+        padding-left: 14px;
+        padding-right: 14px;
     }
 }

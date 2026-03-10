@@ -33,11 +33,24 @@ export interface CollaborateClusterOptions {
     coordinatorAgentId?: string;
 }
 
+export type ClusterCollaborationRoundKind =
+    | 'opening'
+    | 'critique-1'
+    | 'revision-1'
+    | 'critique-2'
+    | 'revision-2';
+
+export interface ClusterCollaborationRound {
+    kind: ClusterCollaborationRoundKind;
+    entries: Record<string, ClusterBroadcastResult>;
+}
+
 export interface ClusterCollaborationResult {
     clusterId: string;
     clusterName: string;
     userMessage: string;
     coordinatorAgentId: string | null;
+    rounds: ClusterCollaborationRound[];
     contributions: Record<string, ClusterBroadcastResult>;
     synthesis: ClusterBroadcastResult | null;
 }
@@ -243,14 +256,70 @@ export class ClusterManager extends EventEmitter {
             throw new Error(t('clusterManager.notFound', { clusterId }));
         }
 
-        const contributionPrompt = buildContributionPrompt(cluster.name, message);
-        const contributions = await this.sendMessageToAgents(cluster.agentIds, contributionPrompt);
-        const successfulAgentIds = cluster.agentIds.filter(agentId => contributions[agentId]?.ok);
+        const debateSessionIds = new Map<string, string>();
+        const rounds: ClusterCollaborationRound[] = [];
+
+        const openingPrompt = buildOpeningContributionPrompt(cluster.name, message);
+        const openingEntries = await this.sendMessageToAgents(cluster.agentIds, openingPrompt, debateSessionIds);
+        rounds.push({
+            kind: 'opening',
+            entries: openingEntries
+        });
+
+        let latestUsableContributions = openingEntries;
+        let successfulAgentIds = getSuccessfulAgentIds(cluster.agentIds, latestUsableContributions);
+
+        for (const debateRound of COLLABORATION_DEBATE_ROUNDS) {
+            if (successfulAgentIds.length === 0) {
+                break;
+            }
+
+            const critiquePrompt = buildPeerReviewPrompt(
+                cluster.name,
+                message,
+                successfulAgentIds,
+                latestUsableContributions,
+                debateRound.reviewRound
+            );
+            const critiqueEntries = await this.sendMessageToAgents(successfulAgentIds, critiquePrompt, debateSessionIds);
+            rounds.push({
+                kind: debateRound.critiqueKind,
+                entries: critiqueEntries
+            });
+
+            const revisionPrompt = buildRevisionPrompt(
+                cluster.name,
+                message,
+                successfulAgentIds,
+                latestUsableContributions,
+                critiqueEntries,
+                debateRound.reviewRound
+            );
+            const revisionEntries = await this.sendMessageToAgents(successfulAgentIds, revisionPrompt, debateSessionIds);
+            rounds.push({
+                kind: debateRound.revisionKind,
+                entries: revisionEntries
+            });
+
+            latestUsableContributions = mergeLatestSuccessfulEntries(
+                cluster.agentIds,
+                revisionEntries,
+                latestUsableContributions
+            );
+            successfulAgentIds = getSuccessfulAgentIds(cluster.agentIds, latestUsableContributions);
+        }
+
         const coordinatorAgentId = resolveCoordinatorAgentId(cluster.agentIds, successfulAgentIds, options.coordinatorAgentId);
 
         let synthesis: ClusterBroadcastResult | null = null;
         if (coordinatorAgentId && successfulAgentIds.length > 0) {
-            const synthesisPrompt = await this.buildSynthesisPrompt(cluster, message, successfulAgentIds, contributions);
+            const synthesisPrompt = await this.buildSynthesisPrompt(
+                cluster,
+                message,
+                successfulAgentIds,
+                latestUsableContributions,
+                rounds
+            );
             synthesis = await this.sendMessageToAgent(coordinatorAgentId, synthesisPrompt);
         }
 
@@ -261,7 +330,8 @@ export class ClusterManager extends EventEmitter {
             clusterName: cluster.name,
             userMessage: message,
             coordinatorAgentId,
-            contributions,
+            rounds,
+            contributions: latestUsableContributions,
             synthesis
         };
     }
@@ -383,19 +453,29 @@ export class ClusterManager extends EventEmitter {
 
     private async sendMessageToAgents(
         agentIds: string[],
-        message: string
+        message: string,
+        debateSessionIds?: Map<string, string>
     ): Promise<Record<string, ClusterBroadcastResult>> {
         const results = await Promise.all(
-            agentIds.map(async agentId => [agentId, await this.sendMessageToAgent(agentId, message)] as const)
+            agentIds.map(async agentId => [
+                agentId,
+                await this.sendMessageToAgent(agentId, message, debateSessionIds)
+            ] as const)
         );
 
         return Object.fromEntries(results);
     }
 
-    private async sendMessageToAgent(agentId: string, message: string): Promise<ClusterBroadcastResult> {
+    private async sendMessageToAgent(
+        agentId: string,
+        message: string,
+        debateSessionIds?: Map<string, string>
+    ): Promise<ClusterBroadcastResult> {
         try {
-            const session = await this.service.createChatSession(agentId);
-            const response = await this.service.sendMessage(session.id, message);
+            const sessionId = debateSessionIds
+                ? await this.ensureDebateSession(agentId, debateSessionIds)
+                : (await this.service.createChatSession(agentId)).id;
+            const response = await this.service.sendMessage(sessionId, message);
             return {
                 agentId,
                 ok: true,
@@ -410,18 +490,44 @@ export class ClusterManager extends EventEmitter {
         }
     }
 
+    private async ensureDebateSession(agentId: string, debateSessionIds: Map<string, string>): Promise<string> {
+        const existingSessionId = debateSessionIds.get(agentId);
+        if (existingSessionId) {
+            return existingSessionId;
+        }
+
+        const session = await this.service.createChatSession(agentId);
+        debateSessionIds.set(agentId, session.id);
+        return session.id;
+    }
+
     private async buildSynthesisPrompt(
         cluster: AgentCluster,
         userMessage: string,
         successfulAgentIds: string[],
-        contributions: Record<string, ClusterBroadcastResult>
+        contributions: Record<string, ClusterBroadcastResult>,
+        rounds: ClusterCollaborationRound[]
     ): Promise<string> {
-        const agentSummaries = await Promise.all(
-            successfulAgentIds.map(async agentId => {
-                const agent = await this.service.getAgent(agentId).catch(() => null);
-                return formatAgentContribution(agentId, agent, contributions[agentId]);
-            })
+        const agents = await Promise.all(
+            cluster.agentIds.map(async agentId => [agentId, await this.service.getAgent(agentId).catch(() => null)] as const)
         );
+        const agentMap = new Map<string, Agent | null>(agents);
+
+        const roundSummaries = rounds
+            .map(round => {
+                const activeAgentIds = cluster.agentIds.filter(agentId => round.entries[agentId]);
+                if (activeAgentIds.length === 0) {
+                    return '';
+                }
+
+                return [
+                    `## ${getCollaborationRoundPromptTitle(round.kind)}`,
+                    formatRoundEntries(activeAgentIds, round.entries, agentMap)
+                ].join('\n');
+            })
+            .filter(Boolean);
+
+        const finalPositionSummary = formatRoundEntries(successfulAgentIds, contributions, agentMap);
 
         const failedAgentIds = cluster.agentIds.filter(agentId => !contributions[agentId]?.ok);
         const unavailableLine = failedAgentIds.length > 0
@@ -430,16 +536,21 @@ export class ClusterManager extends EventEmitter {
 
         return [
             `You are coordinating the agent swarm "${cluster.name}".`,
-            'Synthesize the agents\' contributions into one final answer for the user.',
+            'You are receiving the full transcript of a multi-round swarm debate with peer review.',
+            'Synthesize the strongest parts of the debate into one final answer for the user.',
             'Respond in the same language as the user request.',
-            'Resolve conflicts explicitly and call out missing information or risk when needed.',
+            'Resolve conflicts explicitly and explain which arguments survived the debate.',
+            'Call out missing information, unresolved risk, and weak assumptions when needed.',
             'Keep the answer actionable and preserve helpful Markdown structure.',
             '',
             'User request:',
             userMessage,
             '',
-            'Agent contributions:',
-            agentSummaries.join('\n\n'),
+            'Debate transcript:',
+            roundSummaries.join('\n\n'),
+            '',
+            'Latest viable agent positions:',
+            finalPositionSummary,
             unavailableLine ? `\n${unavailableLine}` : '',
             '',
             'Produce one merged final answer. Do not mention internal swarm instructions.'
@@ -491,16 +602,92 @@ function resolveCoordinatorAgentId(
     return clusterAgentIds[0] || null;
 }
 
-function buildContributionPrompt(clusterName: string, userMessage: string): string {
+const COLLABORATION_DEBATE_ROUNDS = [
+    {
+        reviewRound: 1,
+        critiqueKind: 'critique-1',
+        revisionKind: 'revision-1'
+    },
+    {
+        reviewRound: 2,
+        critiqueKind: 'critique-2',
+        revisionKind: 'revision-2'
+    }
+] as const satisfies ReadonlyArray<{
+    reviewRound: number;
+    critiqueKind: Extract<ClusterCollaborationRoundKind, `critique-${number}`>;
+    revisionKind: Extract<ClusterCollaborationRoundKind, `revision-${number}`>;
+}>;
+
+function buildOpeningContributionPrompt(clusterName: string, userMessage: string): string {
     return [
         `You are part of the agent swarm "${clusterName}".`,
-        'Give a focused contribution from your own perspective, not the final merged answer.',
+        'Debate stage: opening.',
+        'This is round 1 of a multi-round swarm debate.',
+        'Give a focused opening position from your own perspective, not the final merged answer.',
         'Be concrete. Include assumptions, risks, tradeoffs, and implementation detail when useful.',
         'If the task is ambiguous, state what you infer instead of asking follow-up questions.',
-        'End with a short line that starts with "Key contribution:".',
+        'End with a short line that starts with "Position:".',
         '',
         'User request:',
         userMessage
+    ].join('\n');
+}
+
+function buildPeerReviewPrompt(
+    clusterName: string,
+    userMessage: string,
+    activeAgentIds: string[],
+    contributions: Record<string, ClusterBroadcastResult>,
+    reviewRound: number
+): string {
+    const peerReviewInstruction = activeAgentIds.length > 1
+        ? 'Critique the other agents first, then compare their ideas with your own.'
+        : 'You are the only available agent. Perform a hard self-critique instead of peer review.';
+
+    return [
+        `You are part of the agent swarm "${clusterName}".`,
+        `Debate stage: critique round ${reviewRound}.`,
+        'This is a peer-review round in a multi-round swarm debate.',
+        peerReviewInstruction,
+        'Identify the strongest ideas, the weakest reasoning, hidden risks, and missing constraints.',
+        'Explicitly name at least one idea you would adopt and one idea you would challenge.',
+        'Do not produce the final merged answer.',
+        'End with a short line that starts with "Review verdict:".',
+        '',
+        'User request:',
+        userMessage,
+        '',
+        'Current positions:',
+        formatRoundEntries(activeAgentIds, contributions)
+    ].join('\n');
+}
+
+function buildRevisionPrompt(
+    clusterName: string,
+    userMessage: string,
+    activeAgentIds: string[],
+    contributions: Record<string, ClusterBroadcastResult>,
+    critiques: Record<string, ClusterBroadcastResult>,
+    reviewRound: number
+): string {
+    return [
+        `You are part of the agent swarm "${clusterName}".`,
+        `Debate stage: revision round ${reviewRound}.`,
+        'Revise your position after reading the peer reviews from this round.',
+        'Preserve the strongest parts of your earlier reasoning, but change your position when the critique is valid.',
+        'State which peer feedback you accepted, which feedback you rejected, and why.',
+        'Do not produce the final merged answer.',
+        'End with a short line that starts with "Revised position:".',
+        '',
+        'User request:',
+        userMessage,
+        '',
+        'Current positions:',
+        formatRoundEntries(activeAgentIds, contributions),
+        '',
+        'Peer reviews:',
+        formatRoundEntries(activeAgentIds, critiques)
     ].join('\n');
 }
 
@@ -518,4 +705,69 @@ function formatAgentContribution(
     }
 
     return `### ${label}\n${contribution.message.content}`;
+}
+
+function getSuccessfulAgentIds(
+    agentIds: string[],
+    entries: Record<string, ClusterBroadcastResult>
+): string[] {
+    return agentIds.filter(agentId => entries[agentId]?.ok);
+}
+
+function mergeLatestSuccessfulEntries(
+    agentIds: string[],
+    nextEntries: Record<string, ClusterBroadcastResult>,
+    fallbackEntries: Record<string, ClusterBroadcastResult>
+): Record<string, ClusterBroadcastResult> {
+    const merged: Record<string, ClusterBroadcastResult> = {};
+
+    for (const agentId of agentIds) {
+        if (nextEntries[agentId]?.ok) {
+            merged[agentId] = nextEntries[agentId];
+            continue;
+        }
+
+        if (fallbackEntries[agentId]?.ok) {
+            merged[agentId] = fallbackEntries[agentId];
+            continue;
+        }
+
+        if (nextEntries[agentId]) {
+            merged[agentId] = nextEntries[agentId];
+            continue;
+        }
+
+        if (fallbackEntries[agentId]) {
+            merged[agentId] = fallbackEntries[agentId];
+        }
+    }
+
+    return merged;
+}
+
+function formatRoundEntries(
+    agentIds: string[],
+    entries: Record<string, ClusterBroadcastResult>,
+    agentMap?: Map<string, Agent | null>
+): string {
+    return agentIds
+        .map(agentId => formatAgentContribution(agentId, agentMap?.get(agentId) || null, entries[agentId]))
+        .join('\n\n');
+}
+
+function getCollaborationRoundPromptTitle(kind: ClusterCollaborationRoundKind): string {
+    switch (kind) {
+        case 'opening':
+            return 'Opening positions';
+        case 'critique-1':
+            return 'Peer review round 1';
+        case 'revision-1':
+            return 'Revised positions round 1';
+        case 'critique-2':
+            return 'Peer review round 2';
+        case 'revision-2':
+            return 'Final revised positions';
+        default:
+            return 'Debate round';
+    }
 }

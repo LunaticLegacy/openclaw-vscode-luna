@@ -548,7 +548,12 @@ function buildRunnerEnv(config: OpenClawCliServiceConfig): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = {
         ...process.env,
         OPENCLAW_STATE_DIR: config.stateDir,
-        OPENCLAW_CONFIG_PATH: config.configPath
+        OPENCLAW_CONFIG_PATH: config.configPath,
+        // Suppress WARN level logs (like "Failed to discover Ollama models") to prevent 
+        // excessive disk I/O. Only ERROR and higher severity logs will be written.
+        // This prevents model-provider discovery failures from continuously filling the log file.
+        OPENCLAW_LOG_LEVEL: 'error',
+        LOG_LEVEL: 'error'
     };
 
     if (config.gatewayToken) {

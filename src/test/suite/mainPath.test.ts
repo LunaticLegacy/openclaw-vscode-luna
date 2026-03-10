@@ -24,6 +24,7 @@ import {
     mergeOpenClawConfigForSave,
     OpenClawCliServiceConfig
 } from '../../services/openclawConfig';
+import { AgentPresetScaffolder } from '../../services/agentPresetScaffolder';
 import { setOpenClawCliCommandExecutorForTests } from '../../services/openclawCli';
 import { OpenClawService } from '../../services/openclawService';
 import { createFakeOpenClawCommandExecutor } from '../fixtures/fakeOpenClawCli';
@@ -192,6 +193,141 @@ suite('OpenClaw Main Path', () => {
 
         assert.equal(Array.isArray(suggestionsByProvider.qianfan), true);
         assert.equal(suggestionsByProvider.qianfan.length, 0);
+    });
+
+    test('builds a runnable bug-hunter system prompt from the preset scaffolding files', async () => {
+        const scaffolder = new AgentPresetScaffolder(
+            path.resolve(__dirname, '../../..'),
+            {} as OpenClawService
+        );
+
+        const systemPrompt = await scaffolder.buildSystemPrompt({
+            presetId: 'bug-hunter',
+            requestedName: 'bug-hunter',
+            requestedModel: 'fake-model',
+            systemPrompt: 'You are a debugging specialist.'
+        });
+
+        assert.ok(systemPrompt, 'Expected the bug-hunter preset to expand its system prompt');
+        assert.match(systemPrompt || '', /maintain 1-3 ranked hypotheses/i);
+        assert.match(systemPrompt || '', /fastest reproducer/i);
+        assert.match(systemPrompt || '', /one next action only/i);
+        assert.match(systemPrompt || '', /do not propose a broad rewrite/i);
+    });
+
+    test('builds a staged refactor-planner system prompt from the preset scaffolding files', async () => {
+        const scaffolder = new AgentPresetScaffolder(
+            path.resolve(__dirname, '../../..'),
+            {} as OpenClawService
+        );
+
+        const systemPrompt = await scaffolder.buildSystemPrompt({
+            presetId: 'refactor-planner',
+            requestedName: 'refactor-planner',
+            requestedModel: 'fake-model',
+            systemPrompt: 'You plan safe refactors for existing systems.'
+        });
+
+        assert.ok(systemPrompt, 'Expected the refactor-planner preset to expand its system prompt');
+        assert.match(systemPrompt || '', /small, reversible phases/i);
+        assert.match(systemPrompt || '', /compatibility layers before hard cutovers/i);
+        assert.match(systemPrompt || '', /verification gates/i);
+        assert.match(systemPrompt || '', /rollback plan/i);
+    });
+
+    test('builds a findings-first code-review-guard system prompt from the preset scaffolding files', async () => {
+        const scaffolder = new AgentPresetScaffolder(
+            path.resolve(__dirname, '../../..'),
+            {} as OpenClawService
+        );
+
+        const systemPrompt = await scaffolder.buildSystemPrompt({
+            presetId: 'code-review-guard',
+            requestedName: 'code-review-guard',
+            requestedModel: 'fake-model',
+            systemPrompt: 'You are a strict, low-noise code reviewer.'
+        });
+
+        assert.ok(systemPrompt, 'Expected the code-review-guard preset to expand its system prompt');
+        assert.match(systemPrompt || '', /respond in this order/i);
+        assert.match(systemPrompt || '', /highest-confidence issues/i);
+        assert.match(systemPrompt || '', /Do not lead with style/i);
+        assert.match(systemPrompt || '', /No findings\./i);
+    });
+
+    test('creates a preset-backed code-review-guard agent in local mode without requiring a workspace path', async () => {
+        const localConfig: LocalServiceConfig = {
+            mode: 'local',
+            providers: [{
+                id: 'fake-provider',
+                baseUrl: 'http://127.0.0.1:1',
+                api: 'openai-completions',
+                apiKey: 'test-key',
+                models: [{
+                    id: 'fake-model',
+                    name: 'Fake Model'
+                }]
+            }],
+            sourceDescription: 'preset-local-test'
+        };
+        const service = new OpenClawService(localConfig);
+        const agentManager = new AgentManager(
+            service,
+            new AgentPresetScaffolder(path.resolve(__dirname, '../../..'), service)
+        );
+
+        try {
+            const agent = await agentManager.createAgent({
+                name: 'Review Guard',
+                model: 'fake-model',
+                systemPrompt: 'You are a strict, low-noise code reviewer.',
+                presetId: 'code-review-guard'
+            });
+
+            assert.equal(agent.name, 'Review Guard');
+            assert.match(agent.systemPrompt || '', /respond in this order/i);
+            assert.match(agent.systemPrompt || '', /Do not lead with style/i);
+        } finally {
+            agentManager.dispose();
+            service.dispose();
+        }
+    });
+
+    test('writes code-review-guard preset files for workspace-backed OpenClaw agents', async () => {
+        const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-review-guard-'));
+        const openClawConfig = await createFakeOpenClawConfig(stateDir);
+        setOpenClawCliCommandExecutorForTests(createFakeOpenClawCommandExecutor());
+        const service = new OpenClawService(openClawConfig);
+        const agentManager = new AgentManager(
+            service,
+            new AgentPresetScaffolder(path.resolve(__dirname, '../../..'), service)
+        );
+
+        try {
+            const agent = await agentManager.createAgent({
+                name: 'Workspace Review Guard',
+                model: 'fake-openclaw-model',
+                systemPrompt: 'You are a strict, low-noise code reviewer.',
+                presetId: 'code-review-guard'
+            });
+            const workspacePath = await service.resolveAgentFolderPath(agent);
+
+            assert.ok(workspacePath, 'Expected the OpenClaw agent to have a workspace path');
+
+            const [systemFile, soulFile] = await Promise.all([
+                fs.readFile(path.join(workspacePath!, 'SYSTEM.md'), 'utf8'),
+                fs.readFile(path.join(workspacePath!, 'SOUL.md'), 'utf8')
+            ]);
+
+            assert.match(systemFile, /Severity/i);
+            assert.match(systemFile, /No findings\./i);
+            assert.match(soulFile, /Evidence Standard/i);
+        } finally {
+            setOpenClawCliCommandExecutorForTests(null);
+            agentManager.dispose();
+            service.dispose();
+            await fs.rm(stateDir, { recursive: true, force: true });
+        }
     });
 
     test('merges OpenClaw config edits without dropping unrelated fields', () => {
@@ -443,6 +579,7 @@ suite('OpenClaw Main Path', () => {
             const usage = await usageManager.getUsage();
             assert.equal(usage.totalRequests, 1);
             assert.equal(usage.byModel['fake-model']?.requests, 1);
+            assert.equal(usage.byChannel?.chat?.requests, 1);
 
             service.updateConfig(openClawConfig);
             assert.equal(service.getMode(), 'openclaw');
@@ -468,6 +605,7 @@ suite('OpenClaw Main Path', () => {
             const openClawUsage = await usageManager.getUsage();
             assert.equal(openClawUsage.totalRequests, 1);
             assert.equal(openClawUsage.byModel['fake-openclaw-model']?.requests, 1);
+            assert.equal(openClawUsage.byChannel?.chat?.requests, 1);
 
             const task = await taskManager.createTask({
                 name: 'Smoke Task',

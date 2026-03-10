@@ -99,6 +99,8 @@ export function createEmptyUsage(currency?: { code: string; symbol: string }): A
         currencySymbol: currency?.symbol,
         byModel: {},
         byModelByDay: {},
+        byChannel: {},
+        byChannelByDay: {},
         byDay: {}
     };
 }
@@ -114,6 +116,8 @@ export function cloneUsage(usage: APIUsage): APIUsage {
         currencySymbol: usage.currencySymbol,
         byModel: JSON.parse(JSON.stringify(usage.byModel)),
         byModelByDay: JSON.parse(JSON.stringify(usage.byModelByDay || {})),
+        byChannel: JSON.parse(JSON.stringify(usage.byChannel || {})),
+        byChannelByDay: JSON.parse(JSON.stringify(usage.byChannelByDay || {})),
         byDay: JSON.parse(JSON.stringify(usage.byDay))
     };
 }
@@ -145,6 +149,7 @@ export function mapOpenClawUsage(
             || sessionUsage?.messageCounts?.total
             || 0;
         const modelKey = resolveUsageModelKey(session, modelHints, fallbackWindowModel);
+        const channelKey = resolveUsageChannelKey(session);
 
         usage.totalRequests += requestCount;
         usage.promptTokens += promptTokens;
@@ -157,6 +162,13 @@ export function mapOpenClawUsage(
         modelStats.tokens += totalTokens;
         modelStats.cost += totalCost;
         usage.byModel[modelKey] = modelStats;
+
+        const channelStats = usage.byChannel ||= {};
+        const resolvedChannelStats = channelStats[channelKey] || { requests: 0, tokens: 0, cost: 0 };
+        resolvedChannelStats.requests += requestCount;
+        resolvedChannelStats.tokens += totalTokens;
+        resolvedChannelStats.cost += totalCost;
+        channelStats[channelKey] = resolvedChannelStats;
 
         const requestsByDay = new Map<string, number>();
         for (const messageCounts of sessionUsage?.dailyMessageCounts || []) {
@@ -187,6 +199,14 @@ export function mapOpenClawUsage(
             dayModelStats.cost += daily.cost || 0;
             dayModelStats.requests += requestsByDay.get(date) || 0;
             modelByDay[date][modelKey] = dayModelStats;
+
+            const channelByDay = usage.byChannelByDay ||= {};
+            channelByDay[date] ||= {};
+            const dayChannelStats = channelByDay[date][channelKey] || { requests: 0, tokens: 0, cost: 0 };
+            dayChannelStats.tokens += daily.tokens || 0;
+            dayChannelStats.cost += daily.cost || 0;
+            dayChannelStats.requests += requestsByDay.get(date) || 0;
+            channelByDay[date][channelKey] = dayChannelStats;
             requestsByDay.delete(date);
         }
 
@@ -200,6 +220,12 @@ export function mapOpenClawUsage(
             const dayModelStats = modelByDay[date][modelKey] || { requests: 0, tokens: 0, cost: 0 };
             dayModelStats.requests += requests;
             modelByDay[date][modelKey] = dayModelStats;
+
+            const channelByDay = usage.byChannelByDay ||= {};
+            channelByDay[date] ||= {};
+            const dayChannelStats = channelByDay[date][channelKey] || { requests: 0, tokens: 0, cost: 0 };
+            dayChannelStats.requests += requests;
+            channelByDay[date][channelKey] = dayChannelStats;
         }
     }
 
@@ -323,6 +349,11 @@ function resolveUsageModelKey(
     return hintedModel || 'unknown';
 }
 
+function resolveUsageChannelKey(session: OpenClawSessionsUsageEntry): string {
+    const normalized = session.channel?.trim().toLowerCase();
+    return normalized || 'chat';
+}
+
 function resolveFallbackWindowModel(
     sessionsUsage: OpenClawSessionsUsageResult,
     defaultModel?: string
@@ -407,5 +438,20 @@ function updateUsageAggregate(
         requests: (usageByModelDay[day][model]?.requests || 0) + 1,
         tokens: (usageByModelDay[day][model]?.tokens || 0) + totalTokens,
         cost: (usageByModelDay[day][model]?.cost || 0) + cost
+    };
+
+    const usageByChannel = usage.byChannel ||= {};
+    usageByChannel.chat = {
+        requests: (usageByChannel.chat?.requests || 0) + 1,
+        tokens: (usageByChannel.chat?.tokens || 0) + totalTokens,
+        cost: (usageByChannel.chat?.cost || 0) + cost
+    };
+
+    const usageByChannelDay = usage.byChannelByDay ||= {};
+    usageByChannelDay[day] ||= {};
+    usageByChannelDay[day].chat = {
+        requests: (usageByChannelDay[day].chat?.requests || 0) + 1,
+        tokens: (usageByChannelDay[day].chat?.tokens || 0) + totalTokens,
+        cost: (usageByChannelDay[day].chat?.cost || 0) + cost
     };
 }
