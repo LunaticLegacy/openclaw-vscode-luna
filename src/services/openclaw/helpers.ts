@@ -150,6 +150,49 @@ export function normalizeOpenClawGatewayToolEvent(
     return null;
 }
 
+export function normalizeOpenClawGatewayLifecycleEvent(
+    sessionKey: string,
+    payload: Record<string, unknown>
+): ChatMessage | null {
+    const data = payload.data && typeof payload.data === 'object'
+        ? payload.data as Record<string, unknown>
+        : null;
+    if (!data) {
+        return null;
+    }
+
+    const notice = buildOpenClawLifecycleNotice(data);
+    if (!notice) {
+        return null;
+    }
+
+    const runId = typeof payload.runId === 'string' && payload.runId.trim()
+        ? payload.runId.trim()
+        : sessionKey;
+    const seq = typeof payload.seq === 'number' && Number.isFinite(payload.seq)
+        ? payload.seq
+        : Date.now();
+    const timestamp = typeof payload.ts === 'number' && Number.isFinite(payload.ts)
+        ? new Date(payload.ts).toISOString()
+        : new Date().toISOString();
+
+    return {
+        id: `${runId}:lifecycle:${seq}`,
+        role: 'system',
+        content: notice,
+        timestamp,
+        agentId: parseAgentIdFromSessionKey(sessionKey) || undefined,
+        metadata: {
+            transient: true,
+            runId,
+            seq,
+            stream: 'lifecycle',
+            phase: typeof data.phase === 'string' ? data.phase : '',
+            noticeType: 'lifecycle'
+        }
+    };
+}
+
 export function buildSessionKeyMap(sessions: OpenClawSessionsListEntry[]): Map<string, string> {
     const map = new Map<string, string>();
 
@@ -207,7 +250,13 @@ export function normalizeOpenClawChatHistory(messages: OpenClawChatHistoryMessag
     const toolCalls = new Map<string, OpenClawToolCallInfo>();
 
     return messages
-        .map((message, index) => normalizeOpenClawChatMessage(message, `${sessionKey}:${index}`, agentId, toolCalls))
+        .map((message, index) => normalizeOpenClawChatMessage(
+            message,
+            `${sessionKey}:${index}`,
+            agentId,
+            toolCalls,
+            index
+        ))
         .filter((message): message is ChatMessage => Boolean(message));
 }
 
@@ -215,7 +264,8 @@ export function normalizeOpenClawChatMessage(
     message: OpenClawChatHistoryMessage,
     fallbackId: string,
     agentId?: string,
-    toolCalls: Map<string, OpenClawToolCallInfo> = new Map()
+    toolCalls: Map<string, OpenClawToolCallInfo> = new Map(),
+    sequenceIndex: number = 0
 ): ChatMessage | null {
     const role = normalizeRole(message.role);
     if (!role) {
@@ -234,7 +284,7 @@ export function normalizeOpenClawChatMessage(
             id: fallbackId,
             role: 'tool',
             content: resultText,
-            timestamp: normalizeTimestamp(message.timestamp),
+            timestamp: normalizeTimestamp(message.timestamp, sequenceIndex),
             agentId,
             parts: [{
                 type: 'toolResult',
@@ -268,7 +318,7 @@ export function normalizeOpenClawChatMessage(
         id: fallbackId,
         role,
         content: buildDisplayContentFromParts(parts, message as Record<string, unknown>),
-        timestamp: normalizeTimestamp(message.timestamp),
+        timestamp: normalizeTimestamp(message.timestamp, sequenceIndex),
         agentId,
         parts,
         metadata: extractMessageMetadata(message)
@@ -294,7 +344,8 @@ export function extractAssistantMessageFromPayload(payload: unknown, sessionKey:
                     message as OpenClawChatHistoryMessage,
                     `${sessionKey}:payload:${index}`,
                     parseAgentIdFromSessionKey(sessionKey) || undefined,
-                    toolCalls
+                    toolCalls,
+                    index
                 );
             })
             .find((message): message is ChatMessage => {
@@ -311,7 +362,8 @@ export function extractAssistantMessageFromPayload(payload: unknown, sessionKey:
             record.message as OpenClawChatHistoryMessage,
             `${sessionKey}:payload`,
             parseAgentIdFromSessionKey(sessionKey) || undefined,
-            toolCalls
+            toolCalls,
+            0
         );
         if (candidate?.role === 'assistant') {
             return candidate;
@@ -325,7 +377,7 @@ export function extractAssistantMessageFromPayload(payload: unknown, sessionKey:
             id: `${sessionKey}:payload`,
             role,
             content: buildDisplayContentFromParts(parts, record),
-            timestamp: normalizeTimestamp(record.timestamp),
+            timestamp: normalizeTimestamp(record.timestamp, 0),
             agentId: parseAgentIdFromSessionKey(sessionKey) || undefined,
             parts,
             metadata: extractRecordMetadata(record)
@@ -362,22 +414,34 @@ export function normalizeOpenClawSessionLog(
             continue;
         }
 
-        if (entry?.type !== 'message' || !entry.message) {
+        if (entry?.type === 'message' && entry.message) {
+            const normalized = normalizeOpenClawChatMessage(
+                {
+                    ...entry.message,
+                    timestamp: entry.message.timestamp ?? entry.timestamp
+                },
+                entry.id || `${sessionKey}:log:${index}`,
+                agentId,
+                toolCalls,
+                index
+            );
+
+            if (normalized) {
+                messages.push(normalized);
+            }
             continue;
         }
 
-        const normalized = normalizeOpenClawChatMessage(
-            {
-                ...entry.message,
-                timestamp: entry.message.timestamp ?? entry.timestamp
-            },
-            entry.id || `${sessionKey}:log:${index}`,
-            agentId,
-            toolCalls
-        );
-
-        if (normalized) {
-            messages.push(normalized);
+        if (entry && typeof entry === 'object') {
+            const lifecycle = normalizeOpenClawLifecycleEntry(
+                entry as Record<string, unknown>,
+                sessionKey,
+                agentId,
+                index
+            );
+            if (lifecycle) {
+                messages.push(lifecycle);
+            }
         }
     }
 
@@ -588,7 +652,7 @@ function normalizeRole(value: unknown): ChatMessage['role'] | null {
     return null;
 }
 
-function normalizeTimestamp(value: unknown): string {
+function normalizeTimestamp(value: unknown, sequenceIndex: number = 0): string {
     if (typeof value === 'number' && Number.isFinite(value)) {
         return new Date(value).toISOString();
     }
@@ -600,5 +664,74 @@ function normalizeTimestamp(value: unknown): string {
         }
     }
 
-    return new Date().toISOString();
+    const stableIndex = Number.isFinite(sequenceIndex)
+        ? Math.max(0, Math.trunc(sequenceIndex))
+        : 0;
+    return new Date(stableIndex).toISOString();
+}
+
+function normalizeOpenClawLifecycleEntry(
+    entry: Record<string, unknown>,
+    sessionKey: string,
+    agentId: string | undefined,
+    index: number
+): ChatMessage | null {
+    const type = typeof entry.type === 'string' ? entry.type : '';
+    if (type && type !== 'lifecycle' && type !== 'notice' && type !== 'system') {
+        return null;
+    }
+
+    const data = entry.data && typeof entry.data === 'object'
+        ? entry.data as Record<string, unknown>
+        : entry;
+    const notice = buildOpenClawLifecycleNotice(data);
+    if (!notice) {
+        return null;
+    }
+
+    return {
+        id: typeof entry.id === 'string' && entry.id.trim()
+            ? entry.id
+            : `${sessionKey}:lifecycle:${index}`,
+        role: 'system',
+        content: notice,
+        timestamp: normalizeTimestamp(entry.timestamp ?? data.timestamp, index),
+        agentId,
+        metadata: {
+            noticeType: 'lifecycle',
+            phase: typeof data.phase === 'string' ? data.phase : ''
+        }
+    };
+}
+
+function buildOpenClawLifecycleNotice(data: Record<string, unknown>): string {
+    const textFields = [
+        data.message,
+        data.summary,
+        data.reason,
+        data.detail,
+        data.text
+    ].map(value => typeof value === 'string' ? value.trim() : '').filter(Boolean);
+    const combined = [
+        typeof data.phase === 'string' ? data.phase : '',
+        typeof data.event === 'string' ? data.event : '',
+        typeof data.kind === 'string' ? data.kind : '',
+        ...textFields
+    ].join(' ').toLowerCase();
+
+    const fromModel = typeof data.fromModel === 'string' ? data.fromModel.trim() : '';
+    const toModel = typeof data.toModel === 'string' ? data.toModel.trim() : '';
+    if (fromModel && toModel && fromModel !== toModel) {
+        return `Model fallback: ${fromModel} -> ${toModel}`;
+    }
+
+    if (/fallback|downgrade/.test(combined)) {
+        return textFields[0] || 'Model fallback occurred during this run.';
+    }
+
+    if (/compact|compaction|compressed context|context refresh|context compressed/.test(combined)) {
+        return textFields[0] || 'Context was compacted during this run.';
+    }
+
+    return '';
 }

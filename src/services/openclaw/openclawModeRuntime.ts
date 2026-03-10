@@ -7,6 +7,7 @@ import { OpenClawCliServiceConfig } from '../openclawConfig';
 import {
     OpenClawAgentRecord,
     OpenClawCliRunner,
+    OpenClawChannelsListResult,
     OpenClawGatewayAgentsResult,
     OpenClawSessionsListEntry,
     OpenClawSessionsListResult,
@@ -25,6 +26,7 @@ import {
     inferOpenClawWorkspacePath,
     isFinalOpenClawAssistantMessage,
     normalizeOpenClawChatHistory,
+    normalizeOpenClawGatewayLifecycleEvent,
     normalizeOpenClawGatewayToolEvent,
     normalizeOpenClawSessionLog,
     parseAgentIdFromSessionKey,
@@ -44,6 +46,7 @@ import {
     ChatMessage,
     ChatSession,
     CreateAgentParams,
+    DiscoveredChannel,
     RealtimeUsageSnapshot,
     SendMessageOptions,
     ServiceEventSink,
@@ -248,6 +251,11 @@ export class OpenClawModeRuntime {
 
     public getConfig(): OpenClawCliServiceConfig {
         return this.config;
+    }
+
+    public async getDiscoveredChannels(): Promise<DiscoveredChannel[]> {
+        const result = await this.runner.listChannels().catch(() => null);
+        return mapDiscoveredChannels(result);
     }
 
     public dispose(): void {
@@ -641,6 +649,15 @@ export class OpenClawModeRuntime {
                     }
 
                     if (stream === 'lifecycle') {
+                        const lifecycleMessage = normalizeOpenClawGatewayLifecycleEvent(sessionKey, payload);
+                        if (lifecycleMessage) {
+                            yield {
+                                content: '',
+                                done: false,
+                                message: lifecycleMessage
+                            };
+                        }
+
                         const data = payload.data && typeof payload.data === 'object'
                             ? payload.data as Record<string, unknown>
                             : {};
@@ -854,4 +871,48 @@ export class OpenClawModeRuntime {
         this.snapshotCache = null;
         this.snapshotPromise = null;
     }
+}
+
+function mapDiscoveredChannels(result: OpenClawChannelsListResult | null): DiscoveredChannel[] {
+    if (!result?.chat || typeof result.chat !== 'object') {
+        return [];
+    }
+
+    const channels: DiscoveredChannel[] = [];
+    for (const [providerId, accounts] of Object.entries(result.chat)) {
+        if (!Array.isArray(accounts)) {
+            continue;
+        }
+
+        for (const rawAccountId of accounts) {
+            const accountId = String(rawAccountId || '').trim();
+            if (!accountId) {
+                continue;
+            }
+
+            const name = formatDiscoveredChannelName(providerId, accountId);
+            channels.push({
+                id: `openclaw:${providerId}:${accountId}`,
+                name,
+                source: 'openclaw',
+                providerId,
+                accountId,
+                description: `${providerId}/${accountId}`
+            });
+        }
+    }
+
+    return channels.sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function formatDiscoveredChannelName(providerId: string, accountId: string): string {
+    const normalizedProvider = String(providerId || '').trim();
+    const normalizedAccount = String(accountId || '').trim();
+    const providerLabel = normalizedProvider
+        .split(/[-_]+/)
+        .filter(Boolean)
+        .map(token => token.charAt(0).toUpperCase() + token.slice(1))
+        .join(' ');
+
+    return `${providerLabel || 'Channel'} ${normalizedAccount}`;
 }

@@ -41,6 +41,7 @@ export class OpenClawSidebarProvider implements vscode.TreeDataProvider<SidebarN
         this.agentManager.on('agentCreated', () => this.refresh());
         this.agentManager.on('agentUpdated', () => this.refresh());
         this.agentManager.on('agentDeleted', () => this.refresh());
+        this.agentManager.on('activeAgentChanged', () => this.refresh());
 
         this.clusterManager.on('clusterCreated', () => this.refresh());
         this.clusterManager.on('clusterUpdated', () => this.refresh());
@@ -94,7 +95,8 @@ export class OpenClawSidebarProvider implements vscode.TreeDataProvider<SidebarN
             return (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99);
         });
 
-        return sortedAgents.map(agent => new AgentTreeItem(agent, vscode.TreeItemCollapsibleState.None));
+        const activeAgentId = this.agentManager.getActiveAgentId();
+        return sortedAgents.map(agent => new AgentTreeItem(agent, activeAgentId === agent.id, vscode.TreeItemCollapsibleState.None));
     }
 
     private async getClusterItems(): Promise<SidebarNode[]> {

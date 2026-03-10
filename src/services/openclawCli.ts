@@ -185,6 +185,12 @@ export interface OpenClawSessionsUsageResult {
     };
 }
 
+export interface OpenClawChannelsListResult {
+    chat?: Record<string, string[]>;
+    auth?: Array<Record<string, unknown>>;
+    usage?: Record<string, unknown>;
+}
+
 export interface OpenClawUsageCostResult {
     updatedAt?: number;
     days?: number;
@@ -402,6 +408,10 @@ export class OpenClawCliRunner {
         return this.gatewayCall<OpenClawUsageCostResult>('usage.cost', params);
     }
 
+    public async listChannels(): Promise<OpenClawChannelsListResult> {
+        return this.execJson<OpenClawChannelsListResult>(['channels', 'list', '--json']);
+    }
+
     public async deleteAgent(agentId: string): Promise<Record<string, unknown> | undefined> {
         return this.execJson<Record<string, unknown>>([
             'agents',
@@ -485,7 +495,7 @@ export class OpenClawCliRunner {
 
     private async execJson<T>(args: string[]): Promise<T> {
         const { stdout, stderr } = await this.exec(args);
-        const output = stdout.trim();
+        const output = extractJsonPayload(stdout).trim();
         if (!output) {
             const errorOutput = stderr.trim();
             if (errorOutput) {
@@ -522,6 +532,46 @@ export class OpenClawCliRunner {
         }
 
         return path.join(path.dirname(this.config.defaultWorkspacePath), 'agents', safeAgentId);
+    }
+}
+
+function extractJsonPayload(stdout: string): string {
+    const trimmed = stdout.trim();
+    if (!trimmed) {
+        return '';
+    }
+
+    if (looksLikeStandaloneJson(trimmed)) {
+        return trimmed;
+    }
+
+    const lines = trimmed.split(/\r?\n/);
+    for (let index = 0; index < lines.length; index += 1) {
+        const candidate = lines.slice(index).join('\n').trim();
+        if (looksLikeStandaloneJson(candidate)) {
+            return candidate;
+        }
+    }
+
+    const objectStart = trimmed.indexOf('{');
+    const arrayStart = trimmed.indexOf('[');
+    const start = [objectStart, arrayStart]
+        .filter(index => index >= 0)
+        .sort((left, right) => left - right)[0];
+
+    return start >= 0 ? trimmed.slice(start).trim() : trimmed;
+}
+
+function looksLikeStandaloneJson(value: string): boolean {
+    if (!value.startsWith('{') && !value.startsWith('[')) {
+        return false;
+    }
+
+    try {
+        JSON.parse(value);
+        return true;
+    } catch {
+        return false;
     }
 }
 

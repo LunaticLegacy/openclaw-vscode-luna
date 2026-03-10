@@ -74,6 +74,15 @@ export interface ChatSession {
     updatedAt: string;
 }
 
+export interface DiscoveredChannel {
+    id: string;
+    name: string;
+    source: 'openclaw';
+    providerId: string;
+    accountId: string;
+    description?: string;
+}
+
 export interface APIUsage {
     totalRequests: number;
     totalTokens: number;
