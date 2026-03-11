@@ -8,18 +8,18 @@
 
 # OpenClaw Luna
 
-(Public Alpha)
+Early Access for OpenClaw Users
 
 ### The OpenClaw console for VS Code
 
-**Keep agents, AI Swarms, OpenClaw cron, connection switching, and 7/30-day usage inside one panel instead of scattering them across commands.**
+**Use VS Code to complete the smallest OpenClaw loop first: connect, create an agent, send the first message, then decide whether you need Swarms, cron, and usage diagnostics.**
 
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.80+-007ACC?logo=visualstudiocode&logoColor=white)](https://code.visualstudio.com/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Version](https://img.shields.io/badge/Version-0.4.0-111111)](../package.json)
+[![Version](https://img.shields.io/badge/Version-0.5.2-111111)](../package.json)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](../LICENSE)
 
-[Quick Start](#5-minute-setup) · [Connection Modes](#connection-modes) · [Capability Matrix](#capability-matrix) · [Tests](#tests) · [中文](../README.md)
+[60-Second Setup](#60-second-setup) · [Feedback Path](#if-it-breaks-start-here) · [Connection Modes](#connection-modes) · [Tests](#tests) · [中文](../README.md)
 
 <br />
 
@@ -38,6 +38,13 @@
 
 > *"Luna is not another chat box. It is the OpenClaw control surface inside VS Code."*
 
+If you already use OpenClaw and do not want to bounce between a CLI, browser, and scattered commands, Luna is the missing control surface. It keeps first-run setup, first chat success, and follow-up workflows like agents, Swarms, cron, and usage inside one VS Code panel.
+
+It is built for two cases:
+
+- You already use OpenClaw and want your daily control path back inside VS Code.
+- You are new to OpenClaw and want one small success in under a minute before learning the full config model.
+
 Once your workflow spans agent chat, Swarm collaboration, scheduled tasks, connection switching, and usage inspection, the problem is not a lack of entry points. The problem is fragmented context. Luna is built to compress those actions into one stable main path:
 
 - Create agents, chat, switch models, and inspect context from one panel.
@@ -48,39 +55,57 @@ Once your workflow spans agent chat, Swarm collaboration, scheduled tasks, conne
 
 ---
 
-## 5-Minute Setup
+## 60-Second Setup
 
-### 1. Clone and install
+### 1. Install the extension from the marketplace
 
-```bash
-git clone https://github.com/LunaticLegacy/openclaw-vscode-luna.git
-cd openclaw-vscode-luna
-npm install
-```
+The extension has been published to the marketplace.
 
-### 2. Compile and launch the extension host
+### 2. Open the Luna panel
 
-```bash
-npm run compile
-npm run watch
-```
+You have three ways to access it:
 
-Then press `F5` in VS Code to open the `Extension Development Host`.
+- Command palette: `OpenClaw: Open Panel`
+- Status bar item in the bottom-right corner: `OpenClaw`
+- Activity Bar sidebar: `OpenClaw`
 
-### 3. Open Luna
+### 3. Finish the first success before learning every mode
 
-There are three main entry points:
-
-- The `OpenClaw` activity bar icon
-- The command palette entry `OpenClaw: Open Panel`
-- The bottom-right `OpenClaw` status bar item
-
-On first entry, the top-left `OpenClaw Luna` brand takes you back to the initial setup screen. From there you can:
+On first entry, the top-left `OpenClaw Luna` brand takes you back to the initial setup screen. Follow this shortest path first:
 
 - Check whether local OpenClaw is installed
-- Start the local `OpenClaw gateway` directly
-- Edit `OpenClaw Config` without leaving Luna
-- Switch between `Auto Detect / Gateway / OpenClaw CLI / Local Models`
+- Start the local `OpenClaw gateway`, or enter your remote Gateway
+- Keep the default mode for now instead of optimizing `Auto Detect / Gateway / OpenClaw CLI / Local Models`
+- Create your first agent
+- Send your first message and confirm that Luna returns a result
+
+### 4. Expand only after the first message works
+
+After the first successful reply, go deeper only if you need it:
+
+- Open `Swarm` if you want multi-agent collaboration
+- Switch to `OpenClaw CLI` if you need scheduled tasks
+- Open `Usage` if you want request, token, and cost inspection
+- Edit `OpenClaw Config` or local model files if you need tighter control
+
+For a first trial, "it connects, creates an agent, and sends one message" is enough.
+
+---
+
+## If It Breaks, Start Here
+
+If Luna fails on the first run, the most useful feedback is not "it doesn't work". Send these three things instead:
+
+- Which connection mode you used: `Auto Detect`, `Gateway`, `OpenClaw CLI`, or `Local Models`
+- Which step failed: install, connect, create agent, send message, open tasks, or open usage
+- The actual error text from the VS Code developer tools, output panel, or in-product message
+
+Feedback links:
+
+- Issues: <https://github.com/LunaticLegacy/openclaw-vscode-luna/issues>
+- Repository: <https://github.com/LunaticLegacy/openclaw-vscode-luna>
+
+That is enough to reproduce real failures and turn setup friction into actionable feedback.
 
 ---
 

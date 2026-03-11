@@ -394,6 +394,15 @@ export class OpenClawCliRunner {
         );
     }
 
+    public async abortChat(sessionKey: string, runId?: string): Promise<Record<string, unknown>> {
+        const params: Record<string, unknown> = { sessionKey };
+        if (runId?.trim()) {
+            params.runId = runId.trim();
+        }
+
+        return this.gatewayCall<Record<string, unknown>>('chat.abort', params);
+    }
+
     public async getAgentIdentity(sessionKey: string): Promise<OpenClawAgentIdentity> {
         return this.gatewayCall<OpenClawAgentIdentity>('agent.identity.get', {
             sessionKey

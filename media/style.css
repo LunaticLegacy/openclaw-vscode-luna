@@ -31,6 +31,7 @@ body {
     display: flex;
     height: 100vh;
     min-height: 0;
+    position: relative;
 }
 
 /* Sidebar */
@@ -41,6 +42,7 @@ body {
     display: flex;
     flex-direction: column;
     min-height: 0;
+    transition: width 0.2s ease;
 }
 
 .sidebar-header {
@@ -55,6 +57,64 @@ body {
 .sidebar-header h2 {
     font-size: 16px;
     font-weight: 600;
+}
+
+.sidebar-edge-toggle {
+    width: 18px;
+    min-width: 18px;
+    height: 72px;
+    border: 1px solid var(--border);
+    border-left: none;
+    border-radius: 0 10px 10px 0;
+    background: color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary));
+    color: var(--text-secondary);
+    cursor: pointer;
+    align-self: center;
+    margin-left: -1px;
+    z-index: 3;
+}
+
+.sidebar-edge-toggle:hover {
+    color: var(--text-primary);
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.sidebar.collapsed {
+    width: 64px;
+}
+
+.sidebar.collapsed .sidebar-brand,
+.sidebar.collapsed .sidebar-utility,
+.sidebar.collapsed .sidebar-sections {
+    display: none;
+}
+
+.sidebar.collapsed .connection-pill {
+    width: 14px;
+    height: 14px;
+    min-width: 14px;
+    min-height: 14px;
+    padding: 0;
+    border-radius: 999px;
+    justify-content: center;
+    gap: 0;
+}
+
+.sidebar.collapsed .nav-tab {
+    justify-content: center;
+    padding: 10px 0;
+}
+
+.sidebar.collapsed #connection-label {
+    display: none;
+}
+
+.sidebar.collapsed #connection-status {
+    font-size: 10px;
+}
+
+.sidebar.collapsed .nav-tab span:not(.icon) {
+    display: none;
 }
 
 .sidebar-brand {
@@ -1681,6 +1741,7 @@ body {
     background:
         linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 88%, transparent), transparent),
         var(--bg-primary);
+    transition: width 0.2s ease;
 }
 
 .channel-sidebar-header {
@@ -1716,6 +1777,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    min-height: 0;
 }
 
 .channel-list-item {
@@ -1762,6 +1824,7 @@ body {
     min-height: 0;
     display: flex;
     flex-direction: column;
+    min-width: 0;
 }
 
 .channel-empty-state {
@@ -1773,14 +1836,15 @@ body {
 }
 
 .channel-workspace {
-    flex: 1;
     min-height: 0;
-    display: flex;
-    flex-direction: column;
+    display: block;
+    padding: 12px;
+    overflow-y: auto;
+    border-top: 1px solid var(--border);
 }
 
 .channel-config-card {
-    margin: 20px 20px 0;
+    margin: 0;
     padding: 18px;
     border: 1px solid var(--border);
     border-radius: 16px;
@@ -1822,6 +1886,7 @@ body {
     display: flex;
     flex-direction: column;
     min-height: 0;
+    min-width: 0;
 }
 
 .channel-chat-header {
@@ -2439,10 +2504,6 @@ form {
     box-shadow: 0 18px 36px rgba(0, 0, 0, 0.24);
 }
 
-.new-agent-preset-card.is-wide {
-    grid-column: span 2;
-}
-
 .new-agent-preset-card-badge,
 .new-agent-preset-summary-badge {
     display: inline-flex;
@@ -2936,10 +2997,6 @@ form {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .new-agent-preset-card.is-wide {
-        grid-column: span 2;
-    }
-
     .new-agent-preset-summary-head {
         flex-direction: column;
         align-items: flex-start;
@@ -3009,10 +3066,6 @@ form {
 
     .new-agent-preset-grid {
         grid-template-columns: 1fr;
-    }
-
-    .new-agent-preset-card.is-wide {
-        grid-column: span 1;
     }
 
     .console-setup-panel,

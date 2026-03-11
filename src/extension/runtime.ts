@@ -26,6 +26,8 @@ export class OpenClawExtensionRuntime {
     public readonly taskTreeProvider: TaskTreeProvider;
 
     private readonly statusBarItem: vscode.StatusBarItem;
+    private sidebarView: vscode.TreeView<vscode.TreeItem> | undefined;
+    private sidebarWasVisible = false;
 
     private constructor(
         public readonly context: vscode.ExtensionContext,
@@ -85,11 +87,28 @@ export class OpenClawExtensionRuntime {
     }
 
     public registerProviders(): void {
+        this.sidebarView = vscode.window.createTreeView('openclawSidebar', {
+            treeDataProvider: this.sidebarTreeProvider
+        });
+
         this.context.subscriptions.push(
             this.statusBarItem,
-            vscode.window.registerTreeDataProvider('openclawSidebar', this.sidebarTreeProvider),
+            this.sidebarView,
             vscode.window.registerTreeDataProvider('openclawUsage', this.usageTreeProvider),
             vscode.window.registerTreeDataProvider('openclawTasks', this.taskTreeProvider)
+        );
+
+        this.context.subscriptions.push(
+            this.sidebarView.onDidChangeVisibility(event => {
+                const becameVisible = event.visible && !this.sidebarWasVisible;
+                this.sidebarWasVisible = event.visible;
+
+                if (!becameVisible || this.getPanel()) {
+                    return;
+                }
+
+                this.showPanel();
+            })
         );
     }
 

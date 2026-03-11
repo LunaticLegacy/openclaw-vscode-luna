@@ -92,6 +92,28 @@ const AGENT_PRESET_DEFINITIONS: readonly AgentPresetDefinition[] = [
         failureSignalsKey: 'newAgent.preset.apiContractWriter.failureSignals',
         outputStandardKey: 'newAgent.preset.apiContractWriter.outputStandard',
         systemPromptKey: 'newAgent.preset.apiContractWriter.systemPrompt'
+    },
+    {
+        id: 'test-author',
+        defaultName: 'test-author',
+        labelKey: 'newAgent.preset.testAuthor.label',
+        badgeKey: 'newAgent.preset.testAuthor.badge',
+        descriptionKey: 'newAgent.preset.testAuthor.description',
+        recommendedModelKey: 'newAgent.preset.testAuthor.recommendedModel',
+        failureSignalsKey: 'newAgent.preset.testAuthor.failureSignals',
+        outputStandardKey: 'newAgent.preset.testAuthor.outputStandard',
+        systemPromptKey: 'newAgent.preset.testAuthor.systemPrompt'
+    },
+    {
+        id: 'docs-editor',
+        defaultName: 'docs-editor',
+        labelKey: 'newAgent.preset.docsEditor.label',
+        badgeKey: 'newAgent.preset.docsEditor.badge',
+        descriptionKey: 'newAgent.preset.docsEditor.description',
+        recommendedModelKey: 'newAgent.preset.docsEditor.recommendedModel',
+        failureSignalsKey: 'newAgent.preset.docsEditor.failureSignals',
+        outputStandardKey: 'newAgent.preset.docsEditor.outputStandard',
+        systemPromptKey: 'newAgent.preset.docsEditor.systemPrompt'
     }
 ];
 

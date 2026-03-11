@@ -62,7 +62,8 @@
         forceSetupPanel: false,
         installGuideStatus: null,
         installGuideBusy: false,
-        agentMutation: null
+        agentMutation: null,
+        mainSidebarCollapsed: false
     };
     let activeTraceContainer = null;
     let activeChannelTraceContainer = null;
@@ -80,6 +81,7 @@
     // Initialize
     function init() {
         cacheElements();
+        hydrateUiState();
         bindEvents();
         
         const locale = document.body?.dataset.locale;
@@ -98,7 +100,38 @@
         }
         
         updateUIText();
+        applySidebarState();
         vscode.postMessage({ type: 'webviewReady' });
+    }
+
+    function hydrateUiState() {
+        const savedState = vscode.getState ? (vscode.getState() || {}) : {};
+        state.mainSidebarCollapsed = Boolean(savedState.mainSidebarCollapsed);
+    }
+
+    function persistUiState() {
+        if (!vscode.setState) {
+            return;
+        }
+
+        vscode.setState({
+            mainSidebarCollapsed: state.mainSidebarCollapsed
+        });
+    }
+
+    function toggleMainSidebar() {
+        state.mainSidebarCollapsed = !state.mainSidebarCollapsed;
+        applySidebarState();
+        persistUiState();
+    }
+
+    function applySidebarState() {
+        elements.mainSidebar?.classList.toggle('collapsed', state.mainSidebarCollapsed);
+
+        if (elements.btnToggleMainSidebar) {
+            elements.btnToggleMainSidebar.innerHTML = state.mainSidebarCollapsed ? '&#9654;' : '&#9664;';
+            elements.btnToggleMainSidebar.title = state.mainSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar';
+        }
     }
 
     function decodeBase64Utf8(value) {
@@ -117,6 +150,8 @@
     }
 
     function cacheElements() {
+        elements.mainSidebar = document.getElementById('main-sidebar');
+        elements.btnToggleMainSidebar = document.getElementById('btn-toggle-main-sidebar');
         elements.agentList = document.getElementById('agent-list');
         elements.chatHome = document.getElementById('chat-home');
         elements.clusterSidebarList = document.getElementById('cluster-sidebar-list');
@@ -224,6 +259,7 @@
         elements.usagePeriodCaption = document.getElementById('usage-period-caption');
         elements.usageChartTitle = document.getElementById('usage-chart-title');
         elements.modelChartTitle = document.getElementById('model-chart-title');
+        elements.channelSidebar = document.getElementById('channel-sidebar');
         elements.btnRefreshChannel = document.getElementById('btn-refresh-channel');
         elements.btnRefreshChannelMessages = document.getElementById('btn-refresh-channel-messages');
         elements.btnNewChannel = document.getElementById('btn-new-channel');
@@ -232,6 +268,7 @@
         elements.channelList = document.getElementById('channel-list');
         elements.channelEmptyState = document.getElementById('channel-empty-state');
         elements.channelWorkspace = document.getElementById('channel-workspace');
+        elements.channelChatShell = document.getElementById('channel-chat-shell');
         elements.formChannelConfig = document.getElementById('form-channel-config');
         elements.channelEditorTitle = document.getElementById('channel-editor-title');
         elements.channelEditorSummary = document.getElementById('channel-editor-summary');
@@ -252,6 +289,8 @@
     }
 
     function bindEvents() {
+        elements.btnToggleMainSidebar?.addEventListener('click', toggleMainSidebar);
+
         // Navigation
         elements.navTabs.forEach(tab => {
             tab.addEventListener('click', () => switchView(tab.dataset.view));
@@ -798,6 +837,9 @@
                 break;
             case 'openclaw-config':
                 toggleOpenClawConfigEntry();
+                break;
+            case 'report-issue':
+                vscode.postMessage({ type: 'openIssueTracker' });
                 break;
             case 'settings':
                 vscode.postMessage({ type: 'openSettings' });
@@ -3270,6 +3312,9 @@
         if (elements.channelWorkspace) {
             elements.channelWorkspace.classList.toggle('hidden', !hasWorkspace);
         }
+        if (elements.channelChatShell) {
+            elements.channelChatShell.classList.toggle('hidden', !hasWorkspace);
+        }
 
         if (!hasWorkspace || !formData) {
             renderChannelList();
@@ -3283,16 +3328,12 @@
         if (elements.channelEditorTitle) {
             elements.channelEditorTitle.textContent = isDraft
                 ? t('channel.editorTitleNew')
-                : importedChannel
-                    ? t('channel.editorTitleImported', { name: formData.name })
-                    : t('channel.editorTitleExisting', { name: formData.name });
+                : t('channel.editorTitleExisting', { name: formData.name });
         }
         if (elements.channelEditorSummary) {
             elements.channelEditorSummary.textContent = isDraft
                 ? t('channel.editorSummaryNew')
-                : importedChannel
-                    ? t('channel.editorSummaryImported')
-                    : t('channel.editorSummaryExisting');
+                : t('channel.editorSummaryExisting');
         }
 
         populateChannelAgentOptions(agentId);
@@ -3365,12 +3406,7 @@
             return;
         }
 
-        if (isImportedChannel(channel)) {
-            elements.channelMessages.innerHTML = `<div class="empty">${escapeHtml(t('channel.importedHint'))}</div>`;
-            return;
-        }
-
-        if (!resolveAgent(channel.agentId)) {
+        if (!resolveChannelAgent(channel)) {
             elements.channelMessages.innerHTML = `<div class="empty">${escapeHtml(t('channel.missingAgentHint'))}</div>`;
             return;
         }
@@ -3428,6 +3464,14 @@
         }
 
         return state.agents.find(agent => agent.id === agentId) || null;
+    }
+
+    function resolveChannelAgent(channel) {
+        if (!channel) {
+            return null;
+        }
+
+        return resolveAgent(channel.agentId) || state.agents[0] || null;
     }
 
     function isImportedChannel(channel) {
@@ -3510,7 +3554,7 @@
     function updateChannelInputState() {
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
         const channel = getCurrentChannel();
-        const agent = channel ? resolveAgent(channel.agentId) : null;
+        const agent = channel ? resolveChannelAgent(channel) : null;
 
         let disabled = false;
         let hint = '';
@@ -3521,9 +3565,6 @@
         } else if (!channel) {
             disabled = true;
             hint = t('channel.selectHint');
-        } else if (isImportedChannel(channel)) {
-            disabled = true;
-            hint = t('channel.importedHint');
         } else if (!agent) {
             disabled = true;
             hint = t('channel.missingAgentHint');
@@ -3566,12 +3607,7 @@
             return;
         }
 
-        if (isImportedChannel(channel)) {
-            showChannelError(window.OpenClawI18n ? window.OpenClawI18n.t('channel.importedHint') : 'Imported channels are read-only in Luna.');
-            return;
-        }
-
-        if (!resolveAgent(channel.agentId)) {
+        if (!resolveChannelAgent(channel)) {
             showChannelError(window.OpenClawI18n ? window.OpenClawI18n.t('channel.missingAgentHint') : 'Bind this channel to an available agent first.');
             return;
         }
@@ -3832,13 +3868,12 @@
             return;
         }
 
-        elements.newAgentPresetGrid.innerHTML = state.agentPresets.map((preset, index) => {
-            const layoutClass = getAgentPresetCardLayoutClass(index);
+        elements.newAgentPresetGrid.innerHTML = state.agentPresets.map((preset) => {
             const isSelected = preset.id === state.newAgentPresetId;
             return `
                 <button
                     type="button"
-                    class="new-agent-preset-card ${layoutClass}${isSelected ? ' selected' : ''}"
+                    class="new-agent-preset-card${isSelected ? ' selected' : ''}"
                     data-agent-preset-card="true"
                     data-agent-preset-id="${escapeHtml(preset.id)}"
                 >
@@ -3849,10 +3884,6 @@
                 </button>
             `;
         }).join('');
-    }
-
-    function getAgentPresetCardLayoutClass(index) {
-        return index === 2 || index === 3 ? 'is-wide' : '';
     }
 
     function renderNewAgentPresetDescription() {

@@ -66,8 +66,21 @@ interface CachedOpenClawAgentsSnapshot {
     value: OpenClawAgentsSnapshot;
 }
 
+interface OpenClawAgentSettingsRecord {
+    name?: string;
+    model?: string;
+    systemPrompt?: string;
+    temperature?: number;
+    maxTokens?: number;
+}
+
+const OPENCLAW_AGENT_SETTINGS_FILE = '.openclaw-vscode-agent.json';
+const OPENCLAW_SYSTEM_PROMPT_FILE = 'SYSTEM.md';
+const OPENCLAW_IDENTITY_FILE = 'IDENTITY.md';
+
 export class OpenClawModeRuntime {
     private readonly runner: OpenClawCliRunner;
+    private readonly activeGatewayRuns = new Map<string, { runId: string; abortPromise?: Promise<void> }>();
     private defaultAgentId: string | null = null;
     private mainKey: string | null = null;
     private sessionKeysByAgent: Map<string, string> = new Map();
@@ -146,8 +159,60 @@ export class OpenClawModeRuntime {
         return agent;
     }
 
-    public updateAgent(_agentId: string, _params: UpdateAgentParams): Promise<Agent> {
-        return Promise.reject(new Error(t('service.updateAgentNotSupported')));
+    public async updateAgent(agentId: string, params: UpdateAgentParams): Promise<Agent> {
+        const agent = await this.getAgent(agentId);
+        if (!agent) {
+            throw new Error(t('service.agentNotFound'));
+        }
+
+        const workspacePath = await this.resolveAgentFolderPath(agent);
+        if (!workspacePath) {
+            throw new Error(t('agentSettings.noWorkspace'));
+        }
+
+        await fs.mkdir(workspacePath, { recursive: true });
+
+        const currentSettings = await readOpenClawAgentSettings(workspacePath);
+        const mergedSettings: OpenClawAgentSettingsRecord = {
+            ...currentSettings,
+            name: normalizeOptionalString(params.name) ?? currentSettings.name ?? agent.name,
+            model: normalizeOptionalString(params.model) ?? currentSettings.model ?? agent.model,
+            systemPrompt: params.systemPrompt !== undefined
+                ? params.systemPrompt
+                : currentSettings.systemPrompt ?? agent.systemPrompt,
+            temperature: normalizeOptionalNumber(params.temperature) ?? currentSettings.temperature ?? agent.temperature,
+            maxTokens: normalizeOptionalInteger(params.maxTokens) ?? currentSettings.maxTokens ?? agent.maxTokens
+        };
+
+        await writeOpenClawAgentSettings(workspacePath, mergedSettings);
+
+        if (params.systemPrompt !== undefined) {
+            await fs.writeFile(
+                path.join(workspacePath, OPENCLAW_SYSTEM_PROMPT_FILE),
+                params.systemPrompt,
+                'utf8'
+            );
+        }
+
+        await updateOpenClawIdentityFile(workspacePath, {
+            agentId: agent.id,
+            name: mergedSettings.name || agent.name,
+            model: mergedSettings.model || agent.model
+        });
+
+        this.invalidateSnapshotCache();
+
+        const updatedAgent: Agent = {
+            ...agent,
+            name: mergedSettings.name || agent.name,
+            model: mergedSettings.model || agent.model,
+            systemPrompt: mergedSettings.systemPrompt,
+            temperature: mergedSettings.temperature,
+            maxTokens: mergedSettings.maxTokens
+        };
+
+        this.emitEvent('agentUpdated', updatedAgent);
+        return updatedAgent;
     }
 
     public async deleteAgent(agentId: string): Promise<void> {
@@ -226,6 +291,40 @@ export class OpenClawModeRuntime {
         return Promise.resolve();
     }
 
+    public async abortSessionRun(sessionId: string): Promise<void> {
+        const normalizedSessionId = sessionId.trim();
+        if (!normalizedSessionId) {
+            return;
+        }
+
+        const activeRun = this.activeGatewayRuns.get(normalizedSessionId);
+        if (activeRun?.abortPromise) {
+            await activeRun.abortPromise;
+            return;
+        }
+
+        const abortPromise: Promise<void> = this.runner.abortChat(normalizedSessionId, activeRun?.runId)
+            .then(() => undefined)
+            .catch(() => undefined);
+        if (activeRun) {
+            activeRun.abortPromise = abortPromise;
+        } else {
+            this.activeGatewayRuns.set(normalizedSessionId, {
+                runId: '',
+                abortPromise
+            });
+        }
+
+        try {
+            await abortPromise;
+        } finally {
+            const currentRun = this.activeGatewayRuns.get(normalizedSessionId);
+            if (currentRun?.abortPromise === abortPromise) {
+                this.activeGatewayRuns.delete(normalizedSessionId);
+            }
+        }
+    }
+
     public async getUsage(): Promise<APIUsage> {
         return this.getOpenClawUsage();
     }
@@ -259,6 +358,7 @@ export class OpenClawModeRuntime {
     }
 
     public dispose(): void {
+        this.activeGatewayRuns.clear();
         this.defaultAgentId = null;
         this.mainKey = null;
         this.sessionKeysByAgent.clear();
@@ -330,7 +430,7 @@ export class OpenClawModeRuntime {
             }
 
             seen.add(record.id);
-            agents.push(this.mapAgentRecord(record, gatewayNames, defaultAgentId, sessionKeysByAgent, now));
+            agents.push(await this.mapAgentRecord(record, gatewayNames, defaultAgentId, sessionKeysByAgent, now));
         }
 
         for (const [id, name] of gatewayNames.entries()) {
@@ -338,7 +438,7 @@ export class OpenClawModeRuntime {
                 continue;
             }
 
-            agents.push({
+            agents.push(await this.applyStoredAgentSettings({
                 id,
                 name,
                 model: this.config.defaultModel || 'openclaw',
@@ -347,7 +447,7 @@ export class OpenClawModeRuntime {
                 lastActive: sessionKeysByAgent.has(id) ? now : undefined,
                 isDefault: id === defaultAgentId,
                 workspacePath: inferOpenClawWorkspacePath(id, this.config)
-            });
+            }));
         }
 
         this.defaultAgentId = defaultAgentId;
@@ -374,14 +474,14 @@ export class OpenClawModeRuntime {
         return snapshot;
     }
 
-    private mapAgentRecord(
+    private async mapAgentRecord(
         record: OpenClawAgentRecord,
         gatewayNames: Map<string, string>,
         defaultAgentId: string | null,
         sessionKeysByAgent: Map<string, string>,
         now: string
-    ): Agent {
-        return {
+    ): Promise<Agent> {
+        return this.applyStoredAgentSettings({
             id: record.id,
             name: record.name?.trim() || gatewayNames.get(record.id) || record.id,
             model: record.model?.trim() || this.config.defaultModel || 'openclaw',
@@ -390,6 +490,27 @@ export class OpenClawModeRuntime {
             lastActive: sessionKeysByAgent.has(record.id) ? now : undefined,
             isDefault: Boolean(record.isDefault || record.id === defaultAgentId),
             workspacePath: resolveOpenClawRecordWorkspacePath(record, this.config)
+        });
+    }
+
+    private async applyStoredAgentSettings(agent: Agent): Promise<Agent> {
+        const workspacePath = agent.workspacePath?.trim();
+        if (!workspacePath) {
+            return agent;
+        }
+
+        const [settings, systemPrompt] = await Promise.all([
+            readOpenClawAgentSettings(workspacePath),
+            readOpenClawSystemPrompt(workspacePath)
+        ]);
+
+        return {
+            ...agent,
+            name: settings.name || agent.name,
+            model: settings.model || agent.model,
+            systemPrompt: settings.systemPrompt ?? systemPrompt ?? agent.systemPrompt,
+            temperature: settings.temperature ?? agent.temperature,
+            maxTokens: settings.maxTokens ?? agent.maxTokens
         };
     }
 
@@ -590,6 +711,8 @@ export class OpenClawModeRuntime {
                 throw new Error('Gateway chat.send did not return a runId');
             }
 
+            this.activeGatewayRuns.set(sessionKey, { runId });
+
             while (true) {
                 const event = await nextEvent();
                 const payload = event.payload && typeof event.payload === 'object'
@@ -751,6 +874,10 @@ export class OpenClawModeRuntime {
                 done: true
             };
         } finally {
+            const activeRun = this.activeGatewayRuns.get(sessionKey);
+            if (activeRun?.runId === runId && !activeRun.abortPromise) {
+                this.activeGatewayRuns.delete(sessionKey);
+            }
             gatewayClient.off('event', onEvent);
             gatewayClient.off('error', onError);
             gatewayClient.dispose();
@@ -915,4 +1042,125 @@ function formatDiscoveredChannelName(providerId: string, accountId: string): str
         .join(' ');
 
     return `${providerLabel || 'Channel'} ${normalizedAccount}`;
+}
+
+async function readOpenClawAgentSettings(workspacePath: string): Promise<OpenClawAgentSettingsRecord> {
+    try {
+        const content = await fs.readFile(path.join(workspacePath, OPENCLAW_AGENT_SETTINGS_FILE), 'utf8');
+        const parsed = JSON.parse(content) as OpenClawAgentSettingsRecord;
+        return {
+            name: normalizeOptionalString(parsed.name),
+            model: normalizeOptionalString(parsed.model),
+            systemPrompt: parsed.systemPrompt !== undefined ? String(parsed.systemPrompt) : undefined,
+            temperature: normalizeOptionalNumber(parsed.temperature),
+            maxTokens: normalizeOptionalInteger(parsed.maxTokens)
+        };
+    } catch {
+        return {};
+    }
+}
+
+async function writeOpenClawAgentSettings(
+    workspacePath: string,
+    settings: OpenClawAgentSettingsRecord
+): Promise<void> {
+    const payload: OpenClawAgentSettingsRecord = {};
+
+    if (settings.name) {
+        payload.name = settings.name;
+    }
+    if (settings.model) {
+        payload.model = settings.model;
+    }
+    if (settings.systemPrompt !== undefined) {
+        payload.systemPrompt = settings.systemPrompt;
+    }
+    if (settings.temperature !== undefined) {
+        payload.temperature = settings.temperature;
+    }
+    if (settings.maxTokens !== undefined) {
+        payload.maxTokens = settings.maxTokens;
+    }
+
+    await fs.writeFile(
+        path.join(workspacePath, OPENCLAW_AGENT_SETTINGS_FILE),
+        JSON.stringify(payload, null, 2),
+        'utf8'
+    );
+}
+
+async function readOpenClawSystemPrompt(workspacePath: string): Promise<string | undefined> {
+    try {
+        return await fs.readFile(path.join(workspacePath, OPENCLAW_SYSTEM_PROMPT_FILE), 'utf8');
+    } catch {
+        return undefined;
+    }
+}
+
+async function updateOpenClawIdentityFile(
+    workspacePath: string,
+    values: { agentId: string; name: string; model: string }
+): Promise<void> {
+    const targetPath = path.join(workspacePath, OPENCLAW_IDENTITY_FILE);
+    let content: string;
+
+    try {
+        content = await fs.readFile(targetPath, 'utf8');
+    } catch {
+        content = [
+            '# IDENTITY.md - Who Am I?',
+            '',
+            `- Name: ${values.name}`,
+            `- Agent ID: ${values.agentId}`,
+            `- Model: ${values.model}`,
+            ''
+        ].join('\n');
+        await fs.writeFile(targetPath, content, 'utf8');
+        return;
+    }
+
+    const updates: Array<[RegExp, string]> = [
+        [/^- Name:\s*.*$/m, `- Name: ${values.name}`],
+        [/^- Agent ID:\s*.*$/m, `- Agent ID: ${values.agentId}`],
+        [/^- Model:\s*.*$/m, `- Model: ${values.model}`]
+    ];
+
+    let nextContent = content;
+    for (const [pattern, replacement] of updates) {
+        if (pattern.test(nextContent)) {
+            nextContent = nextContent.replace(pattern, replacement);
+        } else {
+            nextContent = `${nextContent.trimEnd()}\n${replacement}\n`;
+        }
+    }
+
+    if (nextContent !== content) {
+        await fs.writeFile(targetPath, nextContent, 'utf8');
+    }
+}
+
+function normalizeOptionalString(value: unknown): string | undefined {
+    if (typeof value !== 'string') {
+        return undefined;
+    }
+
+    const trimmed = value.trim();
+    return trimmed ? trimmed : undefined;
+}
+
+function normalizeOptionalNumber(value: unknown): number | undefined {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return undefined;
+    }
+
+    return value;
+}
+
+function normalizeOptionalInteger(value: unknown): number | undefined {
+    const normalized = normalizeOptionalNumber(value);
+    if (normalized === undefined) {
+        return undefined;
+    }
+
+    return Math.max(1, Math.round(normalized));
 }

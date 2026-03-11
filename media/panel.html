@@ -15,7 +15,7 @@
     <script src="{{panelScriptUri}}" defer></script>
 
     <div id="app">
-        <aside class="sidebar">
+        <aside id="main-sidebar" class="sidebar">
             <div class="sidebar-header">
                 <button class="sidebar-brand sidebar-brand-button" type="button" data-console-action="console-home">
                     <h2>OpenClaw Luna</h2>
@@ -79,6 +79,7 @@
                 </section>
             </div>
         </aside>
+        <button id="btn-toggle-main-sidebar" class="sidebar-edge-toggle sidebar-edge-toggle-main" type="button" aria-label="Toggle sidebar" title="Toggle sidebar">&#9664;</button>
 
         <main class="main-content">
             <div id="view-chat" class="view active">
@@ -94,6 +95,7 @@
                                 <button class="btn btn-primary" type="button" data-console-action="new-agent" data-i18n="sidebar.newAgent">New Agent</button>
                                 <button class="btn btn-secondary" type="button" data-console-action="clusters" data-i18n="sidebar.clusters">Clusters</button>
                                 <button class="btn btn-secondary" type="button" data-console-action="tasks" data-i18n="sidebar.tasks">Tasks</button>
+                                <button class="btn btn-secondary" type="button" data-console-action="report-issue" data-i18n="welcome.reportIssue">Report Issue</button>
                                 <button class="btn btn-secondary" type="button" data-console-action="settings" data-i18n="common.settings">Settings</button>
                             </div>
                         </section>
@@ -421,7 +423,7 @@
 
             <div id="view-channel" class="view">
                 <div class="channel-view">
-                    <aside class="channel-sidebar">
+                    <aside id="channel-sidebar" class="channel-sidebar">
                         <div class="channel-sidebar-header">
                             <div class="channel-sidebar-copy">
                                 <div class="cluster-chat-eyebrow" data-i18n="channel.titleEyebrow">Channels</div>
@@ -435,16 +437,6 @@
                         </div>
                         <div id="channel-list" class="channel-list">
                             <div class="loading" data-i18n="common.loading">Loading...</div>
-                        </div>
-                    </aside>
-
-                    <div class="channel-detail">
-                        <div id="channel-empty-state" class="channel-empty-state">
-                            <div class="empty-state-card">
-                                <h2 data-i18n="channel.emptyTitle">Create your first channel</h2>
-                                <p data-i18n="channel.emptyBody">Channels let you bind an agent to a named chat lane, then keep its own running conversation.</p>
-                                <button id="btn-new-channel-empty" class="btn btn-primary" type="button" data-i18n="channel.new">New Channel</button>
-                            </div>
                         </div>
 
                         <div id="channel-workspace" class="channel-workspace hidden">
@@ -477,40 +469,50 @@
                                     </div>
                                 </form>
                             </section>
-
-                            <section class="channel-chat-shell">
-                                <div class="channel-chat-header">
-                                    <div class="channel-chat-heading">
-                                        <div class="cluster-chat-eyebrow" data-i18n="channel.chatEyebrow">Channel Chat</div>
-                                        <h2 id="channel-chat-title" data-i18n="channel.chatTitle">Channel Conversation</h2>
-                                        <p id="channel-chat-subtitle" class="cluster-subtitle"></p>
-                                    </div>
-                                    <div class="channel-chat-actions">
-                                        <button id="btn-refresh-channel-messages" class="btn btn-secondary btn-small" type="button" data-i18n="channel.refreshMessages">Refresh Messages</button>
-                                    </div>
-                                </div>
-
-                                <div id="channel-messages" class="chat-messages channel-messages">
-                                    <div class="empty" data-i18n="channel.unsavedHint">Save the channel first to start chatting.</div>
-                                </div>
-
-                                <div class="chat-input-container channel-input-container">
-                                    <div id="channel-chat-hint" class="cluster-target-hint"></div>
-                                    <div class="input-wrapper">
-                                        <textarea
-                                            id="channel-message-input"
-                                            data-i18n-placeholder="channel.chatPlaceholder"
-                                            placeholder="Send a message in this channel..."
-                                            rows="3"
-                                        ></textarea>
-                                        <div class="input-actions">
-                                            <button id="btn-stop-channel" class="btn btn-danger hidden" type="button">Stop</button>
-                                            <button id="btn-send-channel" class="btn btn-primary" data-i18n="chat.send">Send</button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </section>
                         </div>
+                    </aside>
+
+                    <div class="channel-detail">
+                        <div id="channel-empty-state" class="channel-empty-state">
+                            <div class="empty-state-card">
+                                <h2 data-i18n="channel.emptyTitle">Create your first channel</h2>
+                                <p data-i18n="channel.emptyBody">Channels let you bind an agent to a named chat lane, then keep its own running conversation.</p>
+                                <button id="btn-new-channel-empty" class="btn btn-primary" type="button" data-i18n="channel.new">New Channel</button>
+                            </div>
+                        </div>
+
+                        <section id="channel-chat-shell" class="channel-chat-shell hidden">
+                            <div class="channel-chat-header">
+                                <div class="channel-chat-heading">
+                                    <div class="cluster-chat-eyebrow" data-i18n="channel.chatEyebrow">Channel Chat</div>
+                                    <h2 id="channel-chat-title" data-i18n="channel.chatTitle">Channel Conversation</h2>
+                                    <p id="channel-chat-subtitle" class="cluster-subtitle"></p>
+                                </div>
+                                <div class="channel-chat-actions">
+                                    <button id="btn-refresh-channel-messages" class="btn btn-secondary btn-small" type="button" data-i18n="channel.refreshMessages">Refresh Messages</button>
+                                </div>
+                            </div>
+
+                            <div id="channel-messages" class="chat-messages channel-messages">
+                                <div class="empty" data-i18n="channel.unsavedHint">Save the channel first to start chatting.</div>
+                            </div>
+
+                            <div class="chat-input-container channel-input-container">
+                                <div id="channel-chat-hint" class="cluster-target-hint"></div>
+                                <div class="input-wrapper">
+                                    <textarea
+                                        id="channel-message-input"
+                                        data-i18n-placeholder="channel.chatPlaceholder"
+                                        placeholder="Send a message in this channel..."
+                                        rows="3"
+                                    ></textarea>
+                                    <div class="input-actions">
+                                        <button id="btn-stop-channel" class="btn btn-danger hidden" type="button">Stop</button>
+                                        <button id="btn-send-channel" class="btn btn-primary" data-i18n="chat.send">Send</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
                     </div>
                 </div>
             </div>

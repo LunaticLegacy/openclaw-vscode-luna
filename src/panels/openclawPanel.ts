@@ -12,9 +12,9 @@ import {
     startOpenClawGateway
 } from '../services/openclawConfig';
 import type { DiscoveredChannel, OpenClawBooleanCapabilityId } from '../services/openclawService';
-import { showSuccessStatus } from '../utils/statusFeedback';
+import { runWithNotificationProgress, showSuccessStatus } from '../utils/statusFeedback';
 import { getCapabilityUnavailableMessage } from '../utils/capabilitySupport';
-import { AgentManager } from '../managers/agentManager';
+import { AgentManager, isDuplicateAgentNameError } from '../managers/agentManager';
 import { ChatSessionManager } from '../managers/chatSessionManager';
 import { ChannelManager } from '../managers/channelManager';
 import { ClusterManager } from '../managers/clusterManager';
@@ -23,6 +23,7 @@ import { getAgentPresets } from '../config/agentPresets';
 
 const SESSION_SYNC_INTERVAL_MS = 450;
 const CHANNEL_SYNC_INTERVAL_MS = 450;
+const OPENCLAW_LUNA_ISSUES_URL = 'https://github.com/LunaticLegacy/openclaw-vscode-luna/issues';
 
 type PanelChannelRecord = {
     id: string;
@@ -65,6 +66,7 @@ export class OpenClawPanel {
     private _sessionSyncToken: number = 0;
     private _channelLoadToken: number = 0;
     private _channelSyncToken: number = 0;
+    private _importedChannelSessions: Map<string, { agentId: string; sessionId: string }> = new Map();
     private _isWebviewReady = false;
     private _initialDataLoaded = false;
     private _pendingMessages: Array<Record<string, unknown>> = [];
@@ -316,23 +318,33 @@ export class OpenClawPanel {
                 break;
 
             case 'getClusters':
-                await this._loadClusters();
+                await runWithNotificationProgress(t('progress.loadingClusters'), async () => {
+                    await this._loadClusters();
+                });
                 break;
 
             case 'getUsage':
-                await this._loadUsage();
+                await runWithNotificationProgress(t('progress.loadingUsage'), async () => {
+                    await this._loadUsage();
+                });
                 break;
 
             case 'getChannels':
-                await this._loadChannels(this._currentChannelId || undefined);
+                await runWithNotificationProgress(t('progress.loadingChannels'), async () => {
+                    await this._loadChannels(this._currentChannelId || undefined);
+                });
                 break;
 
             case 'getTasks':
-                await this._loadTasks();
+                await runWithNotificationProgress(t('progress.loadingTasks'), async () => {
+                    await this._loadTasks();
+                });
                 break;
 
             case 'getAgents':
-                await this.refreshAgents(true);
+                await runWithNotificationProgress(t('progress.loadingAgents'), async () => {
+                    await this.refreshAgents(true);
+                });
                 break;
 
             case 'createAgent':
@@ -452,6 +464,9 @@ export class OpenClawPanel {
             case 'openSettings':
                 await vscode.commands.executeCommand('openclaw.settings');
                 break;
+            case 'openIssueTracker':
+                await vscode.env.openExternal(vscode.Uri.parse(OPENCLAW_LUNA_ISSUES_URL));
+                break;
             case 'retryConnection':
                 await this._handleRetryConnection();
                 break;
@@ -459,7 +474,9 @@ export class OpenClawPanel {
                 await this._handleStartOpenClaw();
                 break;
             case 'refreshOpenClawConfig':
-                await this._refreshRuntimeState();
+                await runWithNotificationProgress(t('progress.loadingConfig'), async () => {
+                    await this._refreshRuntimeState();
+                });
                 break;
             case 'saveConnectionSettings':
                 await this._handleSaveConnectionSettings(message.settings);
@@ -724,6 +741,15 @@ export class OpenClawPanel {
         }
     }
 
+    private _abortSessionRun(sessionId: string | null | undefined) {
+        const normalizedSessionId = typeof sessionId === 'string' ? sessionId.trim() : '';
+        if (!normalizedSessionId) {
+            return;
+        }
+
+        void this._service.abortSessionRun(normalizedSessionId).catch(() => undefined);
+    }
+
     private _stopActiveSessionSync() {
         this._sessionSyncToken += 1;
     }
@@ -876,12 +902,20 @@ export class OpenClawPanel {
                     return;
                 }
 
-                this._currentChannelSessionId = null;
-                this._postMessage({
-                    type: 'replaceChannelMessages',
-                    channelId: discoveredChannel.id,
-                    messages: []
-                });
+                const importedSession = await this._ensureImportedChannelSession(discoveredChannel.id);
+                this._currentChannelSessionId = importedSession?.sessionId || null;
+
+                if (!importedSession) {
+                    this._postMessage({
+                        type: 'replaceChannelMessages',
+                        channelId: discoveredChannel.id,
+                        messages: []
+                    });
+                    return;
+                }
+
+                await this._loadImportedChannelMessages(discoveredChannel.id, importedSession.sessionId, loadToken);
+                this._startActiveChannelSync(discoveredChannel.id, importedSession.sessionId, loadToken);
                 return;
             }
 
@@ -1043,7 +1077,14 @@ export class OpenClawPanel {
         try {
             const existing = await this._channelManager.getChannel(channelId);
             if (!existing) {
-                throw new Error(t('channel.importedReadOnly'));
+                const created = await this._channelManager.createChannel({
+                    name: data?.name || '',
+                    agentId: data?.agentId || '',
+                    description: data?.description || ''
+                });
+                showSuccessStatus(t('channel.saved'));
+                await this._loadChannels(created.id);
+                return;
             }
 
             const channel = await this._channelManager.updateChannel(channelId, {
@@ -1101,7 +1142,22 @@ export class OpenClawPanel {
             if (!channel) {
                 const discoveredChannel = await this._resolveDiscoveredChannel(channelId);
                 if (discoveredChannel) {
-                    throw new Error(t('channel.importedReadOnly'));
+                    const importedSession = await this._ensureImportedChannelSession(discoveredChannel.id);
+                    if (!importedSession) {
+                        throw new Error(t('channel.missingAgentHint'));
+                    }
+
+                    const response = await this._service.sendMessage(importedSession.sessionId, normalizedContent);
+
+                    if (this._currentChannelId === discoveredChannel.id && this._channelRunToken === channelRunToken) {
+                        this._currentChannelSessionId = importedSession.sessionId;
+                        this._postMessage({
+                            type: 'addChannelMessage',
+                            channelId: discoveredChannel.id,
+                            message: response
+                        });
+                    }
+                    return;
                 }
                 throw new Error(t('channel.notFound'));
             }
@@ -1163,6 +1219,9 @@ export class OpenClawPanel {
                         agentName
                     });
                 } catch (error) {
+                    if (isDuplicateAgentNameError(error)) {
+                        vscode.window.showWarningMessage(error.message);
+                    }
                     this._postMessage({
                         type: 'agentMutationState',
                         action: 'create',
@@ -1173,7 +1232,9 @@ export class OpenClawPanel {
                     });
                     this._postMessage({
                         type: 'error',
-                        message: t('newAgent.createFailed', { error: String(error) })
+                        message: isDuplicateAgentNameError(error)
+                            ? error.message
+                            : t('newAgent.createFailed', { error: String(error) })
                     });
                 }
             }
@@ -1392,17 +1453,64 @@ export class OpenClawPanel {
         switch (scope) {
             case 'chat':
                 this._stopActiveChatRun();
+                this._abortSessionRun(this._currentSessionId);
                 break;
             case 'channel':
                 this._channelRunToken += 1;
+                this._abortSessionRun(this._currentChannelSessionId);
                 break;
             case 'cluster-swarm':
                 this._clusterSwarmRunToken += 1;
                 break;
             case 'cluster-agent':
                 this._clusterAgentRunToken += 1;
+                this._abortSessionRun(this._clusterSessionManager.getCurrentSessionId());
                 break;
         }
+    }
+
+    private async _ensureImportedChannelSession(channelId: string): Promise<{ agentId: string; sessionId: string } | null> {
+        const cached = this._importedChannelSessions.get(channelId);
+        if (cached) {
+            return cached;
+        }
+
+        const discoveredChannel = await this._resolveDiscoveredChannel(channelId);
+        if (!discoveredChannel) {
+            return null;
+        }
+
+        const agentId = await this._service.getPreferredAgentId();
+        if (!agentId) {
+            return null;
+        }
+
+        const importedSession = {
+            agentId,
+            sessionId: buildImportedChannelSessionKey(discoveredChannel, agentId)
+        };
+        this._importedChannelSessions.set(channelId, importedSession);
+        return importedSession;
+    }
+
+    private async _loadImportedChannelMessages(channelId: string, sessionId: string, loadToken?: number) {
+        if ((loadToken !== undefined && loadToken !== this._channelLoadToken) || this._currentChannelId !== channelId) {
+            return;
+        }
+
+        const messages = this._service.supportsLiveSessionSync()
+            ? await this._service.getLiveChatHistory(sessionId)
+            : await this._service.getChatHistory(sessionId);
+
+        if ((loadToken !== undefined && loadToken !== this._channelLoadToken) || this._currentChannelId !== channelId) {
+            return;
+        }
+
+        this._postMessage({
+            type: 'replaceChannelMessages',
+            channelId,
+            messages
+        });
     }
 
     private async _handleSaveAgentSettings(agentId: string, settings: any) {
@@ -1412,8 +1520,10 @@ export class OpenClawPanel {
         }
 
         try {
-            await this._agentManager.updateAgent(agentId, settings);
-            await this._loadAgents();
+            await runWithNotificationProgress(t('progress.savingAgentSettings'), async () => {
+                await this._agentManager.updateAgent(agentId, settings);
+                await this._loadAgents();
+            });
             showSuccessStatus(t('agentSettings.saved'));
         } catch (error) {
             vscode.window.showErrorMessage(t('agentSettings.saveFailed', { error: String(error) }));
@@ -1422,14 +1532,16 @@ export class OpenClawPanel {
 
     private async _handleRetryConnection() {
         try {
-            const nextConfig = await resolveOpenClawServiceConfig(this._extensionUri.fsPath);
-            this._service.updateConfig(nextConfig);
-            await this._refreshRuntimeState();
-            await Promise.all([
-                this._loadAgents(),
-                this._loadClusters(),
-                this._loadTasks()
-            ]);
+            await runWithNotificationProgress(t('progress.retryingConnection'), async () => {
+                const nextConfig = await resolveOpenClawServiceConfig(this._extensionUri.fsPath);
+                this._service.updateConfig(nextConfig);
+                await this._refreshRuntimeState();
+                await Promise.all([
+                    this._loadAgents(),
+                    this._loadClusters(),
+                    this._loadTasks()
+                ]);
+            });
         } catch (error) {
             console.error('Failed to retry OpenClaw connection.', error);
             this._postMessage({
@@ -1451,18 +1563,20 @@ export class OpenClawPanel {
             : vscode.ConfigurationTarget.Global;
 
         try {
-            await config.update('configMode', settings.configMode || 'auto', target);
-            await config.update('gatewayUrl', settings.gatewayUrl?.trim() || '', target);
-            await config.update('gatewayToken', settings.gatewayToken?.trim() || '', target);
+            await runWithNotificationProgress(t('progress.savingConnectionSettings'), async () => {
+                await config.update('configMode', settings.configMode || 'auto', target);
+                await config.update('gatewayUrl', settings.gatewayUrl?.trim() || '', target);
+                await config.update('gatewayToken', settings.gatewayToken?.trim() || '', target);
 
-            const nextConfig = await resolveOpenClawServiceConfig(this._extensionUri.fsPath);
-            this._service.updateConfig(nextConfig);
-            await this._refreshRuntimeState();
-            await Promise.all([
-                this._loadAgents(),
-                this._loadClusters(),
-                this._loadTasks()
-            ]);
+                const nextConfig = await resolveOpenClawServiceConfig(this._extensionUri.fsPath);
+                this._service.updateConfig(nextConfig);
+                await this._refreshRuntimeState();
+                await Promise.all([
+                    this._loadAgents(),
+                    this._loadClusters(),
+                    this._loadTasks()
+                ]);
+            });
 
             this._postMessage({
                 type: 'connectionSettingsSaved'
@@ -1494,23 +1608,25 @@ export class OpenClawPanel {
         }
 
         try {
-            this._openClawConfigState = await saveOpenClawConfigEditorState(this._extensionUri.fsPath, {
-                gatewayPort,
-                gatewayToken: settings.gatewayToken,
-                defaultWorkspace: settings.defaultWorkspace,
-                defaultModel: settings.defaultModel,
-                authProviderId: settings.authProviderId,
-                authApiKey: settings.authApiKey
-            });
+            await runWithNotificationProgress(t('progress.savingConfig'), async () => {
+                this._openClawConfigState = await saveOpenClawConfigEditorState(this._extensionUri.fsPath, {
+                    gatewayPort,
+                    gatewayToken: settings.gatewayToken,
+                    defaultWorkspace: settings.defaultWorkspace,
+                    defaultModel: settings.defaultModel,
+                    authProviderId: settings.authProviderId,
+                    authApiKey: settings.authApiKey
+                });
 
-            const nextConfig = await resolveOpenClawServiceConfig(this._extensionUri.fsPath);
-            this._service.updateConfig(nextConfig);
-            await this._refreshRuntimeState();
-            await Promise.all([
-                this._loadAgents(),
-                this._loadClusters(),
-                this._loadTasks()
-            ]);
+                const nextConfig = await resolveOpenClawServiceConfig(this._extensionUri.fsPath);
+                this._service.updateConfig(nextConfig);
+                await this._refreshRuntimeState();
+                await Promise.all([
+                    this._loadAgents(),
+                    this._loadClusters(),
+                    this._loadTasks()
+                ]);
+            });
 
             this._postMessage({
                 type: 'openClawConfigSaved'
@@ -1526,17 +1642,19 @@ export class OpenClawPanel {
 
     private async _handleStartOpenClaw() {
         try {
-            await startOpenClawGateway(this._extensionUri.fsPath);
-            await delay(800);
+            await runWithNotificationProgress(t('progress.startingOpenClaw'), async () => {
+                await startOpenClawGateway(this._extensionUri.fsPath);
+                await delay(800);
 
-            const nextConfig = await resolveOpenClawServiceConfig(this._extensionUri.fsPath);
-            this._service.updateConfig(nextConfig);
-            await this._refreshRuntimeState();
-            await Promise.all([
-                this._loadAgents(),
-                this._loadClusters(),
-                this._loadTasks()
-            ]);
+                const nextConfig = await resolveOpenClawServiceConfig(this._extensionUri.fsPath);
+                this._service.updateConfig(nextConfig);
+                await this._refreshRuntimeState();
+                await Promise.all([
+                    this._loadAgents(),
+                    this._loadClusters(),
+                    this._loadTasks()
+                ]);
+            });
 
             this._postMessage({
                 type: 'openClawStartSucceeded'
@@ -1666,8 +1784,10 @@ export class OpenClawPanel {
         }
 
         try {
-            await this._taskManager.createTask(data);
-            await this._loadTasks();
+            await runWithNotificationProgress(t('progress.savingTask'), async () => {
+                await this._taskManager.createTask(data);
+                await this._loadTasks();
+            });
             showSuccessStatus(t('tasks.created'));
         } catch (error) {
             vscode.window.showErrorMessage(t('tasks.createFailed', { error: String(error) }));
@@ -1681,8 +1801,10 @@ export class OpenClawPanel {
         }
 
         try {
-            await this._taskManager.updateTask(taskId, data);
-            await this._loadTasks();
+            await runWithNotificationProgress(t('progress.savingTask'), async () => {
+                await this._taskManager.updateTask(taskId, data);
+                await this._loadTasks();
+            });
             showSuccessStatus(t('tasks.updated'));
         } catch (error) {
             vscode.window.showErrorMessage(t('tasks.updateFailed', { error: String(error) }));
@@ -1712,8 +1834,10 @@ export class OpenClawPanel {
                 return;
             }
 
-            await this._taskManager.deleteTask(taskId);
-            await this._loadTasks();
+            await runWithNotificationProgress(t('progress.deletingTask'), async () => {
+                await this._taskManager.deleteTask(taskId);
+                await this._loadTasks();
+            });
             showSuccessStatus(t('tasks.deleted'));
         } catch (error) {
             vscode.window.showErrorMessage(t('tasks.deleteFailed', { error: String(error) }));
@@ -1727,8 +1851,11 @@ export class OpenClawPanel {
         }
 
         try {
-            const task = await this._taskManager.toggleTask(taskId, enabled);
-            await this._loadTasks();
+            const task = await runWithNotificationProgress(t('progress.savingTask'), async () => {
+                const nextTask = await this._taskManager.toggleTask(taskId, enabled);
+                await this._loadTasks();
+                return nextTask;
+            });
             showSuccessStatus(task.enabled ? t('tasks.enabled') : t('tasks.disabled'));
         } catch (error) {
             vscode.window.showErrorMessage(t('tasks.updateFailed', { error: String(error) }));
@@ -1742,8 +1869,10 @@ export class OpenClawPanel {
         }
 
         try {
-            await this._taskManager.runTask(taskId, 'manual');
-            await this._loadTasks();
+            await runWithNotificationProgress(t('progress.runningTask'), async () => {
+                await this._taskManager.runTask(taskId, 'manual');
+                await this._loadTasks();
+            });
             showSuccessStatus(t('tasks.runTriggered'));
         } catch (error) {
             vscode.window.showErrorMessage(t('tasks.runFailed', { error: String(error) }));
@@ -1976,6 +2105,7 @@ export class OpenClawPanel {
         this._stopActiveChatRun();
         this._stopActiveSessionSync();
         this._stopActiveChannelSync();
+        this._importedChannelSessions.clear();
         this._sessionManager.dispose();
         this._clusterSessionManager.dispose();
 
@@ -2073,5 +2203,11 @@ function mergePanelChannels(
 
         return left.name.localeCompare(right.name);
     });
+}
+
+function buildImportedChannelSessionKey(channel: DiscoveredChannel, agentId: string): string {
+    const providerId = String(channel.providerId || '').trim();
+    const accountId = String(channel.accountId || '').trim();
+    return `agent:${agentId}:channel:${providerId}:${accountId}`;
 }
 

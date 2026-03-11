@@ -60,6 +60,7 @@ export class OpenClawService extends EventEmitter {
     private transport: GatewayTransport | null = null;
     private localRuntime: LocalModeRuntime | null = null;
     private openClawRuntime: OpenClawModeRuntime | null = null;
+    private activeGatewayRequests: Map<string, Set<AbortController>> = new Map();
     private mode: ResolvedServiceConfig['mode'] = 'gateway';
     private sourceDescription = '';
     private connected = false;
@@ -246,12 +247,21 @@ export class OpenClawService extends EventEmitter {
             return response;
         }
 
-        const response = await this.requireTransport().post<ChatMessage>(`/api/sessions/${sessionId}/messages`, {
-            content: message,
-            ...options
-        });
-        this.emit('usageChanged');
-        return response;
+        const abortController = new AbortController();
+        this.trackGatewayRequest(sessionId, abortController);
+
+        try {
+            const response = await this.requireTransport().post<ChatMessage>(`/api/sessions/${sessionId}/messages`, {
+                content: message,
+                ...options
+            }, {
+                signal: abortController.signal
+            });
+            this.emit('usageChanged');
+            return response;
+        } finally {
+            this.untrackGatewayRequest(sessionId, abortController);
+        }
     }
 
     public async *streamMessage(
@@ -277,12 +287,18 @@ export class OpenClawService extends EventEmitter {
             return;
         }
 
+        const abortController = new AbortController();
+        this.trackGatewayRequest(sessionId, abortController);
+
         try {
             const stream = await this.requireTransport().postStream(
                 `/api/sessions/${sessionId}/messages/stream`,
                 {
                     content: message,
                     ...options
+                },
+                {
+                    signal: abortController.signal
                 }
             );
 
@@ -297,7 +313,32 @@ export class OpenClawService extends EventEmitter {
                 }
             }
         } finally {
+            this.untrackGatewayRequest(sessionId, abortController);
             this.emit('usageChanged');
+        }
+    }
+
+    public async abortSessionRun(sessionId: string): Promise<void> {
+        if (this.localRuntime) {
+            await this.localRuntime.abortSessionRun(sessionId);
+            return;
+        }
+
+        if (this.openClawRuntime) {
+            await this.openClawRuntime.abortSessionRun(sessionId);
+            return;
+        }
+
+        this.abortTrackedGatewayRequests(sessionId);
+
+        try {
+            await this.requireTransport().post(`/api/sessions/${sessionId}/abort`);
+        } catch (error) {
+            const status = (error as { status?: number }).status;
+            if (status === 404 || status === 405 || status === 501) {
+                return;
+            }
+            throw error;
         }
     }
 
@@ -448,6 +489,9 @@ export class OpenClawService extends EventEmitter {
     public dispose(): void {
         this.removeAllListeners();
         this.connected = false;
+        for (const sessionId of this.activeGatewayRequests.keys()) {
+            this.abortTrackedGatewayRequests(sessionId);
+        }
         this.resetState();
     }
 
@@ -516,5 +560,50 @@ export class OpenClawService extends EventEmitter {
         }
 
         return this.requireTransport();
+    }
+
+    private trackGatewayRequest(sessionId: string, controller: AbortController): void {
+        const normalizedSessionId = sessionId.trim();
+        if (!normalizedSessionId) {
+            return;
+        }
+
+        const controllers = this.activeGatewayRequests.get(normalizedSessionId) || new Set<AbortController>();
+        controllers.add(controller);
+        this.activeGatewayRequests.set(normalizedSessionId, controllers);
+    }
+
+    private untrackGatewayRequest(sessionId: string, controller: AbortController): void {
+        const normalizedSessionId = sessionId.trim();
+        if (!normalizedSessionId) {
+            return;
+        }
+
+        const controllers = this.activeGatewayRequests.get(normalizedSessionId);
+        if (!controllers) {
+            return;
+        }
+
+        controllers.delete(controller);
+        if (controllers.size === 0) {
+            this.activeGatewayRequests.delete(normalizedSessionId);
+        }
+    }
+
+    private abortTrackedGatewayRequests(sessionId: string): void {
+        const normalizedSessionId = sessionId.trim();
+        if (!normalizedSessionId) {
+            return;
+        }
+
+        const controllers = this.activeGatewayRequests.get(normalizedSessionId);
+        if (!controllers) {
+            return;
+        }
+
+        this.activeGatewayRequests.delete(normalizedSessionId);
+        for (const controller of controllers) {
+            controller.abort();
+        }
     }
 }

@@ -141,6 +141,8 @@ export interface UpdateAgentParams {
     name?: string;
     systemPrompt?: string;
     model?: string;
+    temperature?: number;
+    maxTokens?: number;
 }
 
 export interface SendMessageOptions {

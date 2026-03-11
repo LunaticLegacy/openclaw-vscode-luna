@@ -8,18 +8,18 @@
 
 # OpenClaw Luna
 
-(Public Alpha)
+面向 OpenClaw 用户的早期体验版
 
 ### OpenClaw 的 VS Code 控制台
 
-**把 Agent、AI Swarm、OpenClaw cron、连接切换和 7/30 日用量收进一个面板，而不是散落在一堆命令里。**
+**在 VS Code 里完成 OpenClaw 的最小闭环：连上环境、创建 Agent、发出第一条消息，再决定要不要深入 Swarm、cron 和用量。**
 
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.80+-007ACC?logo=visualstudiocode&logoColor=white)](https://code.visualstudio.com/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Version](https://img.shields.io/badge/Version-0.4.0-111111)](package.json)
+[![Version](https://img.shields.io/badge/Version-0.5.2-111111)](package.json)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-[快速开始](#5-分钟上手) · [连接模式](#连接模式) · [能力矩阵](#能力矩阵) · [测试](#测试) · [English](docs/README_EN.md)
+[60 秒上手](#60-秒上手) · [反馈入口](#遇到问题时先这样反馈) · [连接模式](#连接模式) · [测试](#测试) · [English](docs/README_EN.md)
 
 <br />
 
@@ -38,6 +38,13 @@
 
 > *"Luna 不是另一个聊天框，而是 OpenClaw 在 VS Code 里的主控台。"*
 
+如果你已经在用 OpenClaw，但不想在 CLI、网页和一堆命令之间来回跳，Luna 解决的是这个问题：把第一次连通、第一次对话，以及后续的 Agent / Swarm / cron / usage 操作收进同一个 VS Code 面板。
+
+它适合这两类人：
+
+- 已经在用 OpenClaw，想把日常控制入口放回 VS Code。
+- 正准备试 OpenClaw，想先在 1 分钟内完成一次最小成功，而不是先研究配置体系。
+
 当你的工作流同时涉及 Agent 对话、Swarm 协同、定时任务、连接切换和用量排查时，问题从来不是“入口不够多”，而是上下文被切碎了。Luna 的目标是把这些核心操作收敛到一个稳定的主路径里：
 
 - 在同一个面板里完成 Agent 创建、对话、切换模型和查看上下文。
@@ -48,39 +55,57 @@
 
 ---
 
-## 5 分钟上手
+## 60 秒上手
 
-### 1. 安装仓库
+### 1. 在应用市场上安装插件
 
-```bash
-git clone https://github.com/LunaticLegacy/openclaw-vscode-luna.git
-cd openclaw-vscode-luna
-npm install
-```
+插件已上传到应用市场。
 
-### 2. 编译并启动扩展宿主
-
-```bash
-npm run compile
-npm run watch
-```
-
-然后在 VS Code 里按 `F5` 打开 `Extension Development Host`。
-
-### 3. 打开 Luna
+### 2. 打开 Luna 面板
 
 你有三种进入方式：
 
-- 侧边栏 `OpenClaw` Activity Bar
 - 命令面板 `OpenClaw: Open Panel`
 - 右下角状态栏 `OpenClaw`
+- 侧边栏 `OpenClaw` Activity Bar
 
-首次进入时，左上角 `OpenClaw Luna` 会回到初始设置界面。这里可以：
+### 3. 先完成第一次成功，不要先研究所有模式
+
+首次进入时，左上角 `OpenClaw Luna` 会回到初始设置界面。按照下面这条最短路径走：
 
 - 检查本地 OpenClaw 是否已安装
-- 一键启动本地 `OpenClaw gateway`
-- 直接编辑 `OpenClaw Config`
-- 切换 `Auto Detect / Gateway / OpenClaw CLI / Local Models`
+- 一键启动本地 `OpenClaw gateway`，或者填写你的远端 Gateway
+- 保持默认模式，先不要纠结 `Auto Detect / Gateway / OpenClaw CLI / Local Models` 的差异
+- 创建第一个 Agent
+- 发送第一条消息，确认面板能正常返回结果
+
+### 4. 第一次成功之后，再决定要不要继续
+
+跑通第一条消息后，你再按需要进入下一层能力：
+
+- 要协同多个 Agent，再进入 `Swarm`
+- 要管理定时任务，再切到 `OpenClaw CLI`
+- 要排查成本和请求量，再打开 `Usage`
+- 要精细调配置，再编辑 `OpenClaw Config` 或本地模型配置
+
+如果你只是第一次试用，先把“能连通、能建 Agent、能发消息”做完就够了。
+
+---
+
+## 遇到问题时先这样反馈
+
+如果 Luna 没有在第一次尝试里跑通，最有价值的反馈不是“不能用”，而是下面这三项：
+
+- 你当前用的是哪种连接模式：`Auto Detect`、`Gateway`、`OpenClaw CLI` 或 `Local Models`
+- 你卡在了哪一步：安装、连接、创建 Agent、发送消息、打开 Task、查看 Usage
+- VS Code 开发者工具、输出面板或界面提示里的错误文本
+
+反馈入口：
+
+- Issue: <https://github.com/LunaticLegacy/openclaw-vscode-luna/issues>
+- 仓库主页: <https://github.com/LunaticLegacy/openclaw-vscode-luna>
+
+这比一句“没跑起来”更容易让问题被复现，也更容易让插件继续收敛到真实用户路径。
 
 ---
 

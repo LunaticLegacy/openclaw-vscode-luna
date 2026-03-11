@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { t } from '../i18n';
 import { OpenClawExtensionRuntime } from '../extension/runtime';
 import { getCapabilityUnavailableMessage, isServiceCapabilityAvailable } from '../utils/capabilitySupport';
-import { showSuccessStatus } from '../utils/statusFeedback';
+import { runWithNotificationProgress, showSuccessStatus } from '../utils/statusFeedback';
 import { resolveTaskId } from './helpers';
 
 export function registerTaskCommands(
@@ -43,7 +43,9 @@ export function registerTaskCommands(
             }
 
             try {
-                const task = await runtime.taskManager.toggleTask(taskId);
+                const task = await runWithNotificationProgress(t('progress.savingTask'), async () =>
+                    await runtime.taskManager.toggleTask(taskId)
+                );
                 showSuccessStatus(task.enabled ? t('tasks.enabled') : t('tasks.disabled'));
                 runtime.taskTreeProvider.refresh();
             } catch (error) {
@@ -63,7 +65,9 @@ export function registerTaskCommands(
             }
 
             try {
-                await runtime.taskManager.runTask(taskId, 'manual');
+                await runWithNotificationProgress(t('progress.runningTask'), async () => {
+                    await runtime.taskManager.runTask(taskId, 'manual');
+                });
                 showSuccessStatus(t('tasks.runTriggered'));
                 runtime.taskTreeProvider.refresh();
             } catch (error) {
@@ -99,7 +103,9 @@ export function registerTaskCommands(
                     return;
                 }
 
-                await runtime.taskManager.deleteTask(taskId);
+                await runWithNotificationProgress(t('progress.deletingTask'), async () => {
+                    await runtime.taskManager.deleteTask(taskId);
+                });
                 showSuccessStatus(t('tasks.deleted'));
                 runtime.taskTreeProvider.refresh();
             } catch (error) {
@@ -113,7 +119,9 @@ export function registerTaskCommands(
             }
 
             try {
-                await runtime.taskManager.refresh();
+                await runWithNotificationProgress(t('progress.loadingTasks'), async () => {
+                    await runtime.taskManager.refresh();
+                });
                 runtime.taskTreeProvider.refresh();
                 showSuccessStatus(t('tasks.refreshed'));
             } catch (error) {

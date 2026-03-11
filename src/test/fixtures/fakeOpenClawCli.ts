@@ -71,6 +71,11 @@ interface FakeSessionRecord {
 interface FakeState {
     agents: FakeAgentRecord[];
     sessions: FakeSessionRecord[];
+    abortedRuns: Array<{
+        sessionKey: string;
+        runId?: string;
+        abortedAt: number;
+    }>;
 }
 
 interface FakeCommandResult {
@@ -166,6 +171,14 @@ async function handleGatewayCall(args: string[], stateDir: string): Promise<Fake
                 sessionKey: extractString(params.sessionKey) || `agent:${DEFAULT_AGENT_ID}:main`,
                 message: extractString(params.message) || ''
             });
+        case 'chat.abort':
+            state.abortedRuns.push({
+                sessionKey: extractString(params.sessionKey) || '',
+                runId: extractString(params.runId),
+                abortedAt: Date.now()
+            });
+            await writeState(stateDir, state);
+            return jsonResult({ status: 'aborted' });
         case 'sessions.usage':
             return jsonResult(buildSessionsUsagePayload(state.sessions));
         case 'usage.cost':
@@ -462,12 +475,14 @@ async function readState(stateDir: string): Promise<FakeState> {
         const parsed = JSON.parse(content) as Partial<FakeState>;
         return {
             agents: Array.isArray(parsed.agents) ? parsed.agents : [],
-            sessions: Array.isArray(parsed.sessions) ? parsed.sessions : []
+            sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
+            abortedRuns: Array.isArray(parsed.abortedRuns) ? parsed.abortedRuns : []
         };
     } catch {
         return {
             agents: [],
-            sessions: []
+            sessions: [],
+            abortedRuns: []
         };
     }
 }
