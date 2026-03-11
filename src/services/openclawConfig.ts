@@ -394,20 +394,22 @@ export async function resolveOpenClawServiceConfig(extensionPath: string): Promi
             return gatewayConfig;
         case 'auto':
         default:
-            if (explicitModeHints.gateway) {
-                return gatewayConfig;
-            }
             if (explicitModeHints.openclaw && openClawCli) {
                 return openClawCli;
             }
             if (explicitModeHints.local && localConfig) {
                 return localConfig;
             }
+            // In auto mode we prefer richer local runtimes when available.
+            // Users who want to force the gateway can select `gateway` explicitly.
             if (openClawCli) {
                 return openClawCli;
             }
             if (localConfig) {
                 return localConfig;
+            }
+            if (explicitModeHints.gateway) {
+                return gatewayConfig;
             }
             break;
     }
@@ -623,7 +625,7 @@ async function resolveGatewayConfig(
     config: vscode.WorkspaceConfiguration,
     extensionPath: string
 ): Promise<GatewayServiceConfig> {
-    const configuredGatewayUrl = trimConfigPath(config.get<string>('gatewayUrl', ''));
+    const configuredGatewayUrl = toHttpGatewayUrl(trimConfigPath(config.get<string>('gatewayUrl', '')));
     const configuredGatewayToken = config.get<string>('gatewayToken', '').trim();
     const detectedGateway = await resolveDetectedGatewayConfig(config, extensionPath);
     const sourceDescription = joinSourceDescriptions(
@@ -633,7 +635,7 @@ async function resolveGatewayConfig(
 
     return {
         mode: 'gateway',
-        gatewayUrl: configuredGatewayUrl || detectedGateway.gatewayUrl || 'http://127.0.0.1:18789',
+        gatewayUrl: configuredGatewayUrl || toHttpGatewayUrl(detectedGateway.gatewayUrl) || 'http://127.0.0.1:18789',
         gatewayToken: configuredGatewayToken || detectedGateway.gatewayToken || '',
         sourceDescription
     };
@@ -1324,6 +1326,23 @@ function resolveNodePath(
 function trimConfigPath(value: string | undefined): string | undefined {
     const trimmed = value?.trim();
     return trimmed ? trimmed : undefined;
+}
+
+function toHttpGatewayUrl(value: string | undefined): string | undefined {
+    const trimmed = value?.trim();
+    if (!trimmed) {
+        return undefined;
+    }
+
+    if (trimmed.startsWith('ws://')) {
+        return `http://${trimmed.slice('ws://'.length)}`;
+    }
+
+    if (trimmed.startsWith('wss://')) {
+        return `https://${trimmed.slice('wss://'.length)}`;
+    }
+
+    return trimmed;
 }
 
 function getExplicitModeHints(config: vscode.WorkspaceConfiguration): {

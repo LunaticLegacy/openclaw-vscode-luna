@@ -58,6 +58,7 @@ export class OpenClawPanel {
     private _viewMode: 'chat' | 'clusters' | 'usage' | 'channel' | 'tasks' = 'chat';
     private _contextLoadToken: number = 0;
     private _chatRunToken: number = 0;
+    private _activeChatStream: AsyncGenerator<{ content: string; done: boolean; message?: ChatMessage }, void, unknown> | null = null;
     private _channelRunToken: number = 0;
     private _clusterSwarmRunToken: number = 0;
     private _clusterAgentRunToken: number = 0;
@@ -555,41 +556,49 @@ export class OpenClawPanel {
                 // 流式响应
                 let fullContent = '';
                 const streamedMessageIds = new Set<string>();
-                
-                for await (const chunk of this._sessionManager.streamMessage(normalizedContent)) {
-                    if (!this._isCurrentChatRun(chatRunToken, targetAgentId, sessionId)) {
-                        break;
-                    }
+                const stream = this._sessionManager.streamMessage(normalizedContent);
+                this._activeChatStream = stream;
 
-                    if (chunk.message) {
-                        const messageId = typeof chunk.message.id === 'string'
-                            ? chunk.message.id.trim()
-                            : '';
-                        if (messageId) {
-                            if (streamedMessageIds.has(messageId)) {
-                                continue;
-                            }
-                            streamedMessageIds.add(messageId);
+                try {
+                    for await (const chunk of stream) {
+                        if (!this._isCurrentChatRun(chatRunToken, targetAgentId, sessionId)) {
+                            break;
                         }
 
-                        if (options.optimisticEcho && chunk.message.role === 'user') {
+                        if (chunk.message) {
+                            const messageId = typeof chunk.message.id === 'string'
+                                ? chunk.message.id.trim()
+                                : '';
+                            if (messageId) {
+                                if (streamedMessageIds.has(messageId)) {
+                                    continue;
+                                }
+                                streamedMessageIds.add(messageId);
+                            }
+
+                            if (options.optimisticEcho && chunk.message.role === 'user') {
+                                continue;
+                            }
+
+                            this._postMessage({
+                                type: 'addMessage',
+                                message: chunk.message
+                            });
                             continue;
                         }
 
-                        this._postMessage({
-                            type: 'addMessage',
-                            message: chunk.message
-                        });
-                        continue;
-                    }
+                        fullContent += chunk.content;
 
-                    fullContent += chunk.content;
-                    
-                    this._postMessage({
-                        type: 'updateStreamingMessage',
-                        content: fullContent,
-                        done: chunk.done
-                    });
+                        this._postMessage({
+                            type: 'updateStreamingMessage',
+                            content: fullContent,
+                            done: chunk.done
+                        });
+                    }
+                } finally {
+                    if (this._activeChatStream === stream) {
+                        this._activeChatStream = null;
+                    }
                 }
             } else {
                 // 非流式响应
@@ -634,7 +643,7 @@ export class OpenClawPanel {
 
     private async _activateAgent(agentId: string) {
         const loadToken = ++this._contextLoadToken;
-        this._chatRunToken += 1;
+        this._stopActiveChatRun();
         this._currentAgentId = agentId;
         this._currentSessionId = null;
         this._agentManager.setActiveAgent(agentId);
@@ -701,9 +710,18 @@ export class OpenClawPanel {
 
     private _clearChat() {
         this._stopActiveSessionSync();
-        this._chatRunToken += 1;
+        this._stopActiveChatRun();
         this._currentSessionId = null;
         this._postMessage({ type: 'clearChat' });
+    }
+
+    private _stopActiveChatRun() {
+        this._chatRunToken += 1;
+        const activeStream = this._activeChatStream;
+        this._activeChatStream = null;
+        if (activeStream) {
+            void activeStream.return(undefined).catch(() => undefined);
+        }
     }
 
     private _stopActiveSessionSync() {
@@ -1373,7 +1391,7 @@ export class OpenClawPanel {
     private _handleStopActiveRun(scope: unknown) {
         switch (scope) {
             case 'chat':
-                this._chatRunToken += 1;
+                this._stopActiveChatRun();
                 break;
             case 'channel':
                 this._channelRunToken += 1;
@@ -1889,6 +1907,7 @@ export class OpenClawPanel {
     private _update() {
         const webview = this._panel.webview;
         this._panel.title = 'OpenClaw';
+        this._stopActiveChatRun();
         this._stopActiveSessionSync();
         this._isWebviewReady = false;
         this._initialDataLoaded = false;
@@ -1954,6 +1973,7 @@ export class OpenClawPanel {
 
     public dispose() {
         OpenClawPanel.currentPanel = undefined;
+        this._stopActiveChatRun();
         this._stopActiveSessionSync();
         this._stopActiveChannelSync();
         this._sessionManager.dispose();
