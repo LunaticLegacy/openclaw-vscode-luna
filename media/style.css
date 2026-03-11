@@ -140,7 +140,7 @@ body {
 }
 
 .connection-caption {
-    margin-top: 4px;
+    margin-top: 3.5px;
     color: var(--text-secondary);
     font-size: 11px;
     white-space: nowrap;
@@ -152,7 +152,7 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 5px 10px;
+    padding: 5px 9px;
     border-radius: 999px;
     border: 1px solid var(--border);
     background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
@@ -1166,6 +1166,14 @@ body {
     overflow: hidden;
 }
 
+.user-input-extra-card[open] {
+    flex-basis: 100%;
+    width: 100%;
+    margin-inline: -16px;
+    width: calc(100% + 32px);
+    border-radius: 10px;
+}
+
 .user-input-extra-card summary {
     display: flex;
     align-items: center;
@@ -1199,6 +1207,10 @@ body {
     overflow: auto;
 }
 
+.user-input-extra-card[open] .user-input-extra-body {
+    max-height: none;
+}
+
 .user-input-extra-card:not([open]) .user-input-extra-body {
     display: none;
 }
@@ -1207,6 +1219,13 @@ body {
     border: 1px solid rgba(255, 255, 255, 0.18);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.06);
+    width: 100%;
+}
+
+.user-input-envelope[data-show-raw="true"] .user-input-raw-view {
+    margin-inline: -16px;
+    width: calc(100% + 32px);
+    border-radius: 10px;
 }
 
 .user-input-raw-pre {
@@ -1245,6 +1264,12 @@ body {
     border: 1px solid var(--border);
     border-radius: 8px;
     overflow: hidden;
+}
+
+.tool-card[open] {
+    margin-inline: -16px;
+    width: calc(100% + 32px);
+    border-radius: 10px;
 }
 
 .tool-card-pending {
@@ -1342,6 +1367,12 @@ body {
     border-radius: 6px;
     background: var(--bg-tertiary);
     overflow: hidden;
+}
+
+.tool-card-foldout[open] {
+    margin-inline: -12px;
+    width: calc(100% + 24px);
+    border-radius: 8px;
 }
 
 .tool-card-foldout summary {
@@ -1585,11 +1616,40 @@ body {
     font-size: 22px;
 }
 
+.cluster-briefing {
+    margin-top: 8px;
+    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
 .cluster-subtitle {
     margin-top: 8px;
     color: var(--text-secondary);
     font-size: 12px;
     line-height: 1.5;
+}
+
+.cluster-workmode-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.cluster-workmode-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary));
+    color: var(--text-primary);
+    font-size: 11px;
+    white-space: nowrap;
 }
 
 .cluster-header-actions {
@@ -2389,6 +2449,163 @@ form {
     gap: 0 16px;
 }
 
+.cluster-editor-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.9fr);
+    gap: 20px;
+}
+
+.cluster-form-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0 16px;
+}
+
+.cluster-editor-side {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 18px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 94%, white 6%), var(--bg-primary));
+}
+
+.cluster-editor-side-header h3 {
+    margin: 0;
+    font-size: 16px;
+}
+
+.cluster-editor-side-header p {
+    margin: 8px 0 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.cluster-agent-picker {
+    display: grid;
+    flex: 1;
+    gap: 10px;
+    margin-top: 16px;
+    max-height: 420px;
+    min-height: 0;
+    overflow: auto;
+    padding-right: 4px;
+    width: 100%;
+    min-width: 0;
+}
+
+.cluster-editor-side .cluster-agent-picker {
+    max-height: none;
+}
+
+.cluster-agent-option {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-secondary);
+}
+
+.cluster-agent-option input[type="checkbox"] {
+    width: auto;
+    margin-top: 3px;
+}
+
+.cluster-agent-option-title {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.cluster-agent-option > div {
+    flex: 1;
+    min-width: 0;
+}
+
+.cluster-agent-option-meta {
+    margin-top: 4px;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.skill-link-card {
+    width: 100%;
+    text-align: left;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-secondary);
+}
+
+.skill-link-card-title {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.skill-link-card-meta {
+    margin-top: 4px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.cluster-agent-picker-empty {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.cluster-preset-summary {
+    margin-top: 18px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--bg-primary) 92%, white 8%);
+}
+
+.cluster-preset-summary h3 {
+    margin: 0;
+    font-size: 15px;
+}
+
+.cluster-preset-summary p {
+    margin: 8px 0 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.cluster-preset-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 14px;
+}
+
+.cluster-preset-summary-item {
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+}
+
+.cluster-preset-summary-label {
+    color: var(--text-secondary);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.cluster-preset-summary-value {
+    margin-top: 6px;
+    font-size: 13px;
+}
+
 .new-agent-mode-toggle {
     display: inline-flex;
     align-items: center;
@@ -2982,6 +3199,16 @@ form {
 
     .task-form-grid {
         grid-template-columns: 1fr;
+    }
+
+    .cluster-editor-layout,
+    .cluster-form-grid,
+    .cluster-preset-summary-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .cluster-editor-side {
+        order: -1;
     }
 
     .new-agent-mode-toggle {

@@ -92,6 +92,11 @@ export class LocalModeRuntime {
         this.abortTrackedRequests(sessionId);
     }
 
+    public hasActiveRun(sessionId: string): boolean {
+        const normalizedSessionId = sessionId.trim();
+        return normalizedSessionId ? this.activeRequests.has(normalizedSessionId) : false;
+    }
+
     public async sendMessage(
         sessionId: string,
         content: string,

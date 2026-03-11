@@ -8,6 +8,7 @@ export interface CreateAgentParams {
     model: string;
     systemPrompt?: string;
     presetId?: string;
+    enabledSkills?: string[];
 }
 
 export interface UpdateAgentParams {
@@ -16,6 +17,7 @@ export interface UpdateAgentParams {
     model?: string;
     temperature?: number;
     maxTokens?: number;
+    enabledSkills?: string[];
 }
 
 export class DuplicateAgentNameError extends Error {
@@ -110,7 +112,8 @@ export class AgentManager extends EventEmitter {
         const agent = await this.service.createAgent({
             name: trimmedName,
             model: params.model,
-            systemPrompt
+            systemPrompt,
+            enabledSkills: params.enabledSkills
         });
         if (params.presetId && this.presetScaffolder) {
             try {

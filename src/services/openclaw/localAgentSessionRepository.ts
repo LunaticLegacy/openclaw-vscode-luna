@@ -1,4 +1,5 @@
 import { t } from '../../i18n';
+import { buildSkillPromptAppendix, normalizeEnabledSkills } from '../../config/aiSkills';
 import { LocalProviderConfig } from '../openclawConfig';
 import {
     Agent,
@@ -31,7 +32,8 @@ export class LocalAgentSessionRepository {
                     baseUrl: provider.baseUrl.replace(/\/$/, ''),
                     api: provider.api,
                     apiKey: provider.apiKey,
-                    systemPrompt: 'You are OpenClaw inside VS Code. Help with coding tasks concisely.'
+                    systemPrompt: 'You are OpenClaw inside VS Code. Help with coding tasks concisely.',
+                    enabledSkills: []
                 });
             }
         }
@@ -69,6 +71,7 @@ export class LocalAgentSessionRepository {
             name: params.name,
             model: params.model,
             systemPrompt: params.systemPrompt || templateAgent.systemPrompt,
+            enabledSkills: normalizeEnabledSkills(params.enabledSkills),
             createdAt: new Date().toISOString()
         };
 
@@ -84,7 +87,10 @@ export class LocalAgentSessionRepository {
 
         const updatedAgent: LocalAgent = {
             ...agent,
-            ...params
+            ...params,
+            enabledSkills: params.enabledSkills !== undefined
+                ? normalizeEnabledSkills(params.enabledSkills)
+                : agent.enabledSkills
         };
 
         this.agents.set(agentId, updatedAgent);
@@ -165,10 +171,11 @@ export class LocalAgentSessionRepository {
     ): Array<{ role: string; content: string }> {
         const messages: Array<{ role: string; content: string }> = [];
 
-        if (agent.systemPrompt) {
+        const systemPrompt = `${agent.systemPrompt || ''}${buildSkillPromptAppendix(agent.enabledSkills)}`.trim();
+        if (systemPrompt) {
             messages.push({
                 role: 'system',
-                content: agent.systemPrompt
+                content: systemPrompt
             });
         }
 

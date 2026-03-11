@@ -3,6 +3,7 @@ export interface Agent {
     name: string;
     model: string;
     systemPrompt?: string;
+    enabledSkills?: string[];
     status: 'active' | 'idle' | 'offline';
     createdAt: string;
     lastActive?: string;
@@ -22,6 +23,16 @@ export interface AgentCluster {
     agentIds: string[];
     status: 'active' | 'inactive';
     createdAt: string;
+    workspaceConfig?: ClusterWorkspaceConfig;
+}
+
+export interface ClusterWorkspaceConfig {
+    presetId: string;
+    collaborationStyle: 'debate' | 'round-robin' | 'review-board' | 'leader-draft';
+    deliveryStyle: 'fast' | 'balanced' | 'deep';
+    critiqueLevel: 'minimal' | 'standard' | 'aggressive';
+    rounds: number;
+    briefing?: string;
 }
 
 export interface ChatMessage {
@@ -135,6 +146,7 @@ export interface CreateAgentParams {
     name: string;
     model: string;
     systemPrompt?: string;
+    enabledSkills?: string[];
 }
 
 export interface UpdateAgentParams {
@@ -143,6 +155,7 @@ export interface UpdateAgentParams {
     model?: string;
     temperature?: number;
     maxTokens?: number;
+    enabledSkills?: string[];
 }
 
 export interface SendMessageOptions {
@@ -159,11 +172,13 @@ export interface StreamMessageOptions {
 export interface CreateClusterParams {
     name: string;
     agentIds: string[];
+    workspaceConfig?: ClusterWorkspaceConfig;
 }
 
 export interface UpdateClusterParams {
     name?: string;
     agentIds?: string[];
+    workspaceConfig?: ClusterWorkspaceConfig;
 }
 
 export interface LocalAgent extends Agent {

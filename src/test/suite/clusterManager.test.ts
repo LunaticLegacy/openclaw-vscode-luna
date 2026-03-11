@@ -85,6 +85,45 @@ suite('clusterManager', () => {
             await fs.rm(root, { recursive: true, force: true });
         }
     });
+
+    test('persists cluster workspace config with the cluster definition', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-config-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Config Swarm',
+                agentIds: ['alpha', 'beta'],
+                workspaceConfig: {
+                    presetId: 'red-team-audit',
+                    collaborationStyle: 'review-board',
+                    deliveryStyle: 'deep',
+                    critiqueLevel: 'aggressive',
+                    rounds: 3,
+                    briefing: 'Stress test the design before release.'
+                }
+            });
+
+            const reloadedManager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+            try {
+                const reloadedCluster = await reloadedManager.getCluster(cluster.id);
+                assert.ok(reloadedCluster, 'expected persisted cluster to reload');
+                assert.equal(reloadedCluster?.workspaceConfig?.presetId, 'red-team-audit');
+                assert.equal(reloadedCluster?.workspaceConfig?.collaborationStyle, 'review-board');
+                assert.equal(reloadedCluster?.workspaceConfig?.deliveryStyle, 'deep');
+                assert.equal(reloadedCluster?.workspaceConfig?.critiqueLevel, 'aggressive');
+                assert.equal(reloadedCluster?.workspaceConfig?.rounds, 3);
+                assert.equal(reloadedCluster?.workspaceConfig?.briefing, 'Stress test the design before release.');
+            } finally {
+                reloadedManager.dispose();
+            }
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
 });
 
 type DebateStage =
@@ -198,23 +237,23 @@ class FakeCollaborationService extends EventEmitter {
 }
 
 function detectDebateStage(prompt: string): DebateStage {
-    if (prompt.includes('Debate stage: opening.')) {
+    if (prompt.includes('Debate stage: opening')) {
         return 'opening';
     }
 
-    if (prompt.includes('Debate stage: critique round 1.')) {
+    if (prompt.includes('Debate stage: critique round 1')) {
         return 'critique-1';
     }
 
-    if (prompt.includes('Debate stage: revision round 1.')) {
+    if (prompt.includes('Debate stage: revision round 1')) {
         return 'revision-1';
     }
 
-    if (prompt.includes('Debate stage: critique round 2.')) {
+    if (prompt.includes('Debate stage: critique round 2')) {
         return 'critique-2';
     }
 
-    if (prompt.includes('Debate stage: revision round 2.')) {
+    if (prompt.includes('Debate stage: revision round 2')) {
         return 'revision-2';
     }
 

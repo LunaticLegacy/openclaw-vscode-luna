@@ -20,9 +20,11 @@
         currentClusterSwarmMode: 'broadcast',
         agents: [],
         agentPresets: [],
+        aiSkills: [],
         newAgentMode: 'custom',
         newAgentPresetId: CUSTOM_AGENT_PRESET_ID,
         clusters: [],
+        clusterWorkModePresets: [],
         clusterConversations: {},
         tasks: [],
         tasksAvailable: true,
@@ -74,9 +76,72 @@
     let agentMutationTimer = null;
     const renderedChatMessageIds = new Set();
     const renderedChannelMessageIds = new Set();
+    const MAX_CLUSTER_ROUNDS = 12;
 
     // DOM Elements cache
     const elements = {};
+
+    const LOCAL_I18N_FALLBACKS = {
+        'zh-cn': {
+            'clusters.updated': '集群“{name}”已更新',
+            'clusters.editTitle': '编辑 {name}',
+            'clusters.validationName': '请填写集群名称。',
+            'clusters.validationAgents': '请至少为集群选择一个智能体。',
+            'clusters.form.name': '集群名称',
+            'clusters.form.preset': '工作模式预设',
+            'clusters.form.collaborationStyle': '协作样式',
+            'clusters.form.deliveryStyle': '输出深度',
+            'clusters.form.critiqueLevel': '审视强度',
+            'clusters.form.rounds': '讨论轮次',
+            'clusters.form.briefing': '集群简报',
+            'clusters.form.briefingPlaceholder': '补充这个集群应该以什么方式工作。',
+            'clusters.form.members': '集群成员',
+            'clusters.form.membersHint': '选择这个集群需要包含的智能体。',
+            'clusters.style.debate': '辩论',
+            'clusters.style.roundRobin': '轮转并行',
+            'clusters.style.reviewBoard': '评审委员会',
+            'clusters.style.leaderDraft': '主导草案',
+            'clusters.delivery.fast': '快速',
+            'clusters.delivery.balanced': '平衡',
+            'clusters.delivery.deep': '深入',
+            'clusters.critique.minimal': '轻度',
+            'clusters.critique.standard': '标准',
+            'clusters.critique.aggressive': '高压',
+            'clusters.rounds.value': '{count} 轮',
+            'clusters.debateRoundCritiqueDynamic': '第 {round} 轮评审',
+            'clusters.debateRoundRevisionDynamic': '第 {round} 轮修订',
+            'clusters.preset.implementation-squad.label': '实施小队',
+            'clusters.preset.implementation-squad.description': '面向交付，将请求收束为实施方案、代码变更和验证步骤。',
+            'clusters.preset.rapid-brainstorm.label': '快速头脑风暴',
+            'clusters.preset.rapid-brainstorm.description': '适合快速并行出方案、分支思路和低成本探索。',
+            'clusters.preset.architecture-review.label': '架构评审',
+            'clusters.preset.architecture-review.description': '强调边界、迁移风险、可维护性和长期权衡。',
+            'clusters.preset.debug-war-room.label': '故障作战室',
+            'clusters.preset.debug-war-room.description': '把重点锁定在复现路径、最强信号和最小安全修复。',
+            'clusters.preset.red-team-audit.label': '红队审计',
+            'clusters.preset.red-team-audit.description': '高压审视失效方式、滥用路径、隐藏假设和边界情况。',
+            'clusters.preset.research-synthesis.label': '研究汇总',
+            'clusters.preset.research-synthesis.description': '收集不同观点、保留不确定性，并将结论汇总成可辩护输出。',
+            'clusters.preset.spec-to-build.label': '从规格到交付',
+            'clusters.preset.spec-to-build.description': '从需求向 API 形状、任务切分、发布计划和交付顺序收束。',
+            'clusters.preset.qa-regression.label': '回归保障',
+            'clusters.preset.qa-regression.description': '重点关注用户可感知回归、缺失测试、脆弱状态流转和发布风险。'
+        }
+    };
+
+    function t(key, vars) {
+        const translated = window.OpenClawI18n ? window.OpenClawI18n.t(key, vars) : key;
+        if (translated !== key) {
+            return translated;
+        }
+
+        const localeFallbacks = LOCAL_I18N_FALLBACKS[state.locale] || {};
+        let fallback = localeFallbacks[key] || key;
+        Object.keys(vars || {}).forEach(name => {
+            fallback = fallback.replace(new RegExp(`{${name}}`, 'g'), vars[name]);
+        });
+        return fallback;
+    }
 
     // Initialize
     function init() {
@@ -221,7 +286,9 @@
         elements.clusterEmptyState = document.getElementById('clusters-empty-state');
         elements.clusterWorkspace = document.getElementById('cluster-workspace');
         elements.clusterTitle = document.getElementById('cluster-title');
+        elements.clusterBriefing = document.getElementById('cluster-briefing');
         elements.clusterSubtitle = document.getElementById('cluster-subtitle');
+        elements.clusterWorkmodeSummary = document.getElementById('cluster-workmode-summary');
         elements.clusterTargetTabs = document.getElementById('cluster-target-tabs');
         elements.clusterModeTabs = document.getElementById('cluster-mode-tabs');
         elements.clusterMessages = document.getElementById('cluster-messages');
@@ -229,6 +296,7 @@
         elements.clusterTargetHint = document.getElementById('cluster-target-hint');
         elements.btnSendCluster = document.getElementById('btn-send-cluster');
         elements.btnStopCluster = document.getElementById('btn-stop-cluster');
+        elements.btnEditCluster = document.getElementById('btn-edit-cluster');
         elements.btnNewAgent = document.getElementById('btn-new-agent');
         elements.btnRefreshAgents = document.getElementById('btn-refresh-agents');
         elements.btnNewCluster = document.getElementById('btn-new-cluster');
@@ -251,6 +319,19 @@
         elements.btnAddClusterAgent = document.getElementById('btn-add-cluster-agent');
         elements.btnRemoveClusterAgent = document.getElementById('btn-remove-cluster-agent');
         elements.btnDeleteCurrentCluster = document.getElementById('btn-delete-current-cluster');
+        elements.modalClusterEditor = document.getElementById('modal-cluster-editor');
+        elements.formClusterEditor = document.getElementById('form-cluster-editor');
+        elements.clusterModalTitle = document.getElementById('cluster-modal-title');
+        elements.clusterEditorId = document.getElementById('cluster-editor-id');
+        elements.clusterEditorName = document.getElementById('cluster-editor-name');
+        elements.clusterEditorPreset = document.getElementById('cluster-editor-preset');
+        elements.clusterEditorStyle = document.getElementById('cluster-editor-style');
+        elements.clusterEditorDelivery = document.getElementById('cluster-editor-delivery');
+        elements.clusterEditorCritique = document.getElementById('cluster-editor-critique');
+        elements.clusterEditorRounds = document.getElementById('cluster-editor-rounds');
+        elements.clusterEditorBriefing = document.getElementById('cluster-editor-briefing');
+        elements.clusterPresetSummary = document.getElementById('cluster-preset-summary');
+        elements.clusterEditorAgentPicker = document.getElementById('cluster-editor-agent-picker');
         elements.btnCreateTask = document.getElementById('btn-create-task');
         elements.btnRefreshUsage = document.getElementById('btn-refresh-usage');
         elements.btnUsagePeriod7 = document.getElementById('btn-usage-period-7');
@@ -284,6 +365,9 @@
         elements.btnStopChannel = document.getElementById('btn-stop-channel');
         elements.modalAgentSettings = document.getElementById('modal-agent-settings');
         elements.formAgentSettings = document.getElementById('form-agent-settings');
+        elements.agentSkillsPicker = document.getElementById('settings-agent-skills');
+        elements.agentSkillsHint = document.getElementById('settings-agent-skills-hint');
+        elements.agentSkillLinks = document.getElementById('settings-agent-skill-links');
         elements.modalTask = document.getElementById('modal-task');
         elements.formTask = document.getElementById('form-task');
     }
@@ -433,15 +517,21 @@
         });
 
         elements.btnNewCluster?.addEventListener('click', () => {
-            vscode.postMessage({ type: 'createCluster' });
+            openClusterEditor();
         });
 
         elements.btnCreateCluster?.addEventListener('click', () => {
-            vscode.postMessage({ type: 'createCluster' });
+            openClusterEditor();
         });
 
         elements.btnCreateClusterToolbar?.addEventListener('click', () => {
-            vscode.postMessage({ type: 'createCluster' });
+            openClusterEditor();
+        });
+
+        elements.btnEditCluster?.addEventListener('click', () => {
+            if (state.currentClusterId) {
+                openClusterEditor(state.currentClusterId);
+            }
         });
 
         elements.btnAddClusterAgent?.addEventListener('click', () => {
@@ -585,6 +675,32 @@
             taskPayloadKind?.addEventListener('change', () => updateTaskFormFields());
         }
 
+        if (elements.formClusterEditor) {
+            elements.formClusterEditor.addEventListener('submit', (e) => {
+                e.preventDefault();
+                saveClusterEditor();
+            });
+        }
+
+        [
+            elements.clusterEditorPreset,
+            elements.clusterEditorStyle,
+            elements.clusterEditorDelivery,
+            elements.clusterEditorCritique,
+            elements.clusterEditorRounds
+        ].forEach(input => {
+            input?.addEventListener('change', () => {
+                if (input === elements.clusterEditorPreset) {
+                    applyClusterPreset(elements.clusterEditorPreset?.value || '');
+                } else {
+                    renderClusterPresetSummary();
+                }
+            });
+        });
+        elements.clusterEditorBriefing?.addEventListener('input', () => {
+            renderClusterPresetSummary();
+        });
+
         // Close modal when clicking outside
         document.querySelectorAll('.modal').forEach(modal => {
             modal.addEventListener('click', (e) => {
@@ -595,6 +711,15 @@
         document.addEventListener('click', (e) => {
             const target = e.target;
             if (!(target instanceof Element)) {
+                return;
+            }
+
+            const skillLink = target.closest('[data-skill-url]');
+            if (skillLink) {
+                const url = skillLink.getAttribute('data-skill-url');
+                if (url) {
+                    vscode.postMessage({ type: 'openSkillUrl', url });
+                }
                 return;
             }
 
@@ -714,8 +839,6 @@
 
     function updateUIText() {
         if (!window.OpenClawI18n) return;
-        
-        const t = window.OpenClawI18n.t;
         
         // Update placeholders and buttons
         if (elements.messageInput) {
@@ -1822,7 +1945,7 @@
             timestamp: new Date().toISOString(),
             contextLabel: target.kind === 'swarm'
                 ? (window.OpenClawI18n ? window.OpenClawI18n.t(target.mode === 'broadcast' ? 'clusters.broadcast' : 'clusters.collaborate') : target.mode)
-                : resolveAgentLabel(target.agentId)
+                : resolveClusterAgentLabel(target.agentId)
         });
         conversation.pending = true;
 
@@ -2277,8 +2400,7 @@
         const senderSection = extractNamedEnvelopeSection(lines, cursor, /^Sender\s+\(untrusted metadata\)\s*:\s*$/i, [
             /^\[[^\]]+\]/,
             /^User request\s*[:\uFF1A]/i,
-            /^Current positions\s*[:\uFF1A]/i,
-            /^#{1,6}\s+.+$/
+            /^Current positions\s*[:\uFF1A]/i
         ]);
         if (senderSection) {
             pushEnvelopeSection(sections, 'Sender (untrusted metadata)', senderSection.content);
@@ -2293,7 +2415,6 @@
 
         const userRequestSection = extractNamedEnvelopeSection(lines, cursor, /^User request\s*[:\uFF1A]/i, [
             /^Current positions\s*[:\uFF1A]/i,
-            /^#{1,6}\s+.+$/,
             /^Requirements?\s*[:\uFF1A]/i
         ]);
         if (userRequestSection) {
@@ -2303,7 +2424,6 @@
 
         const positionsSection = extractNamedEnvelopeSection(lines, cursor, /^Current positions\s*[:\uFF1A]/i, [
             /^Peer reviews\s*[:\uFF1A]/i,
-            /^#{1,6}\s+.+$/,
             /^Requirements?\s*[:\uFF1A]/i
         ]);
         if (positionsSection) {
@@ -2312,7 +2432,6 @@
         }
 
         const peerReviewsSection = extractNamedEnvelopeSection(lines, cursor, /^Peer reviews\s*[:\uFF1A]/i, [
-            /^#{1,6}\s+.+$/,
             /^Requirements?\s*[:\uFF1A]/i
         ]);
         if (peerReviewsSection) {
@@ -3226,6 +3345,24 @@
         renderConsoleOverview();
     }
 
+    function upsertAgentState(agent) {
+        if (!agent || !agent.id) {
+            return;
+        }
+
+        const index = state.agents.findIndex(item => item.id === agent.id);
+        if (index >= 0) {
+            state.agents[index] = {
+                ...state.agents[index],
+                ...agent
+            };
+        } else {
+            state.agents.push(agent);
+        }
+
+        renderAgents([...state.agents]);
+    }
+
     function renderChannels(channelData, selectedChannelId) {
         state.channels = Array.isArray(channelData) ? channelData : [];
         state.channelsLoaded = true;
@@ -4042,6 +4179,62 @@
     }
 
     // Show agent settings
+    function renderAgentSkillsPicker(enabledSkills) {
+        if (!elements.agentSkillsPicker) {
+            return;
+        }
+
+        const selected = new Set(Array.isArray(enabledSkills) ? enabledSkills : []);
+        const skills = Array.isArray(state.aiSkills) ? state.aiSkills : [];
+        if (skills.length === 0) {
+            elements.agentSkillsPicker.innerHTML = '';
+            return;
+        }
+
+        elements.agentSkillsPicker.innerHTML = skills.map(skill => `
+            <label class="cluster-agent-option">
+                <input type="checkbox" value="${escapeHtml(skill.id)}"${selected.has(skill.id) ? ' checked' : ''}>
+                <div>
+                    <div class="cluster-agent-option-title">${escapeHtml(skill.label || skill.id)}</div>
+                    <div class="cluster-agent-option-meta">${escapeHtml(skill.description || '')}</div>
+                </div>
+            </label>
+        `).join('');
+    }
+
+    function renderAgentSkillLinks() {
+        if (!elements.agentSkillLinks) {
+            return;
+        }
+
+        const skills = Array.isArray(state.aiSkills) ? state.aiSkills : [];
+        if (skills.length === 0) {
+            elements.agentSkillLinks.innerHTML = '';
+            return;
+        }
+
+        const uniqueLinks = new Map();
+        skills.forEach(skill => {
+            const url = String(skill.downloadUrl || '').trim();
+            if (!url || uniqueLinks.has(url)) {
+                return;
+            }
+            const defaultLinkLabel = t('agentSettings.skills.downloadLink');
+            const defaultLinkDescription = t('agentSettings.skills.downloadHint');
+            uniqueLinks.set(url, {
+                label: skill.linkLabel || (defaultLinkLabel === 'agentSettings.skills.downloadLink' ? 'Skill Download Address' : defaultLinkLabel),
+                description: skill.linkDescription || (defaultLinkDescription === 'agentSettings.skills.downloadHint' ? 'Open the skill catalog or repository in your browser.' : defaultLinkDescription)
+            });
+        });
+
+        elements.agentSkillLinks.innerHTML = Array.from(uniqueLinks.entries()).map(([url, entry]) => `
+            <button type="button" class="btn skill-link-card" data-skill-url="${escapeHtml(url)}">
+                <div class="skill-link-card-title">${escapeHtml(entry.label)}</div>
+                <div class="skill-link-card-meta">${escapeHtml(entry.description)}</div>
+            </button>
+        `).join('');
+    }
+
     function showAgentSettings(agent) {
         if (!supportsRuntimeCapability('agentEditing')) {
             showError(resolveCapabilityUnavailableMessage('agentEditing'));
@@ -4056,7 +4249,9 @@
         const promptField = document.getElementById('settings-agent-prompt');
         const tempField = document.getElementById('settings-agent-temperature');
         const maxTokensField = document.getElementById('settings-agent-max-tokens');
-        
+        const skillsLabel = document.getElementById('settings-agent-skills-label');
+        const skillLinksLabel = document.getElementById('settings-agent-skills-links-label');
+
         if (idField) idField.value = agent.id;
         if (nameField) nameField.value = agent.name;
         if (promptField) promptField.value = agent.systemPrompt || '';
@@ -4070,6 +4265,22 @@
             }
         }
         if (maxTokensField) maxTokensField.value = agent.maxTokens || 4096;
+        if (skillsLabel) {
+            const label = t('agentSettings.skills.label');
+            skillsLabel.textContent = label === 'agentSettings.skills.label' ? 'AI Skills' : label;
+        }
+        if (skillLinksLabel) {
+            const label = t('agentSettings.skills.resources');
+            skillLinksLabel.textContent = label === 'agentSettings.skills.resources' ? 'Skill Resources' : label;
+        }
+        if (elements.agentSkillsHint) {
+            const hint = t('agentSettings.skills.hint');
+            elements.agentSkillsHint.textContent = hint === 'agentSettings.skills.hint'
+                ? 'Enable the skills this agent should apply during reasoning and response generation.'
+                : hint;
+        }
+        renderAgentSkillsPicker(agent.enabledSkills || []);
+        renderAgentSkillLinks();
         
         openModal(modal);
     }
@@ -4086,13 +4297,17 @@
         const promptField = document.getElementById('settings-agent-prompt');
         const tempField = document.getElementById('settings-agent-temperature');
         const maxTokensField = document.getElementById('settings-agent-max-tokens');
+        const enabledSkills = Array.from(elements.agentSkillsPicker?.querySelectorAll('input[type="checkbox"]:checked') || [])
+            .map(input => input.value)
+            .filter(Boolean);
         
         const agentId = agentIdField ? agentIdField.value : '';
         const settings = {
             name: nameField ? nameField.value : '',
             systemPrompt: promptField ? promptField.value : '',
             temperature: tempField ? parseFloat(tempField.value) : 0.7,
-            maxTokens: maxTokensField ? parseInt(maxTokensField.value) : 4096
+            maxTokens: maxTokensField ? parseInt(maxTokensField.value) : 4096,
+            enabledSkills
         };
         
         vscode.postMessage({ type: 'saveAgentSettings', agentId, settings });
@@ -4329,9 +4544,391 @@
         document.querySelectorAll('.modal').forEach(m => m.classList.remove('active'));
     }
 
+    function getClusterWorkModePresetById(presetId) {
+        const normalizedPresetId = String(presetId || '').trim();
+        const presets = Array.isArray(state.clusterWorkModePresets) ? state.clusterWorkModePresets : [];
+        return presets.find(preset => preset.id === normalizedPresetId)
+            || presets.find(preset => preset.id === 'implementation-squad')
+            || presets[0]
+            || null;
+    }
+
+    function getDefaultClusterWorkModeConfig() {
+        const preset = getClusterWorkModePresetById('implementation-squad') || {
+            id: 'implementation-squad',
+            presetId: 'implementation-squad',
+            collaborationStyle: 'leader-draft',
+            deliveryStyle: 'balanced',
+            critiqueLevel: 'standard',
+            rounds: 2,
+            briefing: ''
+        };
+        return {
+            presetId: preset.id,
+            collaborationStyle: preset.collaborationStyle,
+            deliveryStyle: preset.deliveryStyle,
+            critiqueLevel: preset.critiqueLevel,
+            rounds: preset.rounds,
+            briefing: preset.briefing || ''
+        };
+    }
+
+    function getClusterWorkModeConfig(cluster) {
+        const preset = getClusterWorkModePresetById(cluster?.workspaceConfig?.presetId);
+        const base = preset
+            ? {
+                presetId: preset.id,
+                collaborationStyle: preset.collaborationStyle,
+                deliveryStyle: preset.deliveryStyle,
+                critiqueLevel: preset.critiqueLevel,
+                rounds: preset.rounds,
+                briefing: preset.briefing || ''
+            }
+            : getDefaultClusterWorkModeConfig();
+        const config = cluster?.workspaceConfig || {};
+        return {
+            presetId: String(config.presetId || base.presetId),
+            collaborationStyle: ['debate', 'round-robin', 'review-board', 'leader-draft'].includes(config.collaborationStyle)
+                ? config.collaborationStyle
+                : base.collaborationStyle,
+            deliveryStyle: ['fast', 'balanced', 'deep'].includes(config.deliveryStyle)
+                ? config.deliveryStyle
+                : base.deliveryStyle,
+            critiqueLevel: ['minimal', 'standard', 'aggressive'].includes(config.critiqueLevel)
+                ? config.critiqueLevel
+                : base.critiqueLevel,
+            rounds: normalizeClusterRoundsInput(config.rounds, base.rounds || 1),
+            briefing: typeof config.briefing === 'string' && config.briefing.trim()
+                ? config.briefing.trim()
+                : (base.briefing || '')
+        };
+    }
+
+    function normalizeClusterRoundsInput(value, fallback = 1) {
+        const parsedValue = Number(value);
+        if (!Number.isFinite(parsedValue)) {
+            return Math.max(1, Math.min(MAX_CLUSTER_ROUNDS, Math.round(Number(fallback) || 1)));
+        }
+
+        return Math.max(1, Math.min(MAX_CLUSTER_ROUNDS, Math.round(parsedValue)));
+    }
+
+    function populateClusterEditorOptions() {
+        if (elements.clusterEditorPreset) {
+            const presets = Array.isArray(state.clusterWorkModePresets) ? state.clusterWorkModePresets : [];
+            elements.clusterEditorPreset.innerHTML = presets.map(preset => `
+                <option value="${escapeHtml(preset.id)}">${escapeHtml(t(`clusters.preset.${preset.id}.label`) || preset.id)}</option>
+            `).join('');
+        }
+
+        if (elements.clusterEditorStyle) {
+            elements.clusterEditorStyle.innerHTML = [
+                ['debate', t('clusters.style.debate')],
+                ['round-robin', t('clusters.style.roundRobin')],
+                ['review-board', t('clusters.style.reviewBoard')],
+                ['leader-draft', t('clusters.style.leaderDraft')]
+            ].map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join('');
+        }
+
+        if (elements.clusterEditorDelivery) {
+            elements.clusterEditorDelivery.innerHTML = [
+                ['fast', t('clusters.delivery.fast')],
+                ['balanced', t('clusters.delivery.balanced')],
+                ['deep', t('clusters.delivery.deep')]
+            ].map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join('');
+        }
+
+        if (elements.clusterEditorCritique) {
+            elements.clusterEditorCritique.innerHTML = [
+                ['minimal', t('clusters.critique.minimal')],
+                ['standard', t('clusters.critique.standard')],
+                ['aggressive', t('clusters.critique.aggressive')]
+            ].map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join('');
+        }
+
+        if (elements.clusterEditorRounds) {
+            elements.clusterEditorRounds.min = '1';
+            elements.clusterEditorRounds.step = '1';
+            elements.clusterEditorRounds.value = String(normalizeClusterRoundsInput(elements.clusterEditorRounds.value || 2, 2));
+        }
+    }
+
+    function renderClusterAgentPicker(selectedAgentIds) {
+        if (!elements.clusterEditorAgentPicker) {
+            return;
+        }
+
+        if (!Array.isArray(state.agents) || state.agents.length === 0) {
+            elements.clusterEditorAgentPicker.innerHTML = `<div class="cluster-agent-picker-empty">${escapeHtml(t('clusters.createAgentFirst'))}</div>`;
+            return;
+        }
+
+        const selected = new Set(Array.isArray(selectedAgentIds) ? selectedAgentIds : []);
+        elements.clusterEditorAgentPicker.innerHTML = state.agents.map(agent => `
+            <label class="cluster-agent-option">
+                <input type="checkbox" value="${escapeHtml(agent.id)}"${selected.has(agent.id) ? ' checked' : ''}>
+                <div>
+                    <div class="cluster-agent-option-title">${escapeHtml(agent.name)}</div>
+                    <div class="cluster-agent-option-meta">${escapeHtml(agent.model || agent.id)}</div>
+                </div>
+            </label>
+        `).join('');
+    }
+
+    function renderClusterPresetSummary() {
+        if (!elements.clusterPresetSummary) {
+            return;
+        }
+
+        const preset = getClusterWorkModePresetById(elements.clusterEditorPreset?.value);
+        const styleValue = elements.clusterEditorStyle?.value || 'leader-draft';
+        const deliveryValue = elements.clusterEditorDelivery?.value || 'balanced';
+        const critiqueValue = elements.clusterEditorCritique?.value || 'standard';
+        const roundsValue = normalizeClusterRoundsInput(elements.clusterEditorRounds?.value || 2, 2);
+        const briefing = String(elements.clusterEditorBriefing?.value || '').trim();
+
+        elements.clusterPresetSummary.innerHTML = `
+            <h3>${escapeHtml(preset ? (t(`clusters.preset.${preset.id}.label`) || preset.id) : t('clusters.form.preset'))}</h3>
+            <p>${escapeHtml(preset ? (t(`clusters.preset.${preset.id}.description`) || '') : '')}</p>
+            <div class="cluster-preset-summary-grid">
+                <div class="cluster-preset-summary-item">
+                    <div class="cluster-preset-summary-label">${escapeHtml(t('clusters.form.collaborationStyle'))}</div>
+                    <div class="cluster-preset-summary-value">${escapeHtml(getClusterStyleLabel(styleValue))}</div>
+                </div>
+                <div class="cluster-preset-summary-item">
+                    <div class="cluster-preset-summary-label">${escapeHtml(t('clusters.form.deliveryStyle'))}</div>
+                    <div class="cluster-preset-summary-value">${escapeHtml(getClusterDeliveryLabel(deliveryValue))}</div>
+                </div>
+                <div class="cluster-preset-summary-item">
+                    <div class="cluster-preset-summary-label">${escapeHtml(t('clusters.form.critiqueLevel'))}</div>
+                    <div class="cluster-preset-summary-value">${escapeHtml(getClusterCritiqueLabel(critiqueValue))}</div>
+                </div>
+                <div class="cluster-preset-summary-item">
+                    <div class="cluster-preset-summary-label">${escapeHtml(t('clusters.form.rounds'))}</div>
+                    <div class="cluster-preset-summary-value">${escapeHtml(t('clusters.rounds.value', { count: roundsValue }) || String(roundsValue))}</div>
+                </div>
+            </div>
+            ${briefing ? `<p>${escapeHtml(briefing)}</p>` : ''}
+        `;
+    }
+
+    function applyClusterPreset(presetId) {
+        const preset = getClusterWorkModePresetById(presetId);
+        if (!preset) {
+            return;
+        }
+
+        if (elements.clusterEditorPreset) {
+            elements.clusterEditorPreset.value = preset.id;
+        }
+        if (elements.clusterEditorStyle) {
+            elements.clusterEditorStyle.value = preset.collaborationStyle;
+        }
+        if (elements.clusterEditorDelivery) {
+            elements.clusterEditorDelivery.value = preset.deliveryStyle;
+        }
+        if (elements.clusterEditorCritique) {
+            elements.clusterEditorCritique.value = preset.critiqueLevel;
+        }
+        if (elements.clusterEditorRounds) {
+            elements.clusterEditorRounds.value = String(normalizeClusterRoundsInput(preset.rounds, 2));
+        }
+        if (elements.clusterEditorBriefing && !String(elements.clusterEditorBriefing.value || '').trim()) {
+            elements.clusterEditorBriefing.value = preset.briefing || '';
+        }
+
+        renderClusterPresetSummary();
+    }
+
+    function openClusterEditor(clusterId) {
+        applyView('clusters');
+        populateClusterEditorOptions();
+
+        const cluster = clusterId
+            ? state.clusters.find(item => item.id === clusterId) || null
+            : null;
+        const config = getClusterWorkModeConfig(cluster);
+        const selectedAgentIds = cluster?.agentIds || state.agents.slice(0, Math.min(3, state.agents.length)).map(agent => agent.id);
+
+        if (elements.clusterModalTitle) {
+            elements.clusterModalTitle.textContent = cluster
+                ? (t('clusters.editTitle', { name: cluster.name }) || cluster.name)
+                : t('clusters.create');
+        }
+        if (elements.clusterEditorId) {
+            elements.clusterEditorId.value = cluster?.id || '';
+        }
+        if (elements.clusterEditorName) {
+            elements.clusterEditorName.value = cluster?.name || '';
+        }
+        if (elements.clusterEditorBriefing) {
+            elements.clusterEditorBriefing.value = config.briefing || '';
+        }
+
+        renderClusterAgentPicker(selectedAgentIds);
+        applyClusterPreset(config.presetId);
+
+        if (elements.clusterEditorStyle) {
+            elements.clusterEditorStyle.value = config.collaborationStyle;
+        }
+        if (elements.clusterEditorDelivery) {
+            elements.clusterEditorDelivery.value = config.deliveryStyle;
+        }
+        if (elements.clusterEditorCritique) {
+            elements.clusterEditorCritique.value = config.critiqueLevel;
+        }
+        if (elements.clusterEditorRounds) {
+            elements.clusterEditorRounds.value = String(normalizeClusterRoundsInput(config.rounds, 2));
+        }
+        if (elements.clusterEditorBriefing) {
+            elements.clusterEditorBriefing.value = config.briefing || '';
+        }
+
+        renderClusterPresetSummary();
+        openModal(elements.modalClusterEditor);
+    }
+
+    function saveClusterEditor() {
+        const clusterId = String(elements.clusterEditorId?.value || '').trim();
+        const name = String(elements.clusterEditorName?.value || '').trim();
+        const selectedAgentIds = Array.from(elements.clusterEditorAgentPicker?.querySelectorAll('input[type="checkbox"]:checked') || [])
+            .map(input => input.value)
+            .filter(Boolean);
+
+        if (!name) {
+            showError(t('clusters.validationName'));
+            return;
+        }
+
+        if (selectedAgentIds.length === 0) {
+            showError(t('clusters.validationAgents'));
+            return;
+        }
+
+        vscode.postMessage({
+            type: 'saveCluster',
+            clusterId: clusterId || undefined,
+            data: {
+                name,
+                agentIds: selectedAgentIds,
+                workspaceConfig: {
+                    presetId: elements.clusterEditorPreset?.value || 'implementation-squad',
+                    collaborationStyle: elements.clusterEditorStyle?.value || 'leader-draft',
+                    deliveryStyle: elements.clusterEditorDelivery?.value || 'balanced',
+                    critiqueLevel: elements.clusterEditorCritique?.value || 'standard',
+                    rounds: normalizeClusterRoundsInput(elements.clusterEditorRounds?.value || 2, 2),
+                    briefing: String(elements.clusterEditorBriefing?.value || '').trim()
+                }
+            }
+        });
+        closeAllModals();
+    }
+
+    function renderClusterWorkmodeSummary(cluster) {
+        if (!elements.clusterWorkmodeSummary) {
+            return;
+        }
+
+        const config = getClusterWorkModeConfig(cluster);
+        const preset = getClusterWorkModePresetById(config.presetId);
+        elements.clusterWorkmodeSummary.innerHTML = [
+            preset ? `<span class="cluster-workmode-chip">${escapeHtml(t(`clusters.preset.${preset.id}.label`) || preset.id)}</span>` : '',
+            `<span class="cluster-workmode-chip">${escapeHtml(getClusterStyleLabel(config.collaborationStyle))}</span>`,
+            `<span class="cluster-workmode-chip">${escapeHtml(getClusterDeliveryLabel(config.deliveryStyle))}</span>`,
+            `<span class="cluster-workmode-chip">${escapeHtml(getClusterCritiqueLabel(config.critiqueLevel))}</span>`,
+            `<span class="cluster-workmode-chip">${escapeHtml(t('clusters.rounds.value', { count: config.rounds }) || String(config.rounds))}</span>`
+        ].filter(Boolean).join('');
+    }
+
+    function mergeClusterState(existingCluster, nextCluster) {
+        if (!nextCluster || !nextCluster.id) {
+            return existingCluster || nextCluster;
+        }
+
+        return {
+            ...(existingCluster || {}),
+            ...nextCluster,
+            agentIds: Array.isArray(nextCluster.agentIds)
+                ? [...nextCluster.agentIds]
+                : Array.isArray(existingCluster?.agentIds)
+                    ? [...existingCluster.agentIds]
+                    : [],
+            workspaceConfig: nextCluster.workspaceConfig
+                ? {
+                    ...(existingCluster?.workspaceConfig || {}),
+                    ...nextCluster.workspaceConfig
+                }
+                : existingCluster?.workspaceConfig
+        };
+    }
+
+    function getClusterStyleLabel(value) {
+        switch (value) {
+            case 'debate':
+                return t('clusters.style.debate');
+            case 'round-robin':
+                return t('clusters.style.roundRobin');
+            case 'review-board':
+                return t('clusters.style.reviewBoard');
+            case 'leader-draft':
+            default:
+                return t('clusters.style.leaderDraft');
+        }
+    }
+
+    function getClusterDeliveryLabel(value) {
+        switch (value) {
+            case 'fast':
+                return t('clusters.delivery.fast');
+            case 'deep':
+                return t('clusters.delivery.deep');
+            case 'balanced':
+            default:
+                return t('clusters.delivery.balanced');
+        }
+    }
+
+    function getClusterCritiqueLabel(value) {
+        switch (value) {
+            case 'minimal':
+                return t('clusters.critique.minimal');
+            case 'aggressive':
+                return t('clusters.critique.aggressive');
+            case 'standard':
+            default:
+                return t('clusters.critique.standard');
+        }
+    }
+
+    function upsertClusterState(cluster, options = {}) {
+        if (!cluster || !cluster.id) {
+            return;
+        }
+
+        const index = state.clusters.findIndex(item => item.id === cluster.id);
+        const mergedCluster = mergeClusterState(index >= 0 ? state.clusters[index] : null, cluster);
+        if (index >= 0) {
+            state.clusters[index] = mergedCluster;
+        } else {
+            state.clusters.push(mergedCluster);
+        }
+
+        if (options.select !== false) {
+            state.currentClusterId = mergedCluster.id;
+        }
+
+        ensureCurrentClusterSelection();
+        renderClusterSidebarList(state.clusters);
+        renderClusterWorkspace();
+        renderConsoleOverview();
+    }
+
     // Render clusters
     function renderClusters(clusters) {
-        state.clusters = Array.isArray(clusters) ? clusters : [];
+        const previousClustersById = new Map((Array.isArray(state.clusters) ? state.clusters : []).map(cluster => [cluster.id, cluster]));
+        state.clusters = Array.isArray(clusters)
+            ? clusters.map(cluster => mergeClusterState(previousClustersById.get(cluster.id), cluster))
+            : [];
 
         if (state.currentClusterId && !state.clusters.some(cluster => cluster.id === state.currentClusterId)) {
             state.currentClusterId = null;
@@ -4386,6 +4983,10 @@
             if (elements.clusterMessages) {
                 elements.clusterMessages.innerHTML = `<div class="cluster-empty-conversation">${escapeHtml(t('clusters.emptyWorkspace'))}</div>`;
             }
+            if (elements.clusterBriefing) {
+                elements.clusterBriefing.textContent = '';
+                elements.clusterBriefing.classList.add('hidden');
+            }
             if (elements.clusterTargetTabs) {
                 elements.clusterTargetTabs.innerHTML = '';
             }
@@ -4402,20 +5003,31 @@
             if (elements.clusterTargetHint) {
                 elements.clusterTargetHint.textContent = '';
             }
-        if (elements.btnDeleteCurrentCluster) {
-            elements.btnDeleteCurrentCluster.disabled = true;
+            if (elements.btnDeleteCurrentCluster) {
+                elements.btnDeleteCurrentCluster.disabled = true;
+            }
+            if (elements.btnAddClusterAgent) {
+                elements.btnAddClusterAgent.disabled = true;
+            }
+            if (elements.btnRemoveClusterAgent) {
+                elements.btnRemoveClusterAgent.disabled = true;
+            }
+            if (elements.btnEditCluster) {
+                elements.btnEditCluster.disabled = true;
+            }
+            if (elements.clusterWorkmodeSummary) {
+                elements.clusterWorkmodeSummary.innerHTML = '';
+            }
+            return;
         }
-        if (elements.btnAddClusterAgent) {
-            elements.btnAddClusterAgent.disabled = true;
-        }
-        if (elements.btnRemoveClusterAgent) {
-            elements.btnRemoveClusterAgent.disabled = true;
-        }
-        return;
-    }
 
         if (elements.clusterTitle) {
             elements.clusterTitle.textContent = cluster.name;
+        }
+        if (elements.clusterBriefing) {
+            const briefing = String(getClusterWorkModeConfig(cluster).briefing || '').trim();
+            elements.clusterBriefing.textContent = briefing;
+            elements.clusterBriefing.classList.toggle('hidden', !briefing);
         }
         if (elements.clusterSubtitle) {
             elements.clusterSubtitle.textContent = t('clusters.subtitle', {
@@ -4432,6 +5044,10 @@
         if (elements.btnDeleteCurrentCluster) {
             elements.btnDeleteCurrentCluster.disabled = false;
         }
+        if (elements.btnEditCluster) {
+            elements.btnEditCluster.disabled = false;
+        }
+        renderClusterWorkmodeSummary(cluster);
 
         renderClusterTargetTabs(cluster);
         renderClusterModeTabs();
@@ -4462,7 +5078,7 @@
                     data-cluster-target-kind="agent"
                     data-cluster-agent-id="${escapeHtml(agentId)}"
                 >
-                    <span>${escapeHtml(resolveAgentLabel(agentId))}</span>
+                    <span>${escapeHtml(resolveClusterAgentLabel(agentId))}</span>
                 </button>
             `);
         });
@@ -4523,7 +5139,7 @@
         if (conversation.messages.length === 0 && !conversation.pending) {
             sections.push(`<div class="cluster-empty-conversation">${escapeHtml(getClusterEmptyConversationCopy(cluster, target))}</div>`);
         } else {
-            sections.push(conversation.messages.map(renderClusterConversationMessage).join(''));
+            sections.push(buildClusterConversationEntries(conversation.messages).map(renderClusterConversationEntry).join(''));
         }
 
         if (conversation.pending) {
@@ -4534,7 +5150,132 @@
         scrollClusterToBottom();
     }
 
-    function renderClusterConversationMessage(msg) {
+    function buildClusterConversationEntries(messages) {
+        const entries = [];
+        const sanitizedMessages = sanitizeClusterConversationMessages(messages);
+
+        sanitizedMessages.forEach(msg => {
+            if (!msg || shouldHideMessage(msg)) {
+                return;
+            }
+
+            if (msg.role === 'user') {
+                entries.push({
+                    kind: 'message',
+                    message: msg
+                });
+                return;
+            }
+
+            if (shouldAppendToTrace(msg)) {
+                const currentEntry = entries[entries.length - 1];
+                const shouldReuseTraceEntry = currentEntry?.kind === 'trace'
+                    && currentEntry.displayName === (msg.displayName || '')
+                    && currentEntry.contextLabel === (msg.contextLabel || '');
+
+                if (shouldReuseTraceEntry) {
+                    currentEntry.messages.push(msg);
+                    return;
+                }
+
+                entries.push({
+                    kind: 'trace',
+                    displayName: msg.displayName || '',
+                    contextLabel: msg.contextLabel || '',
+                    messages: [msg]
+                });
+                return;
+            }
+
+            entries.push({
+                kind: 'message',
+                message: msg
+            });
+        });
+
+        return entries;
+    }
+
+    function sanitizeClusterConversationMessages(messages) {
+        const source = Array.isArray(messages) ? messages : [];
+        const resolvedToolKeys = new Set();
+
+        source.forEach(msg => {
+            if (!msg) {
+                return;
+            }
+
+            if (msg.role === 'tool') {
+                resolvedToolKeys.add(getClusterToolKey(msg.toolCallId, msg.toolName));
+                return;
+            }
+
+            if (!Array.isArray(msg.parts)) {
+                return;
+            }
+
+            msg.parts
+                .filter(part => part.type === 'toolResult')
+                .forEach(part => resolvedToolKeys.add(getClusterToolKey(part.toolCallId, part.name)));
+        });
+
+        return source
+            .map(msg => stripResolvedToolCallsFromAssistant(msg, resolvedToolKeys))
+            .filter(msg => {
+                if (msg?.role !== 'tool') {
+                    return true;
+                }
+
+                const toolKey = getClusterToolKey(msg.toolCallId, msg.toolName);
+                return !source.some(other =>
+                    other?.role === 'assistant'
+                    && Array.isArray(other.parts)
+                    && other.parts.some(part =>
+                        part.type === 'toolResult'
+                        && getClusterToolKey(part.toolCallId, part.name) === toolKey
+                    )
+                );
+            });
+    }
+
+    function stripResolvedToolCallsFromAssistant(msg, resolvedToolKeys) {
+        if (!msg || msg.role !== 'assistant' || !Array.isArray(msg.parts)) {
+            return msg;
+        }
+
+        const nextParts = msg.parts.filter(part => {
+            if (part.type !== 'toolCall') {
+                return true;
+            }
+
+            return !resolvedToolKeys.has(getClusterToolKey(part.id, part.name));
+        });
+
+        return nextParts.length === msg.parts.length
+            ? msg
+            : {
+                ...msg,
+                parts: nextParts
+            };
+    }
+
+    function getClusterToolKey(toolCallId, toolName) {
+        return `${normalizeToolCallId(toolCallId)}::${normalizeToolName(toolName || 'tool')}`;
+    }
+
+    function renderClusterConversationEntry(entry) {
+        if (!entry) {
+            return '';
+        }
+
+        if (entry.kind === 'trace') {
+            return renderClusterTraceEntry(entry);
+        }
+
+        return renderClusterStandaloneMessage(entry.message);
+    }
+
+    function renderClusterStandaloneMessage(msg) {
         if (!msg || shouldHideMessage(msg)) {
             return '';
         }
@@ -4553,6 +5294,27 @@
                     ${tokenInfo}
                 </div>
                 ${renderMessageContent(msg)}
+            </div>
+        `;
+    }
+
+    function renderClusterTraceEntry(entry) {
+        const headerMessage = entry.messages[0];
+        const time = headerMessage?.timestamp ? new Date(headerMessage.timestamp).toLocaleTimeString() : '';
+        const body = entry.messages.map(msg => `
+            <div class="trace-segment trace-segment-${escapeHtml(msg.role || 'assistant')}">
+                ${msg.role === 'tool' ? renderToolMessage(msg, Array.isArray(msg.parts) ? msg.parts : []) : renderMessageContent(msg)}
+            </div>
+        `).join('');
+
+        return `
+            <div class="message message-assistant message-trace">
+                <div class="message-header">
+                    <span class="message-role">${escapeHtml(getMessageRoleLabel(headerMessage))}</span>
+                    ${entry.contextLabel ? `<span class="cluster-status-pill">${escapeHtml(entry.contextLabel)}</span>` : ''}
+                    ${time ? `<span class="message-time">${time}</span>` : ''}
+                </div>
+                <div class="trace-body">${body}</div>
             </div>
         `;
     }
@@ -4826,6 +5588,43 @@
         return state.clusters.find(cluster => cluster.id === state.currentClusterId) || null;
     }
 
+    function getCollaborationRoundLabel(kind, t) {
+        const keyMap = {
+            opening: 'clusters.debateRoundOpening',
+            'critique-1': 'clusters.debateRoundCritique1',
+            'revision-1': 'clusters.debateRoundRevision1',
+            'critique-2': 'clusters.debateRoundCritique2',
+            'revision-2': 'clusters.debateRoundRevision2'
+        };
+        const fallbackMap = {
+            opening: 'Round 1 - Opening Positions',
+            'critique-1': 'Round 2 - Peer Review',
+            'revision-1': 'Round 3 - Revised Positions',
+            'critique-2': 'Round 4 - Second Peer Review',
+            'revision-2': 'Round 5 - Final Positions'
+        };
+
+        if (keyMap[kind]) {
+            return getTranslationOrFallback(t, keyMap[kind], fallbackMap[kind]);
+        }
+
+        if (kind === 'opening') {
+            return t('clusters.debateRoundOpening') || 'Round 1 - Opening Positions';
+        }
+
+        if (kind.startsWith('critique-')) {
+            const round = Number(kind.slice('critique-'.length) || '1');
+            return t('clusters.debateRoundCritiqueDynamic', { round }) || `Critique Round ${round}`;
+        }
+
+        if (kind.startsWith('revision-')) {
+            const round = Number(kind.slice('revision-'.length) || '1');
+            return t('clusters.debateRoundRevisionDynamic', { round }) || `Revision Round ${round}`;
+        }
+
+        return t('clusters.contributions') || 'Contributions';
+    }
+
     function ensureCurrentClusterSelection() {
         const cluster = getCurrentCluster();
         if (!cluster) {
@@ -5087,7 +5886,7 @@
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
         if (target.kind === 'agent') {
             return t('clusters.emptyAgentConversation', {
-                agent: resolveAgentLabel(target.agentId)
+                agent: resolveClusterAgentLabel(target.agentId)
             });
         }
 
@@ -5104,7 +5903,7 @@
 
         if (target.kind === 'agent') {
             return t('clusters.chatPlaceholderAgent', {
-                agent: resolveAgentLabel(target.agentId)
+                agent: resolveClusterAgentLabel(target.agentId)
             });
         }
 
@@ -5121,7 +5920,7 @@
 
         if (target.kind === 'agent') {
             return t('clusters.hintAgent', {
-                agent: resolveAgentLabel(target.agentId)
+                agent: resolveClusterAgentLabel(target.agentId)
             });
         }
 
@@ -5133,7 +5932,7 @@
     function getClusterPendingLabel(target) {
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
         if (target.kind === 'agent') {
-            return resolveAgentLabel(target.agentId);
+            return resolveClusterAgentLabel(target.agentId);
         }
 
         return t(target.mode === 'broadcast' ? 'clusters.broadcast' : 'clusters.collaborate');
@@ -5177,6 +5976,15 @@
         }
 
         return `${agent.name} (${agent.model})`;
+    }
+
+    function resolveClusterAgentLabel(agentId) {
+        if (!agentId) {
+            return '-';
+        }
+
+        const agent = state.agents.find(item => item.id === agentId);
+        return agent?.name || agentId;
     }
 
     function resolveTaskAgentLabel(agentId) {
@@ -5768,6 +6576,9 @@
                 break;
                 
             case 'clustersLoaded':
+                if (Array.isArray(message.workModePresets)) {
+                    state.clusterWorkModePresets = message.workModePresets;
+                }
                 if (message.selectedClusterId) {
                     state.currentClusterId = message.selectedClusterId;
                 }
@@ -5839,10 +6650,25 @@
                 }
                 break;
 
+            case 'setRunState':
+                if (message.scope === 'chat') {
+                    state.isStreaming = Boolean(message.running);
+                    updateChatInputState();
+                    break;
+                }
+                if (message.scope === 'channel') {
+                    state.channelSending = Boolean(message.running);
+                    updateChannelInputState();
+                }
+                break;
+
             case 'switchView':
                 applyView(message.view);
                 if (message.view === 'clusters' && message.selectedClusterId) {
                     state.currentClusterId = message.selectedClusterId;
+                }
+                if (message.view === 'clusters' && Array.isArray(message.workModePresets)) {
+                    state.clusterWorkModePresets = message.workModePresets;
                 }
                 if (message.view === 'clusters' && message.clusters) {
                     renderClusters(message.clusters);
@@ -5856,11 +6682,29 @@
                 break;
                 
             case 'showAgentSettings':
+                if (Array.isArray(message.aiSkills)) {
+                    state.aiSkills = message.aiSkills;
+                }
                 showAgentSettings(message.agent);
                 break;
 
             case 'showTaskEditor':
                 showTaskEditor(message.task || null);
+                break;
+
+            case 'showClusterEditor':
+                if (Array.isArray(message.workModePresets)) {
+                    state.clusterWorkModePresets = message.workModePresets;
+                }
+                openClusterEditor(message.clusterId || state.currentClusterId || undefined);
+                break;
+
+            case 'agentSaved':
+                upsertAgentState(message.agent);
+                break;
+
+            case 'clusterSaved':
+                upsertClusterState(message.cluster);
                 break;
                 
             case 'broadcastResults':

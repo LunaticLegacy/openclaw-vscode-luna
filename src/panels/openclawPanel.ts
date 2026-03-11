@@ -1,5 +1,7 @@
 ﻿import * as fs from 'fs';
 import * as vscode from 'vscode';
+import { getClusterWorkModePresets } from '../config/clusterWorkModes';
+import { getAiSkills } from '../config/aiSkills';
 import { getCurrentLocale, t, MESSAGES } from '../i18n';
 import { OpenClawService, ChatMessage, ChatSession, AgentCluster, APIUsage } from '../services/openclawService';
 import {
@@ -235,7 +237,16 @@ export class OpenClawPanel {
             const models = await this._service.getAvailableModels(agents);
             this._postMessage({
                 type: 'agentsLoaded',
-                agents: agents.map(a => ({ id: a.id, name: a.name, model: a.model, status: a.status })),
+                agents: agents.map(a => ({
+                    id: a.id,
+                    name: a.name,
+                    model: a.model,
+                    status: a.status,
+                    systemPrompt: a.systemPrompt,
+                    temperature: a.temperature,
+                    maxTokens: a.maxTokens,
+                    enabledSkills: a.enabledSkills
+                })),
                 models,
                 presets: getAgentPresets()
             });
@@ -352,7 +363,11 @@ export class OpenClawPanel {
                 break;
 
             case 'createCluster':
-                await this._handleCreateCluster();
+                this.showClusterEditor(message.clusterId);
+                break;
+
+            case 'saveCluster':
+                await this._handleSaveCluster(message.clusterId, message.data);
                 break;
 
             case 'selectChannel':
@@ -467,6 +482,11 @@ export class OpenClawPanel {
             case 'openIssueTracker':
                 await vscode.env.openExternal(vscode.Uri.parse(OPENCLAW_LUNA_ISSUES_URL));
                 break;
+            case 'openSkillUrl':
+                if (typeof message.url === 'string' && message.url.trim()) {
+                    await vscode.env.openExternal(vscode.Uri.parse(message.url.trim()));
+                }
+                break;
             case 'retryConnection':
                 await this._handleRetryConnection();
                 break;
@@ -564,6 +584,7 @@ export class OpenClawPanel {
                 }
             });
         }
+        this._postRunState('chat', true);
 
         try {
             const config = vscode.workspace.getConfiguration('openclaw');
@@ -636,6 +657,10 @@ export class OpenClawPanel {
                     type: 'error',
                     message: t('panel.failedSendMessage', { error: String(error) })
                 });
+            }
+        } finally {
+            if (this._isCurrentChatRun(chatRunToken, targetAgentId, sessionId)) {
+                this._postRunState('chat', false);
             }
         }
     }
@@ -713,6 +738,7 @@ export class OpenClawPanel {
                 type: 'replaceMessages',
                 messages
             });
+            this._postRunState('chat', this._service.hasActiveSessionRun(this._currentSessionId));
         } catch (error) {
             this._postMessage({
                 type: 'setContextLoading',
@@ -730,6 +756,7 @@ export class OpenClawPanel {
         this._stopActiveChatRun();
         this._currentSessionId = null;
         this._postMessage({ type: 'clearChat' });
+        this._postRunState('chat', false);
     }
 
     private _stopActiveChatRun() {
@@ -816,7 +843,8 @@ export class OpenClawPanel {
             this._postMessage({
                 type: 'clustersLoaded',
                 clusters,
-                selectedClusterId
+                selectedClusterId,
+                workModePresets: getClusterWorkModePresets()
             });
         } catch (error) {
             this._postMessage({
@@ -957,6 +985,7 @@ export class OpenClawPanel {
                 channelId: channel.id,
                 messages: []
             });
+            this._postRunState('channel', false);
             return;
         }
 
@@ -973,6 +1002,7 @@ export class OpenClawPanel {
             channelId: channel.id,
             messages
         });
+        this._postRunState('channel', this._service.hasActiveSessionRun(channel.sessionId));
     }
 
     private async _refreshActiveChannelMessages(channelId?: string) {
@@ -997,6 +1027,7 @@ export class OpenClawPanel {
             channelId: null,
             messages: []
         });
+        this._postRunState('channel', false);
     }
 
     private _stopActiveChannelSync() {
@@ -1136,6 +1167,7 @@ export class OpenClawPanel {
         }
 
         const channelRunToken = ++this._channelRunToken;
+        this._postRunState('channel', true);
 
         try {
             const channel = await this._channelManager.getChannel(channelId);
@@ -1187,6 +1219,10 @@ export class OpenClawPanel {
                     channelId,
                     message: t('panel.failedSendMessage', { error: String(error) })
                 });
+            }
+        } finally {
+            if (this._channelRunToken === channelRunToken) {
+                this._postRunState('channel', false);
             }
         }
     }
@@ -1454,10 +1490,12 @@ export class OpenClawPanel {
             case 'chat':
                 this._stopActiveChatRun();
                 this._abortSessionRun(this._currentSessionId);
+                this._postRunState('chat', false);
                 break;
             case 'channel':
                 this._channelRunToken += 1;
                 this._abortSessionRun(this._currentChannelSessionId);
+                this._postRunState('channel', false);
                 break;
             case 'cluster-swarm':
                 this._clusterSwarmRunToken += 1;
@@ -1511,6 +1549,7 @@ export class OpenClawPanel {
             channelId,
             messages
         });
+        this._postRunState('channel', this._service.hasActiveSessionRun(sessionId));
     }
 
     private async _handleSaveAgentSettings(agentId: string, settings: any) {
@@ -1521,7 +1560,11 @@ export class OpenClawPanel {
 
         try {
             await runWithNotificationProgress(t('progress.savingAgentSettings'), async () => {
-                await this._agentManager.updateAgent(agentId, settings);
+                const agent = await this._agentManager.updateAgent(agentId, settings);
+                this._postMessage({
+                    type: 'agentSaved',
+                    agent
+                });
                 await this._loadAgents();
             });
             showSuccessStatus(t('agentSettings.saved'));
@@ -1669,8 +1712,60 @@ export class OpenClawPanel {
     }
 
     private async _handleCreateCluster() {
-        await vscode.commands.executeCommand('openclaw.createCluster');
-        await this._loadClusters();
+        this.showClusterEditor();
+    }
+
+    private async _handleSaveCluster(
+        clusterId: string | undefined,
+        data: {
+            name?: string;
+            agentIds?: string[];
+            workspaceConfig?: Record<string, unknown>;
+        }
+    ) {
+        const name = typeof data?.name === 'string' ? data.name.trim() : '';
+        const agentIds = Array.isArray(data?.agentIds)
+            ? data.agentIds.map(agentId => String(agentId || '').trim()).filter(Boolean)
+            : [];
+
+        if (!name) {
+            vscode.window.showErrorMessage(t('clusters.validationName'));
+            return;
+        }
+
+        if (agentIds.length === 0) {
+            vscode.window.showErrorMessage(t('clusters.validationAgents'));
+            return;
+        }
+
+        try {
+            const cluster = clusterId
+                ? await this._clusterManager.updateCluster(clusterId, {
+                    name,
+                    agentIds,
+                    workspaceConfig: data.workspaceConfig as any
+                })
+                : await this._clusterManager.createCluster({
+                    name,
+                    agentIds,
+                    workspaceConfig: data.workspaceConfig as any
+                });
+
+            showSuccessStatus(clusterId
+                ? t('clusters.updated', { name: cluster.name })
+                : t('clusters.created', { name: cluster.name }));
+            this._postMessage({
+                type: 'clusterSaved',
+                cluster
+            });
+            const refreshedClusters = await this._clusterManager.getClusters();
+            this.showClusterView(
+                refreshedClusters.map(item => item.id === cluster.id ? cluster : item),
+                cluster.id
+            );
+        } catch (error) {
+            vscode.window.showErrorMessage(t(clusterId ? 'clusters.updateFailed' : 'clusters.createFailed', { error: String(error) }));
+        }
     }
 
     private async _handleAddAgentsToCluster(clusterId: string) {
@@ -1974,7 +2069,17 @@ export class OpenClawPanel {
             type: 'switchView',
             view: 'clusters',
             clusters,
-            selectedClusterId
+            selectedClusterId,
+            workModePresets: getClusterWorkModePresets()
+        });
+    }
+
+    public showClusterEditor(clusterId?: string) {
+        this._viewMode = 'clusters';
+        this._postMessage({
+            type: 'showClusterEditor',
+            clusterId,
+            workModePresets: getClusterWorkModePresets()
         });
     }
 
@@ -1995,7 +2100,8 @@ export class OpenClawPanel {
 
         this._postMessage({
             type: 'showAgentSettings',
-            agent
+            agent,
+            aiSkills: getAiSkills()
         });
     }
 
@@ -2117,6 +2223,14 @@ export class OpenClawPanel {
                 x.dispose();
             }
         }
+    }
+
+    private _postRunState(scope: 'chat' | 'channel', running: boolean) {
+        this._postMessage({
+            type: 'setRunState',
+            scope,
+            running
+        });
     }
 
     private _ensureCapability(capabilityId: OpenClawBooleanCapabilityId): boolean {

@@ -2,6 +2,7 @@ import * as crypto from 'crypto';
 import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { buildSkillPromptAppendix, normalizeEnabledSkills } from '../../config/aiSkills';
 import { t } from '../../i18n';
 import { OpenClawCliServiceConfig } from '../openclawConfig';
 import {
@@ -72,6 +73,7 @@ interface OpenClawAgentSettingsRecord {
     systemPrompt?: string;
     temperature?: number;
     maxTokens?: number;
+    enabledSkills?: string[];
 }
 
 const OPENCLAW_AGENT_SETTINGS_FILE = '.openclaw-vscode-agent.json';
@@ -181,15 +183,18 @@ export class OpenClawModeRuntime {
                 ? params.systemPrompt
                 : currentSettings.systemPrompt ?? agent.systemPrompt,
             temperature: normalizeOptionalNumber(params.temperature) ?? currentSettings.temperature ?? agent.temperature,
-            maxTokens: normalizeOptionalInteger(params.maxTokens) ?? currentSettings.maxTokens ?? agent.maxTokens
+            maxTokens: normalizeOptionalInteger(params.maxTokens) ?? currentSettings.maxTokens ?? agent.maxTokens,
+            enabledSkills: params.enabledSkills !== undefined
+                ? normalizeEnabledSkills(params.enabledSkills)
+                : currentSettings.enabledSkills ?? agent.enabledSkills ?? []
         };
 
         await writeOpenClawAgentSettings(workspacePath, mergedSettings);
 
-        if (params.systemPrompt !== undefined) {
+        if (params.systemPrompt !== undefined || params.enabledSkills !== undefined) {
             await fs.writeFile(
                 path.join(workspacePath, OPENCLAW_SYSTEM_PROMPT_FILE),
-                params.systemPrompt,
+                composeAgentSystemPrompt(mergedSettings.systemPrompt, mergedSettings.enabledSkills),
                 'utf8'
             );
         }
@@ -208,7 +213,8 @@ export class OpenClawModeRuntime {
             model: mergedSettings.model || agent.model,
             systemPrompt: mergedSettings.systemPrompt,
             temperature: mergedSettings.temperature,
-            maxTokens: mergedSettings.maxTokens
+            maxTokens: mergedSettings.maxTokens,
+            enabledSkills: mergedSettings.enabledSkills
         };
 
         this.emitEvent('agentUpdated', updatedAgent);
@@ -323,6 +329,11 @@ export class OpenClawModeRuntime {
                 this.activeGatewayRuns.delete(normalizedSessionId);
             }
         }
+    }
+
+    public hasActiveRun(sessionId: string): boolean {
+        const normalizedSessionId = sessionId.trim();
+        return normalizedSessionId ? this.activeGatewayRuns.has(normalizedSessionId) : false;
     }
 
     public async getUsage(): Promise<APIUsage> {
@@ -510,7 +521,8 @@ export class OpenClawModeRuntime {
             model: settings.model || agent.model,
             systemPrompt: settings.systemPrompt ?? systemPrompt ?? agent.systemPrompt,
             temperature: settings.temperature ?? agent.temperature,
-            maxTokens: settings.maxTokens ?? agent.maxTokens
+            maxTokens: settings.maxTokens ?? agent.maxTokens,
+            enabledSkills: settings.enabledSkills ?? agent.enabledSkills ?? []
         };
     }
 
@@ -1053,7 +1065,8 @@ async function readOpenClawAgentSettings(workspacePath: string): Promise<OpenCla
             model: normalizeOptionalString(parsed.model),
             systemPrompt: parsed.systemPrompt !== undefined ? String(parsed.systemPrompt) : undefined,
             temperature: normalizeOptionalNumber(parsed.temperature),
-            maxTokens: normalizeOptionalInteger(parsed.maxTokens)
+            maxTokens: normalizeOptionalInteger(parsed.maxTokens),
+            enabledSkills: normalizeEnabledSkills(parsed.enabledSkills)
         };
     } catch {
         return {};
@@ -1081,6 +1094,9 @@ async function writeOpenClawAgentSettings(
     if (settings.maxTokens !== undefined) {
         payload.maxTokens = settings.maxTokens;
     }
+    if (settings.enabledSkills !== undefined) {
+        payload.enabledSkills = normalizeEnabledSkills(settings.enabledSkills);
+    }
 
     await fs.writeFile(
         path.join(workspacePath, OPENCLAW_AGENT_SETTINGS_FILE),
@@ -1095,6 +1111,10 @@ async function readOpenClawSystemPrompt(workspacePath: string): Promise<string |
     } catch {
         return undefined;
     }
+}
+
+function composeAgentSystemPrompt(systemPrompt: string | undefined, enabledSkills: unknown): string {
+    return `${systemPrompt || ''}${buildSkillPromptAppendix(enabledSkills)}`.trim();
 }
 
 async function updateOpenClawIdentityFile(

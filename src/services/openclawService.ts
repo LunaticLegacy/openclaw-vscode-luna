@@ -21,6 +21,7 @@ import type {
     ChatMessage,
     DiscoveredChannel,
     ChatSession,
+    ClusterWorkspaceConfig,
     CreateAgentParams,
     CreateClusterParams,
     RealtimeUsageSnapshot,
@@ -39,6 +40,7 @@ export type {
     DiscoveredChannel,
     ChatMessagePart,
     ChatSession,
+    ClusterWorkspaceConfig,
     CreateAgentParams,
     CreateClusterParams,
     LocalAgent,
@@ -340,6 +342,23 @@ export class OpenClawService extends EventEmitter {
             }
             throw error;
         }
+    }
+
+    public hasActiveSessionRun(sessionId: string | null | undefined): boolean {
+        const normalizedSessionId = typeof sessionId === 'string' ? sessionId.trim() : '';
+        if (!normalizedSessionId) {
+            return false;
+        }
+
+        if (this.localRuntime) {
+            return this.localRuntime.hasActiveRun(normalizedSessionId);
+        }
+
+        if (this.openClawRuntime) {
+            return this.openClawRuntime.hasActiveRun(normalizedSessionId);
+        }
+
+        return this.activeGatewayRequests.has(normalizedSessionId);
     }
 
     public async getChatHistory(sessionId: string): Promise<ChatMessage[]> {

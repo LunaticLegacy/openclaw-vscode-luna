@@ -328,11 +328,12 @@
                         <div class="cluster-chat-heading">
                             <div class="cluster-chat-eyebrow" data-i18n="clusters.workspaceEyebrow">AI Swarm</div>
                             <h2 id="cluster-title">Cluster</h2>
+                            <p id="cluster-briefing" class="cluster-briefing hidden"></p>
                             <p id="cluster-subtitle" class="cluster-subtitle"></p>
+                            <div id="cluster-workmode-summary" class="cluster-workmode-summary"></div>
                         </div>
                         <div class="cluster-header-actions">
-                            <button id="btn-add-cluster-agent" class="btn btn-secondary" data-i18n="clusters.addAgents">Add Agents</button>
-                            <button id="btn-remove-cluster-agent" class="btn btn-secondary" data-i18n="clusters.removeAgents">Remove Agents</button>
+                            <button id="btn-edit-cluster" class="btn btn-secondary" data-i18n="common.edit">Edit</button>
                             <button id="btn-delete-current-cluster" class="btn btn-secondary" data-i18n="clusters.delete">Delete</button>
                             <button id="btn-create-cluster-toolbar" class="btn btn-primary" data-i18n="clusters.create">Create Cluster</button>
                         </div>
@@ -582,6 +583,73 @@
                     <div class="form-group">
                         <label for="settings-agent-max-tokens" data-i18n="common.maxTokens">Max Tokens</label>
                         <input type="number" id="settings-agent-max-tokens" min="1" max="32768" value="4096">
+                    </div>
+                    <div class="form-group">
+                        <label id="settings-agent-skills-label">AI Skills</label>
+                        <p id="settings-agent-skills-hint" class="channel-editor-summary"></p>
+                        <div id="settings-agent-skills" class="cluster-agent-picker"></div>
+                    </div>
+                    <div class="form-group">
+                        <label id="settings-agent-skills-links-label">Skill Resources</label>
+                        <div id="settings-agent-skill-links" class="cluster-agent-picker"></div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn modal-cancel" data-i18n="common.cancel">Cancel</button>
+                        <button type="submit" class="btn btn-primary" data-i18n="common.save">Save</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div id="modal-cluster-editor" class="modal">
+            <div class="modal-content modal-content-wide">
+                <span class="modal-close">&times;</span>
+                <h2 id="cluster-modal-title" data-i18n="clusters.create">Create Cluster</h2>
+                <form id="form-cluster-editor">
+                    <input type="hidden" id="cluster-editor-id">
+                    <div class="cluster-editor-layout">
+                        <section class="cluster-editor-main">
+                            <div class="form-group">
+                                <label for="cluster-editor-name" data-i18n="clusters.form.name">Cluster Name</label>
+                                <input type="text" id="cluster-editor-name" required data-i18n-placeholder="clusters.placeholderName" placeholder="My Cluster">
+                            </div>
+                            <div class="cluster-form-grid">
+                                <div class="form-group">
+                                    <label for="cluster-editor-preset" data-i18n="clusters.form.preset">Workflow Preset</label>
+                                    <select id="cluster-editor-preset"></select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="cluster-editor-style" data-i18n="clusters.form.collaborationStyle">Collaboration Style</label>
+                                    <select id="cluster-editor-style"></select>
+                                </div>
+                            </div>
+                            <div class="cluster-form-grid">
+                                <div class="form-group">
+                                    <label for="cluster-editor-delivery" data-i18n="clusters.form.deliveryStyle">Delivery Depth</label>
+                                    <select id="cluster-editor-delivery"></select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="cluster-editor-critique" data-i18n="clusters.form.critiqueLevel">Critique Level</label>
+                                    <select id="cluster-editor-critique"></select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="cluster-editor-rounds" data-i18n="clusters.form.rounds">Debate Rounds</label>
+                                    <input type="number" id="cluster-editor-rounds" min="1" step="1" value="2">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="cluster-editor-briefing" data-i18n="clusters.form.briefing">Cluster Briefing</label>
+                                <textarea id="cluster-editor-briefing" rows="4" data-i18n-placeholder="clusters.form.briefingPlaceholder" placeholder="Tell the swarm how this cluster should work."></textarea>
+                            </div>
+                            <div id="cluster-preset-summary" class="cluster-preset-summary"></div>
+                        </section>
+                        <aside class="cluster-editor-side">
+                            <div class="cluster-editor-side-header">
+                                <h3 data-i18n="clusters.form.members">Members</h3>
+                                <p data-i18n="clusters.form.membersHint">Pick the agents that belong to this cluster.</p>
+                            </div>
+                            <div id="cluster-editor-agent-picker" class="cluster-agent-picker"></div>
+                        </aside>
                     </div>
                     <div class="form-actions">
                         <button type="button" class="btn modal-cancel" data-i18n="common.cancel">Cancel</button>
