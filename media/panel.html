@@ -8,11 +8,7 @@
     <link rel="stylesheet" href="{{styleUri}}">
 </head>
 <body data-locale="{{locale}}" data-translations="{{translationsBase64}}">
-    <script src="{{i18nScriptUri}}" defer></script>
-    <script src="{{markdownRendererScriptUri}}" defer></script>
-    <script src="{{panelCommonScriptUri}}" defer></script>
-    <script src="{{panelFeedbackScriptUri}}" defer></script>
-    <script src="{{panelScriptUri}}" defer></script>
+    {{panelScriptTags}}
 
     <div id="app">
         <aside id="main-sidebar" class="sidebar">

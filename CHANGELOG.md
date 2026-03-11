@@ -16,6 +16,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Patched malfunctioning of **Stop** button.
     - **Stop** button will finally REALLY work.
 - UI/UX rendering error in Agent scene.
+- Rearranged codes' structure.
 
 ## [0.5.2] - 2026-03-10
 

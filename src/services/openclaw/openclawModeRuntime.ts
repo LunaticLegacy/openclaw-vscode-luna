@@ -1,23 +1,17 @@
-import * as crypto from 'crypto';
 import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { buildSkillPromptAppendix, normalizeEnabledSkills } from '../../config/aiSkills';
+import { normalizeEnabledSkills } from '../../config/aiSkills';
 import { t } from '../../i18n';
 import { OpenClawCliServiceConfig } from '../openclawConfig';
 import {
     OpenClawAgentRecord,
     OpenClawCliRunner,
-    OpenClawChannelsListResult,
     OpenClawGatewayAgentsResult,
     OpenClawSessionsListEntry,
     OpenClawSessionsListResult,
     OpenClawUsageCostResult
 } from '../openclawCli';
-import {
-    GatewayEventFrame,
-    OpenClawGatewayClient
-} from '../openclawGatewayClient';
 import {
     buildSessionKeyMap,
     delay,
@@ -54,6 +48,23 @@ import {
     StreamChunk,
     UpdateAgentParams
 } from './types';
+import {
+    composeAgentSystemPrompt,
+    mapDiscoveredChannels,
+    normalizeOptionalInteger,
+    normalizeOptionalNumber,
+    normalizeOptionalString,
+    OpenClawAgentSettingsRecord,
+    readOpenClawAgentSettings,
+    readOpenClawSystemPrompt,
+    updateOpenClawIdentityFile,
+    writeOpenClawSystemPrompt,
+    writeOpenClawAgentSettings
+} from './openclawModeRuntimeSupport';
+import {
+    streamMessageFromSessionLog,
+    streamMessageViaGateway
+} from './openclawModeRuntimeStreaming';
 
 interface OpenClawAgentsSnapshot {
     agents: Agent[];
@@ -66,19 +77,6 @@ interface CachedOpenClawAgentsSnapshot {
     expiresAt: number;
     value: OpenClawAgentsSnapshot;
 }
-
-interface OpenClawAgentSettingsRecord {
-    name?: string;
-    model?: string;
-    systemPrompt?: string;
-    temperature?: number;
-    maxTokens?: number;
-    enabledSkills?: string[];
-}
-
-const OPENCLAW_AGENT_SETTINGS_FILE = '.openclaw-vscode-agent.json';
-const OPENCLAW_SYSTEM_PROMPT_FILE = 'SYSTEM.md';
-const OPENCLAW_IDENTITY_FILE = 'IDENTITY.md';
 
 export class OpenClawModeRuntime {
     private readonly runner: OpenClawCliRunner;
@@ -192,10 +190,9 @@ export class OpenClawModeRuntime {
         await writeOpenClawAgentSettings(workspacePath, mergedSettings);
 
         if (params.systemPrompt !== undefined || params.enabledSkills !== undefined) {
-            await fs.writeFile(
-                path.join(workspacePath, OPENCLAW_SYSTEM_PROMPT_FILE),
+            await writeOpenClawSystemPrompt(
+                workspacePath,
                 composeAgentSystemPrompt(mergedSettings.systemPrompt, mergedSettings.enabledSkills),
-                'utf8'
             );
         }
 
@@ -272,10 +269,22 @@ export class OpenClawModeRuntime {
         const knownIds = new Set(historyBefore.map(item => item.id));
 
         try {
-            yield* this.streamMessageViaGateway(sessionId, message, knownIds);
+            yield* streamMessageViaGateway({
+                config: this.config,
+                runner: this.runner,
+                activeGatewayRuns: this.activeGatewayRuns,
+                readSessionMessages: this.readSessionMessages.bind(this),
+                waitForAssistantMessage: this.waitForAssistantMessage.bind(this)
+            }, sessionId, message, knownIds);
             return;
         } catch {
-            yield* this.streamMessageFromSessionLog(sessionId, message, knownIds);
+            yield* streamMessageFromSessionLog({
+                config: this.config,
+                runner: this.runner,
+                activeGatewayRuns: this.activeGatewayRuns,
+                readSessionMessages: this.readSessionMessages.bind(this),
+                waitForAssistantMessage: this.waitForAssistantMessage.bind(this)
+            }, sessionId, message, knownIds);
         }
     }
 
@@ -620,362 +629,6 @@ export class OpenClawModeRuntime {
         return null;
     }
 
-    private async *streamMessageViaGateway(
-        sessionKey: string,
-        message: string,
-        knownIds: Set<string>
-    ): AsyncGenerator<StreamChunk, void, unknown> {
-        if (!this.config.gatewayUrl) {
-            throw new Error('OpenClaw gateway URL is not configured');
-        }
-
-        const gatewayClient = new OpenClawGatewayClient({
-            url: this.config.gatewayUrl,
-            token: this.config.gatewayToken,
-            timeoutMs: 30000,
-            caps: ['tool-events'],
-            clientId: 'gateway-client',
-            clientDisplayName: 'OpenClaw VS Code',
-            clientVersion: 'vscode-plugin'
-        });
-
-        const events: GatewayEventFrame[] = [];
-        let wakeNextEvent: (() => void) | null = null;
-        let streamError: Error | null = null;
-        let dispatched = false;
-        let runId = '';
-        let assistantText = '';
-        let thinkingText = '';
-        let thinkingOpen = false;
-
-        const queueEvent = (event: GatewayEventFrame) => {
-            events.push(event);
-            const wake = wakeNextEvent;
-            wakeNextEvent = null;
-            wake?.();
-        };
-
-        const onEvent = (event: GatewayEventFrame) => {
-            if (event.event !== 'chat' && event.event !== 'agent') {
-                return;
-            }
-
-            queueEvent(event);
-        };
-
-        const onError = (error: unknown) => {
-            streamError = error instanceof Error ? error : new Error(String(error));
-            const wake = wakeNextEvent;
-            wakeNextEvent = null;
-            wake?.();
-        };
-
-        const nextEvent = async (): Promise<GatewayEventFrame> => {
-            while (events.length === 0) {
-                if (streamError) {
-                    throw streamError;
-                }
-
-                await new Promise<void>((resolve, reject) => {
-                    const timer = setTimeout(() => {
-                        if (wakeNextEvent === wake) {
-                            wakeNextEvent = null;
-                        }
-                        reject(new Error('Timed out waiting for gateway stream event'));
-                    }, 30000);
-
-                    const wake = () => {
-                        clearTimeout(timer);
-                        resolve();
-                    };
-
-                    wakeNextEvent = wake;
-                });
-            }
-
-            return events.shift()!;
-        };
-
-        gatewayClient.on('event', onEvent);
-        gatewayClient.on('error', onError);
-
-        try {
-            await gatewayClient.connect();
-
-            const started = await gatewayClient.request<{
-                runId?: string;
-                status?: string;
-            }>('chat.send', {
-                sessionKey,
-                message,
-                deliver: false,
-                idempotencyKey: crypto.randomUUID()
-            }, {
-                timeoutMs: 30000
-            });
-
-            dispatched = true;
-            runId = typeof started.runId === 'string' && started.runId.trim()
-                ? started.runId.trim()
-                : '';
-
-            if (!runId) {
-                throw new Error('Gateway chat.send did not return a runId');
-            }
-
-            this.activeGatewayRuns.set(sessionKey, { runId });
-
-            while (true) {
-                const event = await nextEvent();
-                const payload = event.payload && typeof event.payload === 'object'
-                    ? event.payload as Record<string, unknown>
-                    : null;
-
-                if (!payload || payload.runId !== runId) {
-                    continue;
-                }
-
-                if (event.event === 'agent') {
-                    const stream = typeof payload.stream === 'string' ? payload.stream : '';
-
-                    if (stream === 'thinking') {
-                        const data = payload.data && typeof payload.data === 'object'
-                            ? payload.data as Record<string, unknown>
-                            : {};
-                        const fullThinking = typeof data.text === 'string' ? data.text : '';
-                        const deltaThinking = typeof data.delta === 'string'
-                            ? data.delta
-                            : fullThinking.startsWith(thinkingText)
-                                ? fullThinking.slice(thinkingText.length)
-                                : fullThinking;
-
-                        thinkingText = fullThinking || thinkingText;
-                        if (!deltaThinking) {
-                            continue;
-                        }
-
-                        yield {
-                            content: thinkingOpen ? deltaThinking : `<thinking>${deltaThinking}`,
-                            done: false
-                        };
-                        thinkingOpen = true;
-                        continue;
-                    }
-
-                    if (thinkingOpen && (stream === 'assistant' || stream === 'tool' || stream === 'lifecycle')) {
-                        thinkingOpen = false;
-                        thinkingText = '';
-                        yield {
-                            content: '</thinking>',
-                            done: false
-                        };
-                    }
-
-                    if (stream === 'tool') {
-                        const transientMessage = normalizeOpenClawGatewayToolEvent(sessionKey, payload);
-                        if (transientMessage) {
-                            yield {
-                                content: '',
-                                done: false,
-                                message: transientMessage
-                            };
-                        }
-                        continue;
-                    }
-
-                    if (stream === 'lifecycle') {
-                        const lifecycleMessage = normalizeOpenClawGatewayLifecycleEvent(sessionKey, payload);
-                        if (lifecycleMessage) {
-                            yield {
-                                content: '',
-                                done: false,
-                                message: lifecycleMessage
-                            };
-                        }
-
-                        const data = payload.data && typeof payload.data === 'object'
-                            ? payload.data as Record<string, unknown>
-                            : {};
-                        if (data.phase === 'error') {
-                            throw new Error(typeof data.error === 'string' ? data.error : 'OpenClaw agent run failed');
-                        }
-                    }
-
-                    continue;
-                }
-
-                if (thinkingOpen) {
-                    thinkingOpen = false;
-                    thinkingText = '';
-                    yield {
-                        content: '</thinking>',
-                        done: false
-                    };
-                }
-
-                const state = typeof payload.state === 'string' ? payload.state : '';
-                const messageText = extractTextContent((payload.message as { content?: unknown } | undefined)?.content);
-                const deltaText = messageText
-                    ? messageText.startsWith(assistantText)
-                        ? messageText.slice(assistantText.length)
-                        : messageText
-                    : '';
-
-                if (messageText) {
-                    assistantText = messageText;
-                }
-
-                if (deltaText) {
-                    yield {
-                        content: deltaText,
-                        done: false
-                    };
-                }
-
-                if (state === 'error') {
-                    throw new Error(typeof payload.errorMessage === 'string' ? payload.errorMessage : 'OpenClaw chat stream failed');
-                }
-
-                if (state === 'aborted') {
-                    throw new Error('OpenClaw chat stream aborted');
-                }
-
-                if (state === 'final') {
-                    yield {
-                        content: '',
-                        done: true
-                    };
-                    return;
-                }
-            }
-        } catch (error) {
-            if (!dispatched) {
-                throw error;
-            }
-
-            const streamFailure = error instanceof Error ? error : new Error(String(error));
-            if (thinkingOpen) {
-                thinkingOpen = false;
-                thinkingText = '';
-                yield {
-                    content: '</thinking>',
-                    done: false
-                };
-            }
-
-            const fallbackAssistant = await this.waitForAssistantMessage(sessionKey, knownIds, 120000);
-            if (!fallbackAssistant && !assistantText) {
-                throw streamFailure;
-            }
-
-            if (fallbackAssistant?.content) {
-                const deltaText = fallbackAssistant.content.startsWith(assistantText)
-                    ? fallbackAssistant.content.slice(assistantText.length)
-                    : fallbackAssistant.content;
-
-                if (deltaText) {
-                    yield {
-                        content: deltaText,
-                        done: false
-                    };
-                }
-            }
-
-            yield {
-                content: '',
-                done: true
-            };
-        } finally {
-            const activeRun = this.activeGatewayRuns.get(sessionKey);
-            if (activeRun?.runId === runId && !activeRun.abortPromise) {
-                this.activeGatewayRuns.delete(sessionKey);
-            }
-            gatewayClient.off('event', onEvent);
-            gatewayClient.off('error', onError);
-            gatewayClient.dispose();
-        }
-    }
-
-    private async *streamMessageFromSessionLog(
-        sessionKey: string,
-        message: string,
-        knownIds: Set<string>
-    ): AsyncGenerator<StreamChunk, void, unknown> {
-        let responsePayload: Record<string, unknown> | null = null;
-        let requestError: unknown = null;
-        let requestCompleted = false;
-        let requestCompletedAt = 0;
-        let finalAssistantSeen = false;
-
-        const requestPromise = this.runner.sendChat(sessionKey, message)
-            .then(result => {
-                responsePayload = result;
-                requestCompleted = true;
-                requestCompletedAt = Date.now();
-                return result;
-            })
-            .catch(error => {
-                requestError = error;
-                requestCompleted = true;
-                requestCompletedAt = Date.now();
-                throw error;
-            });
-
-        while (!requestCompleted || Date.now() - requestCompletedAt < 2500) {
-            const currentMessages = await this.readSessionMessages(sessionKey).catch(() => []);
-            const newMessages = currentMessages.filter(item => !knownIds.has(item.id));
-
-            for (const newMessage of newMessages) {
-                knownIds.add(newMessage.id);
-                if (isFinalOpenClawAssistantMessage(newMessage)) {
-                    finalAssistantSeen = true;
-                }
-
-                yield {
-                    content: newMessage.role === 'assistant' ? newMessage.content : '',
-                    done: false,
-                    tokenCount: newMessage.tokenCount,
-                    message: newMessage
-                };
-            }
-
-            if (requestCompleted) {
-                if (requestError) {
-                    break;
-                }
-
-                if (finalAssistantSeen) {
-                    break;
-                }
-            }
-
-            await delay(200);
-        }
-
-        try {
-            await requestPromise;
-        } catch {
-            throw requestError;
-        }
-
-        if (!finalAssistantSeen && responsePayload) {
-            const fallbackAssistant = extractAssistantMessageFromPayload(responsePayload, sessionKey);
-            if (fallbackAssistant && !knownIds.has(fallbackAssistant.id)) {
-                yield {
-                    content: fallbackAssistant.content,
-                    done: false,
-                    tokenCount: fallbackAssistant.tokenCount,
-                    message: fallbackAssistant
-                };
-            }
-        }
-
-        yield {
-            content: '',
-            done: true
-        };
-    }
-
     private async getOpenClawUsage(agentId?: string): Promise<APIUsage> {
         const sessionsUsagePromise = this.runner.getSessionsUsage({
             limit: 1000,
@@ -1010,177 +663,4 @@ export class OpenClawModeRuntime {
         this.snapshotCache = null;
         this.snapshotPromise = null;
     }
-}
-
-function mapDiscoveredChannels(result: OpenClawChannelsListResult | null): DiscoveredChannel[] {
-    if (!result?.chat || typeof result.chat !== 'object') {
-        return [];
-    }
-
-    const channels: DiscoveredChannel[] = [];
-    for (const [providerId, accounts] of Object.entries(result.chat)) {
-        if (!Array.isArray(accounts)) {
-            continue;
-        }
-
-        for (const rawAccountId of accounts) {
-            const accountId = String(rawAccountId || '').trim();
-            if (!accountId) {
-                continue;
-            }
-
-            const name = formatDiscoveredChannelName(providerId, accountId);
-            channels.push({
-                id: `openclaw:${providerId}:${accountId}`,
-                name,
-                source: 'openclaw',
-                providerId,
-                accountId,
-                description: `${providerId}/${accountId}`
-            });
-        }
-    }
-
-    return channels.sort((left, right) => left.name.localeCompare(right.name));
-}
-
-function formatDiscoveredChannelName(providerId: string, accountId: string): string {
-    const normalizedProvider = String(providerId || '').trim();
-    const normalizedAccount = String(accountId || '').trim();
-    const providerLabel = normalizedProvider
-        .split(/[-_]+/)
-        .filter(Boolean)
-        .map(token => token.charAt(0).toUpperCase() + token.slice(1))
-        .join(' ');
-
-    return `${providerLabel || 'Channel'} ${normalizedAccount}`;
-}
-
-async function readOpenClawAgentSettings(workspacePath: string): Promise<OpenClawAgentSettingsRecord> {
-    try {
-        const content = await fs.readFile(path.join(workspacePath, OPENCLAW_AGENT_SETTINGS_FILE), 'utf8');
-        const parsed = JSON.parse(content) as OpenClawAgentSettingsRecord;
-        return {
-            name: normalizeOptionalString(parsed.name),
-            model: normalizeOptionalString(parsed.model),
-            systemPrompt: parsed.systemPrompt !== undefined ? String(parsed.systemPrompt) : undefined,
-            temperature: normalizeOptionalNumber(parsed.temperature),
-            maxTokens: normalizeOptionalInteger(parsed.maxTokens),
-            enabledSkills: normalizeEnabledSkills(parsed.enabledSkills)
-        };
-    } catch {
-        return {};
-    }
-}
-
-async function writeOpenClawAgentSettings(
-    workspacePath: string,
-    settings: OpenClawAgentSettingsRecord
-): Promise<void> {
-    const payload: OpenClawAgentSettingsRecord = {};
-
-    if (settings.name) {
-        payload.name = settings.name;
-    }
-    if (settings.model) {
-        payload.model = settings.model;
-    }
-    if (settings.systemPrompt !== undefined) {
-        payload.systemPrompt = settings.systemPrompt;
-    }
-    if (settings.temperature !== undefined) {
-        payload.temperature = settings.temperature;
-    }
-    if (settings.maxTokens !== undefined) {
-        payload.maxTokens = settings.maxTokens;
-    }
-    if (settings.enabledSkills !== undefined) {
-        payload.enabledSkills = normalizeEnabledSkills(settings.enabledSkills);
-    }
-
-    await fs.writeFile(
-        path.join(workspacePath, OPENCLAW_AGENT_SETTINGS_FILE),
-        JSON.stringify(payload, null, 2),
-        'utf8'
-    );
-}
-
-async function readOpenClawSystemPrompt(workspacePath: string): Promise<string | undefined> {
-    try {
-        return await fs.readFile(path.join(workspacePath, OPENCLAW_SYSTEM_PROMPT_FILE), 'utf8');
-    } catch {
-        return undefined;
-    }
-}
-
-function composeAgentSystemPrompt(systemPrompt: string | undefined, enabledSkills: unknown): string {
-    return `${systemPrompt || ''}${buildSkillPromptAppendix(enabledSkills)}`.trim();
-}
-
-async function updateOpenClawIdentityFile(
-    workspacePath: string,
-    values: { agentId: string; name: string; model: string }
-): Promise<void> {
-    const targetPath = path.join(workspacePath, OPENCLAW_IDENTITY_FILE);
-    let content: string;
-
-    try {
-        content = await fs.readFile(targetPath, 'utf8');
-    } catch {
-        content = [
-            '# IDENTITY.md - Who Am I?',
-            '',
-            `- Name: ${values.name}`,
-            `- Agent ID: ${values.agentId}`,
-            `- Model: ${values.model}`,
-            ''
-        ].join('\n');
-        await fs.writeFile(targetPath, content, 'utf8');
-        return;
-    }
-
-    const updates: Array<[RegExp, string]> = [
-        [/^- Name:\s*.*$/m, `- Name: ${values.name}`],
-        [/^- Agent ID:\s*.*$/m, `- Agent ID: ${values.agentId}`],
-        [/^- Model:\s*.*$/m, `- Model: ${values.model}`]
-    ];
-
-    let nextContent = content;
-    for (const [pattern, replacement] of updates) {
-        if (pattern.test(nextContent)) {
-            nextContent = nextContent.replace(pattern, replacement);
-        } else {
-            nextContent = `${nextContent.trimEnd()}\n${replacement}\n`;
-        }
-    }
-
-    if (nextContent !== content) {
-        await fs.writeFile(targetPath, nextContent, 'utf8');
-    }
-}
-
-function normalizeOptionalString(value: unknown): string | undefined {
-    if (typeof value !== 'string') {
-        return undefined;
-    }
-
-    const trimmed = value.trim();
-    return trimmed ? trimmed : undefined;
-}
-
-function normalizeOptionalNumber(value: unknown): number | undefined {
-    if (typeof value !== 'number' || !Number.isFinite(value)) {
-        return undefined;
-    }
-
-    return value;
-}
-
-function normalizeOptionalInteger(value: unknown): number | undefined {
-    const normalized = normalizeOptionalNumber(value);
-    if (normalized === undefined) {
-        return undefined;
-    }
-
-    return Math.max(1, Math.round(normalized));
 }
