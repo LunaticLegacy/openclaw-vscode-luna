@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { t } from '../i18n';
 import { OpenClawExtensionRuntime } from '../extension/runtime';
-import { showSuccessStatus } from '../utils/statusFeedback';
+import { runWithNotificationProgress, showSuccessStatus } from '../utils/statusFeedback';
 import { resolveAgentId } from './helpers';
 
 export function registerPanelCommands(
@@ -99,12 +99,14 @@ export function registerPanelCommands(
         }),
         vscode.commands.registerCommand('openclaw.refreshAgents', async () => {
             try {
-                await runtime.agentManager.getAgents(true);
-                runtime.sidebarTreeProvider.refresh();
-                const panel = runtime.getPanel();
-                if (panel) {
-                    await panel.refreshAgents(false);
-                }
+                await runWithNotificationProgress(t('progress.loadingAgents'), async () => {
+                    await runtime.agentManager.getAgents(true);
+                    runtime.sidebarTreeProvider.refresh();
+                    const panel = runtime.getPanel();
+                    if (panel) {
+                        await panel.refreshAgents(false);
+                    }
+                });
                 showSuccessStatus(t('agents.refreshed'));
             } catch (error) {
                 vscode.window.showErrorMessage(t('agents.refreshFailed', { error: String(error) }));

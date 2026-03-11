@@ -13,60 +13,19 @@ export function registerClusterCommands(
             const selectedClusterId = resolveClusterId(clusterArg);
             const clusters = await runtime.clusterManager.getClusters();
 
-            if (clusters.length === 0) {
-                const createNew = await vscode.window.showInformationMessage(
-                    t('clusters.noneFound'),
-                    t('common.yes'),
-                    t('common.no')
-                );
-
-                if (createNew === t('common.yes')) {
-                    await vscode.commands.executeCommand('openclaw.createCluster');
-                }
-                return;
-            }
-
             runtime.showPanel().showClusterView(clusters, selectedClusterId);
         }),
         vscode.commands.registerCommand('openclaw.createCluster', async () => {
-            const name = await vscode.window.showInputBox({
-                prompt: t('clusters.promptName'),
-                placeHolder: t('clusters.placeholderName')
-            });
-
-            if (!name) {
-                return;
-            }
-
+            const panel = runtime.showPanel();
             const agents = await runtime.agentManager.getAgents();
             if (agents.length === 0) {
                 vscode.window.showErrorMessage(t('clusters.createAgentFirst'));
                 return;
             }
 
-            const selectedAgents = await vscode.window.showQuickPick(
-                agents.map(agent => ({ label: agent.name, picked: false, agentId: agent.id })),
-                {
-                    placeHolder: t('clusters.selectAgents'),
-                    canPickMany: true
-                }
-            );
-
-            if (!selectedAgents || selectedAgents.length === 0) {
-                return;
-            }
-
-            try {
-                await runtime.clusterManager.createCluster({
-                    name,
-                    agentIds: selectedAgents.map(agent => agent.agentId)
-                });
-
-                showSuccessStatus(t('clusters.created', { name }));
-                runtime.sidebarTreeProvider.refresh();
-            } catch (error) {
-                vscode.window.showErrorMessage(t('clusters.createFailed', { error: String(error) }));
-            }
+            const clusters = await runtime.clusterManager.getClusters();
+            panel.showClusterView(clusters);
+            panel.showClusterEditor();
         }),
         vscode.commands.registerCommand('openclaw.deleteCluster', async (clusterArg: any) => {
             try {

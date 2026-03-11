@@ -1,6 +1,6 @@
 {
   "displayName": "OpenClaw Luna",
-  "description": "The OpenClaw console for VS Code. Manage agents, swarm workspaces, scheduled tasks, and usage across gateway, OpenClaw CLI, and local model modes.",
+  "description": "The OpenClaw console for VS Code. Swarm supported.",
   "command.category": "OpenClaw",
   "command.openPanel.title": "Open OpenClaw Luna",
   "command.quickChat.title": "Quick Chat",

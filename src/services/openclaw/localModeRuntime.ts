@@ -26,6 +26,7 @@ import {
 export class LocalModeRuntime {
     private readonly repository = new LocalAgentSessionRepository();
     private readonly usageService = new LocalUsageService();
+    private readonly activeRequests = new Map<string, Set<AbortController>>();
 
     constructor(
         private readonly config: LocalServiceConfig,
@@ -87,6 +88,15 @@ export class LocalModeRuntime {
         return Promise.resolve(this.repository.createChatSession(agentId));
     }
 
+    public async abortSessionRun(sessionId: string): Promise<void> {
+        this.abortTrackedRequests(sessionId);
+    }
+
+    public hasActiveRun(sessionId: string): boolean {
+        const normalizedSessionId = sessionId.trim();
+        return normalizedSessionId ? this.activeRequests.has(normalizedSessionId) : false;
+    }
+
     public async sendMessage(
         sessionId: string,
         content: string,
@@ -96,42 +106,49 @@ export class LocalModeRuntime {
         const agent = this.repository.requireAgent(session.agentId);
 
         this.repository.pushMessage(session, createUserMessage(content, session.agentId));
+        const abortController = new AbortController();
+        this.trackRequest(sessionId, abortController);
 
-        const response = await axios.post(
-            `${agent.baseUrl}/chat/completions`,
-            {
-                model: agent.model,
-                messages: this.repository.toProviderMessages(session, agent),
-                temperature: options?.temperature,
-                max_tokens: options?.maxTokens,
-                stream: false
-            },
-            {
-                timeout: 60000,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${agent.apiKey}`
+        try {
+            const response = await axios.post(
+                `${agent.baseUrl}/chat/completions`,
+                {
+                    model: agent.model,
+                    messages: this.repository.toProviderMessages(session, agent),
+                    temperature: options?.temperature,
+                    max_tokens: options?.maxTokens,
+                    stream: false
+                },
+                {
+                    timeout: 60000,
+                    signal: abortController.signal,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${agent.apiKey}`
+                    }
                 }
-            }
-        );
+            );
 
-        const usage = response.data?.usage as {
-            prompt_tokens?: number;
-            completion_tokens?: number;
-            total_tokens?: number;
-        } | undefined;
-        const assistantMessage: ChatMessage = {
-            id: response.data?.id || `msg:${Date.now() + 1}`,
-            role: 'assistant',
-            content: extractAssistantText(response.data),
-            timestamp: new Date().toISOString(),
-            agentId: session.agentId,
-            tokenCount: usage?.total_tokens
-        };
+            const usage = response.data?.usage as {
+                prompt_tokens?: number;
+                completion_tokens?: number;
+                total_tokens?: number;
+            } | undefined;
+            const assistantMessage: ChatMessage = {
+                id: response.data?.id || `msg:${Date.now() + 1}`,
+                role: 'assistant',
+                content: extractAssistantText(response.data),
+                timestamp: new Date().toISOString(),
+                agentId: session.agentId,
+                tokenCount: usage?.total_tokens
+            };
 
-        this.repository.pushMessage(session, assistantMessage);
-        this.usageService.recordRequest(agent, usage);
-        return assistantMessage;
+            this.repository.pushMessage(session, assistantMessage);
+            this.usageService.recordRequest(agent, usage);
+            return assistantMessage;
+        } finally {
+            this.untrackRequest(sessionId, abortController);
+        }
     }
 
     public async *streamMessage(
@@ -143,78 +160,85 @@ export class LocalModeRuntime {
         const agent = this.repository.requireAgent(session.agentId);
 
         this.repository.pushMessage(session, createUserMessage(content, session.agentId));
+        const abortController = new AbortController();
+        this.trackRequest(sessionId, abortController);
 
-        const response = await axios.post(
-            `${agent.baseUrl}/chat/completions`,
-            {
-                model: agent.model,
-                messages: this.repository.toProviderMessages(session, agent),
-                temperature: options?.temperature,
-                max_tokens: options?.maxTokens,
-                stream: true
-            },
-            {
-                timeout: 60000,
-                responseType: 'stream',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${agent.apiKey}`
+        try {
+            const response = await axios.post(
+                `${agent.baseUrl}/chat/completions`,
+                {
+                    model: agent.model,
+                    messages: this.repository.toProviderMessages(session, agent),
+                    temperature: options?.temperature,
+                    max_tokens: options?.maxTokens,
+                    stream: true
+                },
+                {
+                    timeout: 60000,
+                    responseType: 'stream',
+                    signal: abortController.signal,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${agent.apiKey}`
+                    }
+                }
+            );
+
+            const stream = response.data as AsyncIterable<Buffer>;
+            let buffer = '';
+            let fullContent = '';
+
+            for await (const chunk of stream) {
+                buffer += chunk.toString();
+                const parts = buffer.split('\n');
+                buffer = parts.pop() || '';
+
+                for (const rawLine of parts) {
+                    const line = rawLine.trim();
+                    if (!line.startsWith('data:')) {
+                        continue;
+                    }
+
+                    const payload = line.slice(5).trim();
+                    if (!payload) {
+                        continue;
+                    }
+
+                    if (payload === '[DONE]') {
+                        const assistantMessage = createAssistantMessage(fullContent, session.agentId);
+                        this.repository.pushMessage(session, assistantMessage);
+                        this.usageService.recordRequest(agent);
+                        yield { content: fullContent, done: true };
+                        return;
+                    }
+
+                    const parsed = JSON.parse(payload) as {
+                        choices?: Array<{
+                            delta?: {
+                                content?: string;
+                            };
+                        }>;
+                    };
+                    const delta = parsed.choices?.[0]?.delta?.content || '';
+                    if (!delta) {
+                        continue;
+                    }
+
+                    fullContent += delta;
+                    yield {
+                        content: delta,
+                        done: false
+                    };
                 }
             }
-        );
 
-        const stream = response.data as AsyncIterable<Buffer>;
-        let buffer = '';
-        let fullContent = '';
-
-        for await (const chunk of stream) {
-            buffer += chunk.toString();
-            const parts = buffer.split('\n');
-            buffer = parts.pop() || '';
-
-            for (const rawLine of parts) {
-                const line = rawLine.trim();
-                if (!line.startsWith('data:')) {
-                    continue;
-                }
-
-                const payload = line.slice(5).trim();
-                if (!payload) {
-                    continue;
-                }
-
-                if (payload === '[DONE]') {
-                    const assistantMessage = createAssistantMessage(fullContent, session.agentId);
-                    this.repository.pushMessage(session, assistantMessage);
-                    this.usageService.recordRequest(agent);
-                    yield { content: fullContent, done: true };
-                    return;
-                }
-
-                const parsed = JSON.parse(payload) as {
-                    choices?: Array<{
-                        delta?: {
-                            content?: string;
-                        };
-                    }>;
-                };
-                const delta = parsed.choices?.[0]?.delta?.content || '';
-                if (!delta) {
-                    continue;
-                }
-
-                fullContent += delta;
-                yield {
-                    content: delta,
-                    done: false
-                };
-            }
+            const assistantMessage = createAssistantMessage(fullContent, session.agentId);
+            this.repository.pushMessage(session, assistantMessage);
+            this.usageService.recordRequest(agent);
+            yield { content: '', done: true };
+        } finally {
+            this.untrackRequest(sessionId, abortController);
         }
-
-        const assistantMessage = createAssistantMessage(fullContent, session.agentId);
-        this.repository.pushMessage(session, assistantMessage);
-        this.usageService.recordRequest(agent);
-        yield { content: '', done: true };
     }
 
     public getChatHistory(sessionId: string): Promise<ChatMessage[]> {
@@ -243,6 +267,9 @@ export class LocalModeRuntime {
     }
 
     public dispose(): void {
+        for (const sessionId of this.activeRequests.keys()) {
+            this.abortTrackedRequests(sessionId);
+        }
         this.repository.reset();
         this.usageService.reset();
     }
@@ -260,6 +287,51 @@ export class LocalModeRuntime {
             }),
             this.config.providers.flatMap(provider => [provider.id, ...provider.models.map(model => model.id)])
         );
+    }
+
+    private trackRequest(sessionId: string, controller: AbortController): void {
+        const normalizedSessionId = sessionId.trim();
+        if (!normalizedSessionId) {
+            return;
+        }
+
+        const controllers = this.activeRequests.get(normalizedSessionId) || new Set<AbortController>();
+        controllers.add(controller);
+        this.activeRequests.set(normalizedSessionId, controllers);
+    }
+
+    private untrackRequest(sessionId: string, controller: AbortController): void {
+        const normalizedSessionId = sessionId.trim();
+        if (!normalizedSessionId) {
+            return;
+        }
+
+        const controllers = this.activeRequests.get(normalizedSessionId);
+        if (!controllers) {
+            return;
+        }
+
+        controllers.delete(controller);
+        if (controllers.size === 0) {
+            this.activeRequests.delete(normalizedSessionId);
+        }
+    }
+
+    private abortTrackedRequests(sessionId: string): void {
+        const normalizedSessionId = sessionId.trim();
+        if (!normalizedSessionId) {
+            return;
+        }
+
+        const controllers = this.activeRequests.get(normalizedSessionId);
+        if (!controllers) {
+            return;
+        }
+
+        this.activeRequests.delete(normalizedSessionId);
+        for (const controller of controllers) {
+            controller.abort();
+        }
     }
 }
 

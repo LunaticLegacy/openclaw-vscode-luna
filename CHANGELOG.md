@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project follows Semantic Versioning.
 
+## [0.6.0] - 2026-03-11
+
+### Added
+- UI/UX behaviour improment. Now all the time-costing behaviour will have a tip.
+- Enable agent editing in OpenClaw mode.
+- Wire real run abort across runtimes, make imported channels writable/chat-capable.
+- 2 more preset agents: docs-editor and test-author.
+
+### Fixed
+- Patched malfunctioning of **Stop** button.
+    - **Stop** button will finally REALLY work.
+- UI/UX rendering error in Agent scene.
+- Rearranged codes' structure.
+
 ## [0.5.2] - 2026-03-10
 
 ### Added

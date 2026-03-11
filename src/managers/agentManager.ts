@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import { OpenClawService, Agent } from '../services/openclawService';
 import { EventEmitter } from 'events';
 import { AgentPresetScaffolder } from '../services/agentPresetScaffolder';
@@ -7,12 +8,30 @@ export interface CreateAgentParams {
     model: string;
     systemPrompt?: string;
     presetId?: string;
+    enabledSkills?: string[];
 }
 
 export interface UpdateAgentParams {
     name?: string;
     systemPrompt?: string;
     model?: string;
+    temperature?: number;
+    maxTokens?: number;
+    enabledSkills?: string[];
+}
+
+export class DuplicateAgentNameError extends Error {
+    public readonly agentName: string;
+
+    constructor(agentName: string) {
+        super(t('newAgent.duplicateName', { name: agentName }));
+        this.name = 'DuplicateAgentNameError';
+        this.agentName = agentName;
+    }
+}
+
+export function isDuplicateAgentNameError(error: unknown): error is DuplicateAgentNameError {
+    return error instanceof DuplicateAgentNameError;
 }
 
 export class AgentManager extends EventEmitter {
@@ -72,24 +91,35 @@ export class AgentManager extends EventEmitter {
     }
 
     public async createAgent(params: CreateAgentParams): Promise<Agent> {
+        const trimmedName = params.name.trim();
+        const existingAgents = await this.getAgents(true);
+        const hasDuplicateName = existingAgents.some(agent =>
+            agent.name.trim().toLocaleLowerCase() === trimmedName.toLocaleLowerCase()
+        );
+
+        if (hasDuplicateName) {
+            throw new DuplicateAgentNameError(trimmedName);
+        }
+
         const systemPrompt = params.presetId && this.presetScaffolder
             ? await this.presetScaffolder.buildSystemPrompt({
                 presetId: params.presetId,
-                requestedName: params.name,
+                requestedName: trimmedName,
                 requestedModel: params.model,
                 systemPrompt: params.systemPrompt
             })
             : params.systemPrompt;
         const agent = await this.service.createAgent({
-            name: params.name,
+            name: trimmedName,
             model: params.model,
-            systemPrompt
+            systemPrompt,
+            enabledSkills: params.enabledSkills
         });
         if (params.presetId && this.presetScaffolder) {
             try {
                 await this.presetScaffolder.applyPresetFiles(agent, {
                     presetId: params.presetId,
-                    requestedName: params.name,
+                    requestedName: trimmedName,
                     requestedModel: params.model,
                     systemPrompt
                 });

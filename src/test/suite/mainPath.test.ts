@@ -4,7 +4,7 @@ import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
 import { getAgentPresets } from '../../config/agentPresets';
-import { AgentManager } from '../../managers/agentManager';
+import { AgentManager, DuplicateAgentNameError } from '../../managers/agentManager';
 import { ScheduledTaskManager } from '../../managers/scheduledTaskManager';
 import { UsageManager } from '../../managers/usageManager';
 import type {
@@ -287,6 +287,45 @@ suite('OpenClaw Main Path', () => {
             assert.equal(agent.name, 'Review Guard');
             assert.match(agent.systemPrompt || '', /respond in this order/i);
             assert.match(agent.systemPrompt || '', /Do not lead with style/i);
+        } finally {
+            agentManager.dispose();
+            service.dispose();
+        }
+    });
+
+    test('rejects creating an agent when another agent already has the same name', async () => {
+        const localConfig: LocalServiceConfig = {
+            mode: 'local',
+            providers: [{
+                id: 'fake-provider',
+                baseUrl: 'http://127.0.0.1:1',
+                api: 'openai-completions',
+                apiKey: 'test-key',
+                models: [{
+                    id: 'fake-model',
+                    name: 'Fake Model'
+                }]
+            }],
+            sourceDescription: 'duplicate-agent-test'
+        };
+        const service = new OpenClawService(localConfig);
+        const agentManager = new AgentManager(service);
+
+        try {
+            await agentManager.createAgent({
+                name: 'Duplicate Name',
+                model: 'fake-model',
+                systemPrompt: 'First agent'
+            });
+
+            await assert.rejects(
+                () => agentManager.createAgent({
+                    name: 'duplicate name',
+                    model: 'fake-model',
+                    systemPrompt: 'Second agent'
+                }),
+                (error: unknown) => error instanceof DuplicateAgentNameError
+            );
         } finally {
             agentManager.dispose();
             service.dispose();
@@ -584,7 +623,7 @@ suite('OpenClaw Main Path', () => {
             service.updateConfig(openClawConfig);
             assert.equal(service.getMode(), 'openclaw');
             assert.equal(await service.checkConnection(), true, 'OpenClaw mode should connect');
-            assert.equal(service.supportsCapability('agentEditing'), false);
+            assert.equal(service.supportsCapability('agentEditing'), true);
             assert.equal(service.supportsScheduledTasks(), true);
             assert.equal(service.supportsLiveSessionSync(), true);
             assert.equal(service.getModeCapabilities().clusterPersistence, 'workspace');
@@ -597,10 +636,40 @@ suite('OpenClaw Main Path', () => {
             assert.equal(openClawAgent.name, 'Smoke OpenClaw Agent');
             assert.equal(openClawAgent.model, 'fake-openclaw-model');
 
+            const updatedOpenClawAgent = await agentManager.updateAgent(openClawAgent.id, {
+                name: 'Smoke OpenClaw Agent Updated',
+                model: 'fake-openclaw-model-v2',
+                systemPrompt: 'You are the updated OpenClaw smoke test agent.',
+                temperature: 0.3,
+                maxTokens: 2048
+            });
+            assert.equal(updatedOpenClawAgent.name, 'Smoke OpenClaw Agent Updated');
+            assert.equal(updatedOpenClawAgent.model, 'fake-openclaw-model-v2');
+            assert.equal(updatedOpenClawAgent.temperature, 0.3);
+            assert.equal(updatedOpenClawAgent.maxTokens, 2048);
+
+            const reloadedOpenClawAgent = await service.getAgent(openClawAgent.id);
+            assert.equal(reloadedOpenClawAgent?.name, 'Smoke OpenClaw Agent Updated');
+            assert.equal(reloadedOpenClawAgent?.model, 'fake-openclaw-model-v2');
+            assert.equal(reloadedOpenClawAgent?.systemPrompt, 'You are the updated OpenClaw smoke test agent.');
+            assert.equal(reloadedOpenClawAgent?.temperature, 0.3);
+            assert.equal(reloadedOpenClawAgent?.maxTokens, 2048);
+
             const openClawSession = await service.createChatSession(openClawAgent.id);
             const openClawResponse = await service.sendMessage(openClawSession.id, 'Summarize the OpenClaw path.');
             assert.equal(openClawResponse.role, 'assistant');
             assert.match(openClawResponse.content, /fake openclaw reply/i);
+
+            await service.abortSessionRun(openClawSession.id);
+            const fakeState = JSON.parse(
+                await fs.readFile(path.join(stateDir, '.openclaw-test-state.json'), 'utf8')
+            ) as {
+                abortedRuns?: Array<{ sessionKey?: string }>;
+            };
+            assert.ok(
+                fakeState.abortedRuns?.some(item => item.sessionKey === openClawSession.id),
+                'Expected abortSessionRun to forward a stop request to OpenClaw'
+            );
 
             const openClawUsage = await usageManager.getUsage();
             assert.equal(openClawUsage.totalRequests, 1);

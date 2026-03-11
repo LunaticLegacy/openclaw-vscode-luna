@@ -1,6 +1,6 @@
 {
   "displayName": "OpenClaw Luna",
-  "description": "OpenClaw 的 VS Code 控制台，统一管理 Gateway、OpenClaw CLI 与本地模型模式下的 Agent、Swarm、定时任务和用量。",
+  "description": "OpenClaw 的 VS Code 控制台，支持智能体集群。",
   "command.category": "OpenClaw",
   "command.openPanel.title": "打开 OpenClaw Luna",
   "command.quickChat.title": "快速聊天",

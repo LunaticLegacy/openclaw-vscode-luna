@@ -60,7 +60,7 @@ const MODE_CAPABILITIES: Record<OpenClawMode, OpenClawModeCapabilities> = {
         mode: 'openclaw',
         supports: {
             agentChat: true,
-            agentEditing: false,
+            agentEditing: true,
             swarmWorkspace: true,
             scheduledTasks: true,
             liveSessionSync: true,
@@ -105,7 +105,7 @@ const CAPABILITY_MATRIX: readonly OpenClawCapabilityMatrixRow[] = [
         summaryKey: 'capability.row.agentEditing.summary',
         modes: {
             gateway: { support: 'full', noteKey: 'capability.note.agentEditing.full' },
-            openclaw: { support: 'unavailable', noteKey: 'capability.note.agentEditing.openclaw' },
+            openclaw: { support: 'full', noteKey: 'capability.note.agentEditing.openclaw' },
             local: { support: 'full', noteKey: 'capability.note.agentEditing.full' }
         }
     },

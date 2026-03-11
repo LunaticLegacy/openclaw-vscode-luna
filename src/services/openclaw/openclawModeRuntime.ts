@@ -1,22 +1,17 @@
-import * as crypto from 'crypto';
 import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { normalizeEnabledSkills } from '../../config/aiSkills';
 import { t } from '../../i18n';
 import { OpenClawCliServiceConfig } from '../openclawConfig';
 import {
     OpenClawAgentRecord,
     OpenClawCliRunner,
-    OpenClawChannelsListResult,
     OpenClawGatewayAgentsResult,
     OpenClawSessionsListEntry,
     OpenClawSessionsListResult,
     OpenClawUsageCostResult
 } from '../openclawCli';
-import {
-    GatewayEventFrame,
-    OpenClawGatewayClient
-} from '../openclawGatewayClient';
 import {
     buildSessionKeyMap,
     delay,
@@ -53,6 +48,23 @@ import {
     StreamChunk,
     UpdateAgentParams
 } from './types';
+import {
+    composeAgentSystemPrompt,
+    mapDiscoveredChannels,
+    normalizeOptionalInteger,
+    normalizeOptionalNumber,
+    normalizeOptionalString,
+    OpenClawAgentSettingsRecord,
+    readOpenClawAgentSettings,
+    readOpenClawSystemPrompt,
+    updateOpenClawIdentityFile,
+    writeOpenClawSystemPrompt,
+    writeOpenClawAgentSettings
+} from './openclawModeRuntimeSupport';
+import {
+    streamMessageFromSessionLog,
+    streamMessageViaGateway
+} from './openclawModeRuntimeStreaming';
 
 interface OpenClawAgentsSnapshot {
     agents: Agent[];
@@ -68,6 +80,7 @@ interface CachedOpenClawAgentsSnapshot {
 
 export class OpenClawModeRuntime {
     private readonly runner: OpenClawCliRunner;
+    private readonly activeGatewayRuns = new Map<string, { runId: string; abortPromise?: Promise<void> }>();
     private defaultAgentId: string | null = null;
     private mainKey: string | null = null;
     private sessionKeysByAgent: Map<string, string> = new Map();
@@ -146,8 +159,63 @@ export class OpenClawModeRuntime {
         return agent;
     }
 
-    public updateAgent(_agentId: string, _params: UpdateAgentParams): Promise<Agent> {
-        return Promise.reject(new Error(t('service.updateAgentNotSupported')));
+    public async updateAgent(agentId: string, params: UpdateAgentParams): Promise<Agent> {
+        const agent = await this.getAgent(agentId);
+        if (!agent) {
+            throw new Error(t('service.agentNotFound'));
+        }
+
+        const workspacePath = await this.resolveAgentFolderPath(agent);
+        if (!workspacePath) {
+            throw new Error(t('agentSettings.noWorkspace'));
+        }
+
+        await fs.mkdir(workspacePath, { recursive: true });
+
+        const currentSettings = await readOpenClawAgentSettings(workspacePath);
+        const mergedSettings: OpenClawAgentSettingsRecord = {
+            ...currentSettings,
+            name: normalizeOptionalString(params.name) ?? currentSettings.name ?? agent.name,
+            model: normalizeOptionalString(params.model) ?? currentSettings.model ?? agent.model,
+            systemPrompt: params.systemPrompt !== undefined
+                ? params.systemPrompt
+                : currentSettings.systemPrompt ?? agent.systemPrompt,
+            temperature: normalizeOptionalNumber(params.temperature) ?? currentSettings.temperature ?? agent.temperature,
+            maxTokens: normalizeOptionalInteger(params.maxTokens) ?? currentSettings.maxTokens ?? agent.maxTokens,
+            enabledSkills: params.enabledSkills !== undefined
+                ? normalizeEnabledSkills(params.enabledSkills)
+                : currentSettings.enabledSkills ?? agent.enabledSkills ?? []
+        };
+
+        await writeOpenClawAgentSettings(workspacePath, mergedSettings);
+
+        if (params.systemPrompt !== undefined || params.enabledSkills !== undefined) {
+            await writeOpenClawSystemPrompt(
+                workspacePath,
+                composeAgentSystemPrompt(mergedSettings.systemPrompt, mergedSettings.enabledSkills),
+            );
+        }
+
+        await updateOpenClawIdentityFile(workspacePath, {
+            agentId: agent.id,
+            name: mergedSettings.name || agent.name,
+            model: mergedSettings.model || agent.model
+        });
+
+        this.invalidateSnapshotCache();
+
+        const updatedAgent: Agent = {
+            ...agent,
+            name: mergedSettings.name || agent.name,
+            model: mergedSettings.model || agent.model,
+            systemPrompt: mergedSettings.systemPrompt,
+            temperature: mergedSettings.temperature,
+            maxTokens: mergedSettings.maxTokens,
+            enabledSkills: mergedSettings.enabledSkills
+        };
+
+        this.emitEvent('agentUpdated', updatedAgent);
+        return updatedAgent;
     }
 
     public async deleteAgent(agentId: string): Promise<void> {
@@ -201,10 +269,22 @@ export class OpenClawModeRuntime {
         const knownIds = new Set(historyBefore.map(item => item.id));
 
         try {
-            yield* this.streamMessageViaGateway(sessionId, message, knownIds);
+            yield* streamMessageViaGateway({
+                config: this.config,
+                runner: this.runner,
+                activeGatewayRuns: this.activeGatewayRuns,
+                readSessionMessages: this.readSessionMessages.bind(this),
+                waitForAssistantMessage: this.waitForAssistantMessage.bind(this)
+            }, sessionId, message, knownIds);
             return;
         } catch {
-            yield* this.streamMessageFromSessionLog(sessionId, message, knownIds);
+            yield* streamMessageFromSessionLog({
+                config: this.config,
+                runner: this.runner,
+                activeGatewayRuns: this.activeGatewayRuns,
+                readSessionMessages: this.readSessionMessages.bind(this),
+                waitForAssistantMessage: this.waitForAssistantMessage.bind(this)
+            }, sessionId, message, knownIds);
         }
     }
 
@@ -224,6 +304,45 @@ export class OpenClawModeRuntime {
 
     public clearChatHistory(): Promise<void> {
         return Promise.resolve();
+    }
+
+    public async abortSessionRun(sessionId: string): Promise<void> {
+        const normalizedSessionId = sessionId.trim();
+        if (!normalizedSessionId) {
+            return;
+        }
+
+        const activeRun = this.activeGatewayRuns.get(normalizedSessionId);
+        if (activeRun?.abortPromise) {
+            await activeRun.abortPromise;
+            return;
+        }
+
+        const abortPromise: Promise<void> = this.runner.abortChat(normalizedSessionId, activeRun?.runId)
+            .then(() => undefined)
+            .catch(() => undefined);
+        if (activeRun) {
+            activeRun.abortPromise = abortPromise;
+        } else {
+            this.activeGatewayRuns.set(normalizedSessionId, {
+                runId: '',
+                abortPromise
+            });
+        }
+
+        try {
+            await abortPromise;
+        } finally {
+            const currentRun = this.activeGatewayRuns.get(normalizedSessionId);
+            if (currentRun?.abortPromise === abortPromise) {
+                this.activeGatewayRuns.delete(normalizedSessionId);
+            }
+        }
+    }
+
+    public hasActiveRun(sessionId: string): boolean {
+        const normalizedSessionId = sessionId.trim();
+        return normalizedSessionId ? this.activeGatewayRuns.has(normalizedSessionId) : false;
     }
 
     public async getUsage(): Promise<APIUsage> {
@@ -259,6 +378,7 @@ export class OpenClawModeRuntime {
     }
 
     public dispose(): void {
+        this.activeGatewayRuns.clear();
         this.defaultAgentId = null;
         this.mainKey = null;
         this.sessionKeysByAgent.clear();
@@ -330,7 +450,7 @@ export class OpenClawModeRuntime {
             }
 
             seen.add(record.id);
-            agents.push(this.mapAgentRecord(record, gatewayNames, defaultAgentId, sessionKeysByAgent, now));
+            agents.push(await this.mapAgentRecord(record, gatewayNames, defaultAgentId, sessionKeysByAgent, now));
         }
 
         for (const [id, name] of gatewayNames.entries()) {
@@ -338,7 +458,7 @@ export class OpenClawModeRuntime {
                 continue;
             }
 
-            agents.push({
+            agents.push(await this.applyStoredAgentSettings({
                 id,
                 name,
                 model: this.config.defaultModel || 'openclaw',
@@ -347,7 +467,7 @@ export class OpenClawModeRuntime {
                 lastActive: sessionKeysByAgent.has(id) ? now : undefined,
                 isDefault: id === defaultAgentId,
                 workspacePath: inferOpenClawWorkspacePath(id, this.config)
-            });
+            }));
         }
 
         this.defaultAgentId = defaultAgentId;
@@ -374,14 +494,14 @@ export class OpenClawModeRuntime {
         return snapshot;
     }
 
-    private mapAgentRecord(
+    private async mapAgentRecord(
         record: OpenClawAgentRecord,
         gatewayNames: Map<string, string>,
         defaultAgentId: string | null,
         sessionKeysByAgent: Map<string, string>,
         now: string
-    ): Agent {
-        return {
+    ): Promise<Agent> {
+        return this.applyStoredAgentSettings({
             id: record.id,
             name: record.name?.trim() || gatewayNames.get(record.id) || record.id,
             model: record.model?.trim() || this.config.defaultModel || 'openclaw',
@@ -390,6 +510,28 @@ export class OpenClawModeRuntime {
             lastActive: sessionKeysByAgent.has(record.id) ? now : undefined,
             isDefault: Boolean(record.isDefault || record.id === defaultAgentId),
             workspacePath: resolveOpenClawRecordWorkspacePath(record, this.config)
+        });
+    }
+
+    private async applyStoredAgentSettings(agent: Agent): Promise<Agent> {
+        const workspacePath = agent.workspacePath?.trim();
+        if (!workspacePath) {
+            return agent;
+        }
+
+        const [settings, systemPrompt] = await Promise.all([
+            readOpenClawAgentSettings(workspacePath),
+            readOpenClawSystemPrompt(workspacePath)
+        ]);
+
+        return {
+            ...agent,
+            name: settings.name || agent.name,
+            model: settings.model || agent.model,
+            systemPrompt: settings.systemPrompt ?? systemPrompt ?? agent.systemPrompt,
+            temperature: settings.temperature ?? agent.temperature,
+            maxTokens: settings.maxTokens ?? agent.maxTokens,
+            enabledSkills: settings.enabledSkills ?? agent.enabledSkills ?? []
         };
     }
 
@@ -487,356 +629,6 @@ export class OpenClawModeRuntime {
         return null;
     }
 
-    private async *streamMessageViaGateway(
-        sessionKey: string,
-        message: string,
-        knownIds: Set<string>
-    ): AsyncGenerator<StreamChunk, void, unknown> {
-        if (!this.config.gatewayUrl) {
-            throw new Error('OpenClaw gateway URL is not configured');
-        }
-
-        const gatewayClient = new OpenClawGatewayClient({
-            url: this.config.gatewayUrl,
-            token: this.config.gatewayToken,
-            timeoutMs: 30000,
-            caps: ['tool-events'],
-            clientId: 'gateway-client',
-            clientDisplayName: 'OpenClaw VS Code',
-            clientVersion: 'vscode-plugin'
-        });
-
-        const events: GatewayEventFrame[] = [];
-        let wakeNextEvent: (() => void) | null = null;
-        let streamError: Error | null = null;
-        let dispatched = false;
-        let runId = '';
-        let assistantText = '';
-        let thinkingText = '';
-        let thinkingOpen = false;
-
-        const queueEvent = (event: GatewayEventFrame) => {
-            events.push(event);
-            const wake = wakeNextEvent;
-            wakeNextEvent = null;
-            wake?.();
-        };
-
-        const onEvent = (event: GatewayEventFrame) => {
-            if (event.event !== 'chat' && event.event !== 'agent') {
-                return;
-            }
-
-            queueEvent(event);
-        };
-
-        const onError = (error: unknown) => {
-            streamError = error instanceof Error ? error : new Error(String(error));
-            const wake = wakeNextEvent;
-            wakeNextEvent = null;
-            wake?.();
-        };
-
-        const nextEvent = async (): Promise<GatewayEventFrame> => {
-            while (events.length === 0) {
-                if (streamError) {
-                    throw streamError;
-                }
-
-                await new Promise<void>((resolve, reject) => {
-                    const timer = setTimeout(() => {
-                        if (wakeNextEvent === wake) {
-                            wakeNextEvent = null;
-                        }
-                        reject(new Error('Timed out waiting for gateway stream event'));
-                    }, 30000);
-
-                    const wake = () => {
-                        clearTimeout(timer);
-                        resolve();
-                    };
-
-                    wakeNextEvent = wake;
-                });
-            }
-
-            return events.shift()!;
-        };
-
-        gatewayClient.on('event', onEvent);
-        gatewayClient.on('error', onError);
-
-        try {
-            await gatewayClient.connect();
-
-            const started = await gatewayClient.request<{
-                runId?: string;
-                status?: string;
-            }>('chat.send', {
-                sessionKey,
-                message,
-                deliver: false,
-                idempotencyKey: crypto.randomUUID()
-            }, {
-                timeoutMs: 30000
-            });
-
-            dispatched = true;
-            runId = typeof started.runId === 'string' && started.runId.trim()
-                ? started.runId.trim()
-                : '';
-
-            if (!runId) {
-                throw new Error('Gateway chat.send did not return a runId');
-            }
-
-            while (true) {
-                const event = await nextEvent();
-                const payload = event.payload && typeof event.payload === 'object'
-                    ? event.payload as Record<string, unknown>
-                    : null;
-
-                if (!payload || payload.runId !== runId) {
-                    continue;
-                }
-
-                if (event.event === 'agent') {
-                    const stream = typeof payload.stream === 'string' ? payload.stream : '';
-
-                    if (stream === 'thinking') {
-                        const data = payload.data && typeof payload.data === 'object'
-                            ? payload.data as Record<string, unknown>
-                            : {};
-                        const fullThinking = typeof data.text === 'string' ? data.text : '';
-                        const deltaThinking = typeof data.delta === 'string'
-                            ? data.delta
-                            : fullThinking.startsWith(thinkingText)
-                                ? fullThinking.slice(thinkingText.length)
-                                : fullThinking;
-
-                        thinkingText = fullThinking || thinkingText;
-                        if (!deltaThinking) {
-                            continue;
-                        }
-
-                        yield {
-                            content: thinkingOpen ? deltaThinking : `<thinking>${deltaThinking}`,
-                            done: false
-                        };
-                        thinkingOpen = true;
-                        continue;
-                    }
-
-                    if (thinkingOpen && (stream === 'assistant' || stream === 'tool' || stream === 'lifecycle')) {
-                        thinkingOpen = false;
-                        thinkingText = '';
-                        yield {
-                            content: '</thinking>',
-                            done: false
-                        };
-                    }
-
-                    if (stream === 'tool') {
-                        const transientMessage = normalizeOpenClawGatewayToolEvent(sessionKey, payload);
-                        if (transientMessage) {
-                            yield {
-                                content: '',
-                                done: false,
-                                message: transientMessage
-                            };
-                        }
-                        continue;
-                    }
-
-                    if (stream === 'lifecycle') {
-                        const lifecycleMessage = normalizeOpenClawGatewayLifecycleEvent(sessionKey, payload);
-                        if (lifecycleMessage) {
-                            yield {
-                                content: '',
-                                done: false,
-                                message: lifecycleMessage
-                            };
-                        }
-
-                        const data = payload.data && typeof payload.data === 'object'
-                            ? payload.data as Record<string, unknown>
-                            : {};
-                        if (data.phase === 'error') {
-                            throw new Error(typeof data.error === 'string' ? data.error : 'OpenClaw agent run failed');
-                        }
-                    }
-
-                    continue;
-                }
-
-                if (thinkingOpen) {
-                    thinkingOpen = false;
-                    thinkingText = '';
-                    yield {
-                        content: '</thinking>',
-                        done: false
-                    };
-                }
-
-                const state = typeof payload.state === 'string' ? payload.state : '';
-                const messageText = extractTextContent((payload.message as { content?: unknown } | undefined)?.content);
-                const deltaText = messageText
-                    ? messageText.startsWith(assistantText)
-                        ? messageText.slice(assistantText.length)
-                        : messageText
-                    : '';
-
-                if (messageText) {
-                    assistantText = messageText;
-                }
-
-                if (deltaText) {
-                    yield {
-                        content: deltaText,
-                        done: false
-                    };
-                }
-
-                if (state === 'error') {
-                    throw new Error(typeof payload.errorMessage === 'string' ? payload.errorMessage : 'OpenClaw chat stream failed');
-                }
-
-                if (state === 'aborted') {
-                    throw new Error('OpenClaw chat stream aborted');
-                }
-
-                if (state === 'final') {
-                    yield {
-                        content: '',
-                        done: true
-                    };
-                    return;
-                }
-            }
-        } catch (error) {
-            if (!dispatched) {
-                throw error;
-            }
-
-            const streamFailure = error instanceof Error ? error : new Error(String(error));
-            if (thinkingOpen) {
-                thinkingOpen = false;
-                thinkingText = '';
-                yield {
-                    content: '</thinking>',
-                    done: false
-                };
-            }
-
-            const fallbackAssistant = await this.waitForAssistantMessage(sessionKey, knownIds, 120000);
-            if (!fallbackAssistant && !assistantText) {
-                throw streamFailure;
-            }
-
-            if (fallbackAssistant?.content) {
-                const deltaText = fallbackAssistant.content.startsWith(assistantText)
-                    ? fallbackAssistant.content.slice(assistantText.length)
-                    : fallbackAssistant.content;
-
-                if (deltaText) {
-                    yield {
-                        content: deltaText,
-                        done: false
-                    };
-                }
-            }
-
-            yield {
-                content: '',
-                done: true
-            };
-        } finally {
-            gatewayClient.off('event', onEvent);
-            gatewayClient.off('error', onError);
-            gatewayClient.dispose();
-        }
-    }
-
-    private async *streamMessageFromSessionLog(
-        sessionKey: string,
-        message: string,
-        knownIds: Set<string>
-    ): AsyncGenerator<StreamChunk, void, unknown> {
-        let responsePayload: Record<string, unknown> | null = null;
-        let requestError: unknown = null;
-        let requestCompleted = false;
-        let requestCompletedAt = 0;
-        let finalAssistantSeen = false;
-
-        const requestPromise = this.runner.sendChat(sessionKey, message)
-            .then(result => {
-                responsePayload = result;
-                requestCompleted = true;
-                requestCompletedAt = Date.now();
-                return result;
-            })
-            .catch(error => {
-                requestError = error;
-                requestCompleted = true;
-                requestCompletedAt = Date.now();
-                throw error;
-            });
-
-        while (!requestCompleted || Date.now() - requestCompletedAt < 2500) {
-            const currentMessages = await this.readSessionMessages(sessionKey).catch(() => []);
-            const newMessages = currentMessages.filter(item => !knownIds.has(item.id));
-
-            for (const newMessage of newMessages) {
-                knownIds.add(newMessage.id);
-                if (isFinalOpenClawAssistantMessage(newMessage)) {
-                    finalAssistantSeen = true;
-                }
-
-                yield {
-                    content: newMessage.role === 'assistant' ? newMessage.content : '',
-                    done: false,
-                    tokenCount: newMessage.tokenCount,
-                    message: newMessage
-                };
-            }
-
-            if (requestCompleted) {
-                if (requestError) {
-                    break;
-                }
-
-                if (finalAssistantSeen) {
-                    break;
-                }
-            }
-
-            await delay(200);
-        }
-
-        try {
-            await requestPromise;
-        } catch {
-            throw requestError;
-        }
-
-        if (!finalAssistantSeen && responsePayload) {
-            const fallbackAssistant = extractAssistantMessageFromPayload(responsePayload, sessionKey);
-            if (fallbackAssistant && !knownIds.has(fallbackAssistant.id)) {
-                yield {
-                    content: fallbackAssistant.content,
-                    done: false,
-                    tokenCount: fallbackAssistant.tokenCount,
-                    message: fallbackAssistant
-                };
-            }
-        }
-
-        yield {
-            content: '',
-            done: true
-        };
-    }
-
     private async getOpenClawUsage(agentId?: string): Promise<APIUsage> {
         const sessionsUsagePromise = this.runner.getSessionsUsage({
             limit: 1000,
@@ -871,48 +663,4 @@ export class OpenClawModeRuntime {
         this.snapshotCache = null;
         this.snapshotPromise = null;
     }
-}
-
-function mapDiscoveredChannels(result: OpenClawChannelsListResult | null): DiscoveredChannel[] {
-    if (!result?.chat || typeof result.chat !== 'object') {
-        return [];
-    }
-
-    const channels: DiscoveredChannel[] = [];
-    for (const [providerId, accounts] of Object.entries(result.chat)) {
-        if (!Array.isArray(accounts)) {
-            continue;
-        }
-
-        for (const rawAccountId of accounts) {
-            const accountId = String(rawAccountId || '').trim();
-            if (!accountId) {
-                continue;
-            }
-
-            const name = formatDiscoveredChannelName(providerId, accountId);
-            channels.push({
-                id: `openclaw:${providerId}:${accountId}`,
-                name,
-                source: 'openclaw',
-                providerId,
-                accountId,
-                description: `${providerId}/${accountId}`
-            });
-        }
-    }
-
-    return channels.sort((left, right) => left.name.localeCompare(right.name));
-}
-
-function formatDiscoveredChannelName(providerId: string, accountId: string): string {
-    const normalizedProvider = String(providerId || '').trim();
-    const normalizedAccount = String(accountId || '').trim();
-    const providerLabel = normalizedProvider
-        .split(/[-_]+/)
-        .filter(Boolean)
-        .map(token => token.charAt(0).toUpperCase() + token.slice(1))
-        .join(' ');
-
-    return `${providerLabel || 'Channel'} ${normalizedAccount}`;
 }

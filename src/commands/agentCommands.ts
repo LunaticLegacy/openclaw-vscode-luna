@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { t } from '../i18n';
 import { OpenClawExtensionRuntime } from '../extension/runtime';
 import { Agent } from '../services/openclawService';
+import { isDuplicateAgentNameError } from '../managers/agentManager';
 import { showSuccessStatus } from '../utils/statusFeedback';
 import { getCapabilityUnavailableMessage, isServiceCapabilityAvailable } from '../utils/capabilitySupport';
 import { pickAgentPreset, resolveAgentId } from './helpers';
@@ -86,6 +87,10 @@ export function registerAgentCommands(
                 showSuccessStatus(t('newAgent.created', { name }));
                 runtime.sidebarTreeProvider.refresh();
             } catch (error) {
+                if (isDuplicateAgentNameError(error)) {
+                    vscode.window.showWarningMessage(error.message);
+                    return;
+                }
                 vscode.window.showErrorMessage(t('newAgent.createFailed', { error: String(error) }));
             }
         }),
