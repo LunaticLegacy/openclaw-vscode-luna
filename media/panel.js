@@ -22,7 +22,8 @@
                 break;
 
             case 'agentsLoaded':
-                renderAgents(message.agents);
+                state.aiSkills = Array.isArray(message.aiSkills) ? message.aiSkills : state.aiSkills;
+                renderAgents(message.agents, message.folders);
                 populateModelSelect(message.models || []);
                 setAgentPresets(message.presets || state.agentPresets);
                 break;
@@ -252,6 +253,12 @@
 
             case 'replaceClusterMessages':
                 replaceClusterConversationMessages(message.clusterId, message.agentId, message.messages || []);
+                break;
+
+            case 'appendClusterMessage':
+                appendClusterConversationMessage(message.clusterId, message.agentId, message.message, {
+                    keepPending: Boolean(message.keepPending)
+                });
                 break;
 
             case 'clusterAgentResponse':

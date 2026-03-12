@@ -13,6 +13,7 @@ import {
     APIUsage,
     ChatMessage,
     ChatSession,
+    CreateChatSessionOptions,
     CreateAgentParams,
     LocalAgent,
     RealtimeUsageSnapshot,
@@ -84,8 +85,8 @@ export class LocalModeRuntime {
         return Promise.resolve();
     }
 
-    public createChatSession(agentId: string): Promise<ChatSession> {
-        return Promise.resolve(this.repository.createChatSession(agentId));
+    public createChatSession(agentId: string, options: CreateChatSessionOptions = {}): Promise<ChatSession> {
+        return Promise.resolve(this.repository.createChatSession(agentId, options.sessionId));
     }
 
     public async abortSessionRun(sessionId: string): Promise<void> {

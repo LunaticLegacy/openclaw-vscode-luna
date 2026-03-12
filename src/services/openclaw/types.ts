@@ -85,6 +85,10 @@ export interface ChatSession {
     updatedAt: string;
 }
 
+export interface CreateChatSessionOptions {
+    sessionId?: string;
+}
+
 export interface DiscoveredChannel {
     id: string;
     name: string;

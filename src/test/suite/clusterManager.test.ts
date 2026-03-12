@@ -124,6 +124,38 @@ suite('clusterManager', () => {
             await fs.rm(root, { recursive: true, force: true });
         }
     });
+
+    test('persists and rotates cluster-agent session ids independently', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-session-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Session Swarm',
+                agentIds: ['alpha', 'beta']
+            });
+
+            const alphaSessionId = await manager.ensureClusterAgentSessionId(cluster.id, 'alpha');
+            const sameAlphaSessionId = await manager.ensureClusterAgentSessionId(cluster.id, 'alpha');
+            const resetAlphaSessionId = await manager.resetClusterAgentSessionId(cluster.id, 'alpha');
+
+            assert.equal(alphaSessionId, sameAlphaSessionId);
+            assert.notEqual(alphaSessionId, resetAlphaSessionId);
+
+            const reloadedManager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+            try {
+                const persistedAlphaSessionId = await reloadedManager.ensureClusterAgentSessionId(cluster.id, 'alpha');
+                assert.equal(persistedAlphaSessionId, resetAlphaSessionId);
+            } finally {
+                reloadedManager.dispose();
+            }
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
 });
 
 type DebateStage =

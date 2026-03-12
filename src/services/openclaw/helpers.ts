@@ -237,12 +237,22 @@ export function parseAgentIdFromSessionKey(sessionKey: string): string | null {
     }
 
     const parts = normalized.split(':').filter(Boolean);
-    if (parts.length < 3 || parts[0] !== 'agent') {
-        return null;
+    if (parts[0] === 'agent') {
+        if (parts.length < 3) {
+            return null;
+        }
+
+        const agentId = parts[1]?.trim();
+        return agentId || null;
     }
 
-    const agentId = parts[1]?.trim();
-    return agentId || null;
+    const clusterAgentIndex = parts.indexOf('agent');
+    if (parts[0] === 'cluster' && clusterAgentIndex >= 0 && clusterAgentIndex + 1 < parts.length) {
+        const agentId = parts[clusterAgentIndex + 1]?.trim();
+        return agentId || null;
+    }
+
+    return null;
 }
 
 export function normalizeOpenClawChatHistory(messages: OpenClawChatHistoryMessage[], sessionKey: string): ChatMessage[] {

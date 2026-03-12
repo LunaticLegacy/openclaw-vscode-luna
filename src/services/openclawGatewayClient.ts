@@ -219,11 +219,13 @@ export class OpenClawGatewayClient extends EventEmitter {
                 if (!this.intentionalClose) {
                     const error = new Error(`Gateway connection closed (${code}${normalizedReason ? `: ${normalizedReason}` : ''})`);
                     this.rejectAllPending(error);
+                    this.emit('close', { code, reason: normalizedReason, intentional: false });
                     if (!settled) {
                         settle(error);
                     }
                 } else {
                     this.rejectAllPending(new Error('Gateway connection closed'));
+                    this.emit('close', { code, reason: normalizedReason, intentional: true });
                     if (!settled) {
                         settle();
                     }

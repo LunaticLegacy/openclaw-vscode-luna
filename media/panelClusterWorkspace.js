@@ -71,6 +71,9 @@
                 elements.clusterModeTabs.innerHTML = '';
                 elements.clusterModeTabs.classList.add('hidden');
             }
+            if (elements.clusterTopology) {
+                elements.clusterTopology.innerHTML = '';
+            }
             if (elements.clusterMessageInput) {
                 elements.clusterMessageInput.disabled = true;
             }
@@ -128,8 +131,67 @@
 
         renderClusterTargetTabs(cluster);
         renderClusterModeTabs();
+        renderClusterTopology(cluster);
         renderCurrentClusterConversation();
         updateClusterInputState(cluster);
+    }
+
+    function renderClusterTopology(cluster) {
+        if (!elements.clusterTopology) {
+            return;
+        }
+
+        if (!cluster) {
+            elements.clusterTopology.innerHTML = '';
+            return;
+        }
+
+        const target = getCurrentClusterTargetInfo(cluster);
+        const modeLabel = target.kind === 'swarm'
+            ? (window.OpenClawI18n ? window.OpenClawI18n.t(target.mode === 'broadcast' ? 'clusters.broadcast' : 'clusters.collaborate') : target.mode)
+            : 'Direct';
+        const collapsed = Boolean(state.clusterTopologyCollapsed);
+        const toggleLabel = collapsed ? 'Expand topology view' : 'Collapse topology view';
+        const toggleSymbol = collapsed ? '&#9654;' : '&#9660;';
+
+        elements.clusterTopology.innerHTML = `
+            <div class="cluster-topology-card${collapsed ? ' collapsed' : ''}">
+                <div class="cluster-topology-head">
+                    <div class="cluster-topology-heading">
+                        <button
+                            class="cluster-topology-toggle"
+                            type="button"
+                            data-cluster-topology-toggle
+                            aria-expanded="${collapsed ? 'false' : 'true'}"
+                            title="${escapeHtml(toggleLabel)}"
+                        >
+                            <span class="cluster-topology-toggle-icon" aria-hidden="true">${toggleSymbol}</span>
+                            <span class="cluster-topology-toggle-copy">
+                                <span class="cluster-topology-eyebrow">Topology View</span>
+                                <span class="cluster-topology-title">${escapeHtml(cluster.name)}</span>
+                            </span>
+                        </button>
+                    </div>
+                    <span class="cluster-topology-mode">${escapeHtml(modeLabel)}</span>
+                </div>
+                <div class="cluster-topology-graph${collapsed ? ' hidden' : ''}">
+                    <div class="cluster-topology-hub${target.kind === 'swarm' ? ' active' : ''}">
+                        <span>Swarm</span>
+                    </div>
+                    <div class="cluster-topology-links">
+                        ${cluster.agentIds.map(agentId => `
+                            <div class="cluster-topology-link">
+                                <span class="cluster-topology-line"></span>
+                                <div class="cluster-topology-node${target.kind === 'agent' && target.agentId === agentId ? ' active' : ''}">
+                                    <span class="cluster-topology-node-name">${escapeHtml(resolveClusterAgentLabel(agentId))}</span>
+                                    <span class="cluster-topology-node-meta">${escapeHtml(agentId)}</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            </div>
+        `;
     }
 
     function renderClusterTargetTabs(cluster) {

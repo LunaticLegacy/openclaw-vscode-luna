@@ -22,6 +22,8 @@ interface OpenClawRuntimeStreamContext {
     config: OpenClawCliServiceConfig;
     runner: OpenClawCliRunner;
     activeGatewayRuns: Map<string, { runId: string; abortPromise?: Promise<void> }>;
+    handleObservedRunStart(sessionKey: string, runId: string): void;
+    handleObservedRunStop(sessionKey: string, runId: string): void;
     readSessionMessages(sessionKey: string): Promise<ChatMessage[]>;
     waitForAssistantMessage(sessionKey: string, knownIds: Set<string>, timeoutMs: number): Promise<ChatMessage | null>;
 }
@@ -131,6 +133,7 @@ export async function *streamMessageViaGateway(
         }
 
         context.activeGatewayRuns.set(sessionKey, { runId });
+        context.handleObservedRunStart(sessionKey, runId);
 
         while (true) {
             const event = await nextEvent();
@@ -294,6 +297,9 @@ export async function *streamMessageViaGateway(
         const activeRun = context.activeGatewayRuns.get(sessionKey);
         if (activeRun?.runId === runId && !activeRun.abortPromise) {
             context.activeGatewayRuns.delete(sessionKey);
+        }
+        if (runId) {
+            context.handleObservedRunStop(sessionKey, runId);
         }
         gatewayClient.off('event', onEvent);
         gatewayClient.off('error', onError);

@@ -17,6 +17,7 @@ import type { DiscoveredChannel, OpenClawBooleanCapabilityId } from '../services
 import { runWithNotificationProgress, showSuccessStatus } from '../utils/statusFeedback';
 import { getCapabilityUnavailableMessage } from '../utils/capabilitySupport';
 import { AgentManager, isDuplicateAgentNameError } from '../managers/agentManager';
+import { AgentFolderManager } from '../managers/agentFolderManager';
 import { ChatSessionManager } from '../managers/chatSessionManager';
 import { ChannelManager } from '../managers/channelManager';
 import { ClusterManager } from '../managers/clusterManager';
@@ -49,6 +50,7 @@ import {
     handleAddAgentsToCluster as addAgentsToClusterAction,
     handleBroadcast as broadcastToClusterAction,
     handleClusterAgentMessage as clusterAgentMessageAction,
+    handleClusterAgentSessionCommand as clusterAgentSessionCommandAction,
     handleCollaborate as collaborateClusterAction,
     handleRemoveAgentsFromCluster as removeAgentsFromClusterAction,
     handleSaveCluster as saveClusterAction,
@@ -91,6 +93,7 @@ export class OpenClawPanel {
     private _service: OpenClawService;
     private _agentManager: AgentManager;
     private _channelManager: ChannelManager;
+    private _agentFolderManager: AgentFolderManager;
     private _clusterManager: ClusterManager;
     private _taskManager: ScheduledTaskManager;
     private _sessionManager: ChatSessionManager;
@@ -120,6 +123,7 @@ export class OpenClawPanel {
         extensionUri: vscode.Uri,
         service: OpenClawService,
         agentManager: AgentManager,
+        agentFolderManager: AgentFolderManager,
         channelManager: ChannelManager,
         clusterManager: ClusterManager,
         taskManager: ScheduledTaskManager
@@ -144,7 +148,7 @@ export class OpenClawPanel {
             }
         );
 
-        OpenClawPanel.currentPanel = new OpenClawPanel(panel, extensionUri, service, agentManager, channelManager, clusterManager, taskManager);
+        OpenClawPanel.currentPanel = new OpenClawPanel(panel, extensionUri, service, agentManager, agentFolderManager, channelManager, clusterManager, taskManager);
         return OpenClawPanel.currentPanel;
     }
 
@@ -162,6 +166,7 @@ export class OpenClawPanel {
         extensionUri: vscode.Uri,
         service: OpenClawService,
         agentManager: AgentManager,
+        agentFolderManager: AgentFolderManager,
         channelManager: ChannelManager,
         clusterManager: ClusterManager,
         taskManager: ScheduledTaskManager
@@ -170,6 +175,7 @@ export class OpenClawPanel {
         this._extensionUri = extensionUri;
         this._service = service;
         this._agentManager = agentManager;
+        this._agentFolderManager = agentFolderManager;
         this._channelManager = channelManager;
         this._clusterManager = clusterManager;
         this._taskManager = taskManager;
@@ -275,6 +281,8 @@ export class OpenClawPanel {
     private async _loadAgents() {
         try {
             const agents = await this._agentManager.getAgents();
+            await this._agentFolderManager.pruneMissingAgents(agents.map(agent => agent.id));
+            const folders = await this._agentFolderManager.getFolders();
             const models = await this._service.getAvailableModels(agents);
             this._postMessage({
                 type: 'agentsLoaded',
@@ -288,8 +296,10 @@ export class OpenClawPanel {
                     maxTokens: a.maxTokens,
                     enabledSkills: a.enabledSkills
                 })),
+                folders,
                 models,
-                presets: getAgentPresets()
+                presets: getAgentPresets(),
+                aiSkills: getAiSkills()
             });
 
             const currentAgentStillExists = this._currentAgentId
@@ -380,6 +390,9 @@ export class OpenClawPanel {
             });
         }
         this._postRunState('chat', true);
+        if (!this._service.providesAgentActivityStatus()) {
+            this._agentManager.beginAgentRun(targetAgentId);
+        }
 
         try {
             const config = vscode.workspace.getConfiguration('openclaw');
@@ -454,6 +467,9 @@ export class OpenClawPanel {
                 });
             }
         } finally {
+            if (!this._service.providesAgentActivityStatus()) {
+                this._agentManager.endAgentRun(targetAgentId);
+            }
             if (this._isCurrentChatRun(chatRunToken, targetAgentId, sessionId)) {
                 this._postRunState('chat', false);
             }
@@ -484,11 +500,23 @@ export class OpenClawPanel {
         this._currentAgentId = agentId;
         this._currentSessionId = null;
         this._agentManager.setActiveAgent(agentId);
+        const cachedSession = this._sessionManager.findSessionByAgent(agentId);
+        if (cachedSession) {
+            this._currentSessionId = cachedSession.id;
+        }
         this._postMessage({
             type: 'setActiveAgent',
             agentId
         });
-        this._postMessage({ type: 'clearChat' });
+        if (cachedSession) {
+            this._postMessage({
+                type: 'replaceMessages',
+                messages: cachedSession.messages
+            });
+            this._postRunState('chat', this._service.hasActiveSessionRun(cachedSession.id));
+        } else {
+            this._postMessage({ type: 'clearChat' });
+        }
         this._postMessage({
             type: 'setContextLoading',
             loading: true
@@ -555,6 +583,9 @@ export class OpenClawPanel {
     }
 
     private _stopActiveChatRun() {
+        if (!this._service.providesAgentActivityStatus() && this._currentAgentId) {
+            this._agentManager.endAgentRun(this._currentAgentId);
+        }
         this._chatRunToken += 1;
         const activeStream = this._activeChatStream;
         this._activeChatStream = null;
@@ -698,6 +729,90 @@ export class OpenClawPanel {
         await deleteAgentAction(this._createAgentActionContext(), agentId);
     }
 
+    private async _handleCreateAgentFolder(name: string) {
+        await this._agentFolderManager.createFolder(name);
+        await this._loadAgents();
+    }
+
+    private async _promptCreateAgentFolder() {
+        const name = await vscode.window.showInputBox({
+            prompt: t('sidebar.newFolderPrompt'),
+            placeHolder: t('sidebar.newFolderPrompt'),
+            ignoreFocusOut: true,
+            validateInput: value => value.trim() ? undefined : t('sidebar.folderNameRequired')
+        });
+
+        if (!name) {
+            return;
+        }
+
+        await this._handleCreateAgentFolder(name.trim());
+    }
+
+    private async _promptRenameAgentFolder(folderId: string) {
+        const folder = (await this._agentFolderManager.getFolders()).find(item => item.id === folderId);
+        if (!folder) {
+            return;
+        }
+
+        const nextName = await vscode.window.showInputBox({
+            prompt: t('sidebar.renameFolderPrompt'),
+            value: folder.name,
+            ignoreFocusOut: true,
+            validateInput: value => value.trim() ? undefined : t('sidebar.folderNameRequired')
+        });
+
+        if (!nextName) {
+            return;
+        }
+
+        const normalizedName = nextName.trim();
+        if (normalizedName === folder.name) {
+            return;
+        }
+
+        await this._handleRenameAgentFolder(folderId, normalizedName);
+    }
+
+    private async _promptDeleteAgentFolder(folderId: string) {
+        const folder = (await this._agentFolderManager.getFolders()).find(item => item.id === folderId);
+        if (!folder) {
+            return;
+        }
+
+        const confirmed = await vscode.window.showWarningMessage(
+            t('sidebar.deleteFolderConfirm', { name: folder.name }),
+            { modal: true },
+            t('common.delete')
+        );
+
+        if (confirmed !== t('common.delete')) {
+            return;
+        }
+
+        await this._handleDeleteAgentFolder(folderId);
+    }
+
+    private async _handleRenameAgentFolder(folderId: string, name: string) {
+        await this._agentFolderManager.renameFolder(folderId, name);
+        await this._loadAgents();
+    }
+
+    private async _handleDeleteAgentFolder(folderId: string) {
+        await this._agentFolderManager.deleteFolder(folderId);
+        await this._loadAgents();
+    }
+
+    private async _handleToggleAgentFolder(folderId: string, collapsed: boolean) {
+        await this._agentFolderManager.setFolderCollapsed(folderId, collapsed);
+        await this._loadAgents();
+    }
+
+    private async _handleMoveAgentToFolder(agentId: string, folderId: string | null) {
+        await this._agentFolderManager.moveAgentToFolder(agentId, folderId);
+        await this._loadAgents();
+    }
+
     private async _handleBroadcast(clusterId: string, message: string) {
         await broadcastToClusterAction(this._createClusterActionContext(), clusterId, message);
     }
@@ -724,6 +839,10 @@ export class OpenClawPanel {
 
     private async _handleClusterAgentMessage(clusterId: string, agentId: string, content: string) {
         await clusterAgentMessageAction(this._createClusterActionContext(), clusterId, agentId, content);
+    }
+
+    private async _handleClusterAgentSessionCommand(clusterId: string, agentId: string, command: 'new' | 'clear') {
+        await clusterAgentSessionCommandAction(this._createClusterActionContext(), clusterId, agentId, command);
     }
 
     private _handleStopActiveRun(scope: unknown) {
@@ -863,6 +982,8 @@ export class OpenClawPanel {
             loadClusters: this._loadClusters.bind(this),
             showClusterView: this.showClusterView.bind(this),
             getCurrentAgentId: () => this._currentAgentId,
+            beginAgentRun: (agentId: string) => !this._service.providesAgentActivityStatus() && this._agentManager.beginAgentRun(agentId),
+            endAgentRun: (agentId: string) => !this._service.providesAgentActivityStatus() && this._agentManager.endAgentRun(agentId),
             nextClusterSwarmRunToken: () => ++this._clusterSwarmRunToken,
             getClusterSwarmRunToken: () => this._clusterSwarmRunToken,
             nextClusterAgentRunToken: () => ++this._clusterAgentRunToken,
@@ -889,6 +1010,7 @@ export class OpenClawPanel {
     private _createChannelActionContext() {
         return {
             service: this._service,
+            agentManager: this._agentManager,
             channelManager: this._channelManager,
             importedChannelSessions: this._importedChannelSessions,
             postMessage: this._postMessage.bind(this),
@@ -948,6 +1070,14 @@ export class OpenClawPanel {
             handleAddAgentsToCluster: this._handleAddAgentsToCluster.bind(this),
             handleRemoveAgentsFromCluster: this._handleRemoveAgentsFromCluster.bind(this),
             handleDeleteAgent: this._handleDeleteAgent.bind(this),
+            promptCreateAgentFolder: this._promptCreateAgentFolder.bind(this),
+            promptRenameAgentFolder: this._promptRenameAgentFolder.bind(this),
+            promptDeleteAgentFolder: this._promptDeleteAgentFolder.bind(this),
+            handleCreateAgentFolder: this._handleCreateAgentFolder.bind(this),
+            handleRenameAgentFolder: this._handleRenameAgentFolder.bind(this),
+            handleDeleteAgentFolder: this._handleDeleteAgentFolder.bind(this),
+            handleToggleAgentFolder: this._handleToggleAgentFolder.bind(this),
+            handleMoveAgentToFolder: this._handleMoveAgentToFolder.bind(this),
             handleCreateTask: this._handleCreateTask.bind(this),
             handleUpdateTask: this._handleUpdateTask.bind(this),
             handleDeleteTask: this._handleDeleteTask.bind(this),
@@ -961,6 +1091,7 @@ export class OpenClawPanel {
             promptBroadcastToCluster: this._promptBroadcastToCluster.bind(this),
             handleCollaborate: this._handleCollaborate.bind(this),
             handleClusterAgentMessage: this._handleClusterAgentMessage.bind(this),
+            handleClusterAgentSessionCommand: this._handleClusterAgentSessionCommand.bind(this),
             promptCollaborateCluster: this._promptCollaborateCluster.bind(this),
             handleSaveAgentSettings: this._handleSaveAgentSettings.bind(this),
             handleRetryConnection: this._handleRetryConnection.bind(this),

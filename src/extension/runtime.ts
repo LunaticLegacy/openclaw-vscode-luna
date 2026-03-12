@@ -2,9 +2,10 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { t } from '../i18n';
 import { AgentManager } from '../managers/agentManager';
+import { AgentFolderManager } from '../managers/agentFolderManager';
 import { ChannelManager } from '../managers/channelManager';
 import { ClusterManager } from '../managers/clusterManager';
-import { ScheduledTaskManager } from '../managers/scheduledTaskManager';
+import { ScheduledTaskManager, type ScheduledTask } from '../managers/scheduledTaskManager';
 import { UsageManager } from '../managers/usageManager';
 import { OpenClawPanel } from '../panels/openclawPanel';
 import { OpenClawSidebarProvider } from '../providers/openclawSidebarProvider';
@@ -18,6 +19,7 @@ export class OpenClawExtensionRuntime {
     public readonly service: OpenClawService;
     public readonly agentManager: AgentManager;
     public readonly channelManager: ChannelManager;
+    public readonly agentFolderManager: AgentFolderManager;
     public readonly clusterManager: ClusterManager;
     public readonly usageManager: UsageManager;
     public readonly taskManager: ScheduledTaskManager;
@@ -33,6 +35,7 @@ export class OpenClawExtensionRuntime {
         public readonly context: vscode.ExtensionContext,
         service: OpenClawService,
         agentManager: AgentManager,
+        agentFolderManager: AgentFolderManager,
         channelManager: ChannelManager,
         clusterManager: ClusterManager,
         usageManager: UsageManager,
@@ -40,6 +43,7 @@ export class OpenClawExtensionRuntime {
     ) {
         this.service = service;
         this.agentManager = agentManager;
+        this.agentFolderManager = agentFolderManager;
         this.channelManager = channelManager;
         this.clusterManager = clusterManager;
         this.usageManager = usageManager;
@@ -56,6 +60,17 @@ export class OpenClawExtensionRuntime {
         this.statusBarItem.tooltip = t('statusBar.tooltip');
         this.statusBarItem.command = 'openclaw.openPanel';
         this.statusBarItem.show();
+
+        this.taskManager.on('taskRunStarted', (task: ScheduledTask) => {
+            if (task.agentId && !this.service.providesAgentActivityStatus()) {
+                this.agentManager.beginAgentRun(task.agentId);
+            }
+        });
+        this.taskManager.on('taskRunCompleted', (task: ScheduledTask) => {
+            if (task.agentId && !this.service.providesAgentActivityStatus()) {
+                this.agentManager.endAgentRun(task.agentId);
+            }
+        });
     }
 
     public static async create(context: vscode.ExtensionContext): Promise<OpenClawExtensionRuntime> {
@@ -68,6 +83,9 @@ export class OpenClawExtensionRuntime {
         const channelManager = new ChannelManager(
             path.join(context.globalStorageUri.fsPath, 'channels.json')
         );
+        const agentFolderManager = new AgentFolderManager(
+            path.join(context.globalStorageUri.fsPath, 'agent-folders.json')
+        );
         const clusterManager = new ClusterManager(
             service,
             path.join(context.globalStorageUri.fsPath, 'clusters.json')
@@ -79,6 +97,7 @@ export class OpenClawExtensionRuntime {
             context,
             service,
             agentManager,
+            agentFolderManager,
             channelManager,
             clusterManager,
             usageManager,
@@ -135,6 +154,7 @@ export class OpenClawExtensionRuntime {
             this.context.extensionUri,
             this.service,
             this.agentManager,
+            this.agentFolderManager,
             this.channelManager,
             this.clusterManager,
             this.taskManager
@@ -162,6 +182,7 @@ export class OpenClawExtensionRuntime {
         OpenClawPanel.disposePanel();
         this.agentManager.dispose();
         this.channelManager.dispose();
+        this.agentFolderManager.dispose();
         this.clusterManager.dispose();
         this.usageManager.dispose();
         this.taskManager.dispose();

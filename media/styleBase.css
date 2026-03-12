@@ -287,10 +287,104 @@ body {
     padding: 4px 10px;
 }
 
+.agent-section-actions {
+    display: flex;
+    gap: 6px;
+}
+
 .agent-list {
     display: flex;
     flex-direction: column;
+    gap: 8px;
+}
+
+.agent-root-dropzone,
+.agent-folder-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+}
+
+.agent-root-dropzone {
+    padding: 8px;
+}
+
+.agent-root-title {
+    margin-bottom: 8px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.agent-root-body,
+.agent-folder-body {
+    display: flex;
+    flex-direction: column;
     gap: 4px;
+}
+
+.agent-folder-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+}
+
+.agent-folder-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+    border: none;
+    padding: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+}
+
+.agent-folder-chevron {
+    width: 12px;
+    color: var(--text-secondary);
+    flex: none;
+}
+
+.agent-folder-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.agent-folder-count {
+    margin-left: auto;
+    color: var(--text-secondary);
+    font-size: 11px;
+}
+
+.agent-folder-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.agent-folder-body {
+    padding: 0 8px 8px;
+}
+
+.agent-folder-empty {
+    padding: 8px 10px;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.drag-target-active {
+    border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+    background: color-mix(in srgb, var(--accent) 12%, var(--bg-secondary));
 }
 
 .agent-item {
@@ -301,6 +395,10 @@ body {
     border-radius: 6px;
     cursor: pointer;
     transition: all 0.2s;
+}
+
+.agent-item.dragging {
+    opacity: 0.5;
 }
 
 .agent-item:hover {
