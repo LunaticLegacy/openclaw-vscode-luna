@@ -18,6 +18,7 @@
         currentClusterAgentId: null,
         currentClusterSwarmMode: 'broadcast',
         agents: [],
+        agentFolders: [],
         agentPresets: [],
         aiSkills: [],
         newAgentMode: 'custom',
@@ -64,7 +65,8 @@
         installGuideStatus: null,
         installGuideBusy: false,
         agentMutation: null,
-        mainSidebarCollapsed: false
+        mainSidebarCollapsed: false,
+        clusterTopologyCollapsed: false
     };
     let activeTraceContainer = null;
     let activeChannelTraceContainer = null;
@@ -82,6 +84,14 @@
 
     const LOCAL_I18N_FALLBACKS = {
         'zh-cn': {
+            'sidebar.newFolder': '新建文件夹',
+            'sidebar.newFolderPrompt': '输入文件夹名称',
+            'sidebar.renameFolderPrompt': '重命名文件夹',
+            'sidebar.deleteFolderConfirm': '确定删除文件夹“{name}”吗？其中的智能体会回到未分组。',
+            'sidebar.folderEmpty': '把智能体拖到这里',
+            'sidebar.ungrouped': '未分组',
+            'sidebar.ungroupedHint': '把智能体拖到这里以移出文件夹',
+            'sidebar.removeFromFolder': '移出文件夹',
             'clusters.updated': '集群“{name}”已更新',
             'clusters.editTitle': '编辑 {name}',
             'clusters.validationName': '请填写集群名称。',
@@ -171,6 +181,7 @@
     function hydrateUiState() {
         const savedState = vscode.getState ? (vscode.getState() || {}) : {};
         state.mainSidebarCollapsed = Boolean(savedState.mainSidebarCollapsed);
+        state.clusterTopologyCollapsed = Boolean(savedState.clusterTopologyCollapsed);
     }
 
     function persistUiState() {
@@ -179,13 +190,20 @@
         }
 
         vscode.setState({
-            mainSidebarCollapsed: state.mainSidebarCollapsed
+            mainSidebarCollapsed: state.mainSidebarCollapsed,
+            clusterTopologyCollapsed: state.clusterTopologyCollapsed
         });
     }
 
     function toggleMainSidebar() {
         state.mainSidebarCollapsed = !state.mainSidebarCollapsed;
         applySidebarState();
+        persistUiState();
+    }
+
+    function toggleClusterTopology() {
+        state.clusterTopologyCollapsed = !state.clusterTopologyCollapsed;
+        renderClusterWorkspace();
         persistUiState();
     }
 
@@ -217,6 +235,7 @@
         elements.mainSidebar = document.getElementById('main-sidebar');
         elements.btnToggleMainSidebar = document.getElementById('btn-toggle-main-sidebar');
         elements.agentList = document.getElementById('agent-list');
+        elements.btnNewAgentFolder = document.getElementById('btn-new-agent-folder');
         elements.chatHome = document.getElementById('chat-home');
         elements.clusterSidebarList = document.getElementById('cluster-sidebar-list');
         elements.chatMessages = document.getElementById('chat-messages');
@@ -243,6 +262,7 @@
         elements.consoleSetupPanel = document.getElementById('console-setup-panel');
         elements.consoleNextSteps = document.getElementById('console-next-steps');
         elements.consoleActionButtons = document.querySelectorAll('[data-console-action]');
+        elements.btnOpenSkillMarket = document.getElementById('btn-open-skill-market');
         elements.btnOpenClawConfigEntry = document.getElementById('btn-openclaw-config-entry');
         elements.formConnectionSettings = document.getElementById('form-connection-settings');
         elements.connectionConfigMode = document.getElementById('connection-config-mode');
@@ -290,6 +310,7 @@
         elements.clusterWorkmodeSummary = document.getElementById('cluster-workmode-summary');
         elements.clusterTargetTabs = document.getElementById('cluster-target-tabs');
         elements.clusterModeTabs = document.getElementById('cluster-mode-tabs');
+        elements.clusterTopology = document.getElementById('cluster-topology');
         elements.clusterMessages = document.getElementById('cluster-messages');
         elements.clusterMessageInput = document.getElementById('cluster-message-input');
         elements.clusterTargetHint = document.getElementById('cluster-target-hint');
@@ -363,10 +384,13 @@
         elements.btnSendChannel = document.getElementById('btn-send-channel');
         elements.btnStopChannel = document.getElementById('btn-stop-channel');
         elements.modalAgentSettings = document.getElementById('modal-agent-settings');
+        elements.modalSkillMarket = document.getElementById('modal-skill-market');
         elements.formAgentSettings = document.getElementById('form-agent-settings');
         elements.agentSkillsPicker = document.getElementById('settings-agent-skills');
         elements.agentSkillsHint = document.getElementById('settings-agent-skills-hint');
         elements.agentSkillLinks = document.getElementById('settings-agent-skill-links');
+        elements.skillMarketAgentLabel = document.getElementById('skill-market-agent-label');
+        elements.skillMarketGrid = document.getElementById('skill-market-grid');
         elements.modalTask = document.getElementById('modal-task');
         elements.formTask = document.getElementById('form-task');
     }
@@ -420,6 +444,10 @@
                 const action = button.getAttribute('data-console-action');
                 handleConsoleAction(action);
             });
+        });
+
+        elements.btnOpenSkillMarket?.addEventListener('click', () => {
+            openSkillMarket();
         });
 
         elements.formConnectionSettings?.addEventListener('submit', (e) => {
@@ -509,6 +537,10 @@
         // New agent modal
         elements.btnNewAgent?.addEventListener('click', () => {
             openNewAgentModal();
+        });
+
+        elements.btnNewAgentFolder?.addEventListener('click', () => {
+            createAgentFolder();
         });
 
         elements.btnRefreshAgents?.addEventListener('click', () => {
@@ -722,6 +754,15 @@
                 return;
             }
 
+            const skillToggle = target.closest('[data-skill-market-toggle]');
+            if (skillToggle) {
+                const skillId = skillToggle.getAttribute('data-skill-id');
+                if (skillId) {
+                    toggleSkillForActiveAgent(skillId);
+                }
+                return;
+            }
+
             const thinkingHeader = target.closest('.thinking-header');
             if (thinkingHeader) {
                 toggleThinkingBlock(thinkingHeader);
@@ -761,6 +802,12 @@
                 if (mode === 'broadcast' || mode === 'collaborate') {
                     selectClusterSwarmMode(mode);
                 }
+                return;
+            }
+
+            const clusterTopologyToggle = target.closest('[data-cluster-topology-toggle]');
+            if (clusterTopologyToggle) {
+                toggleClusterTopology();
                 return;
             }
 

@@ -1,7 +1,8 @@
-import { t } from '../i18n';
-import { OpenClawService, Agent } from '../services/openclawService';
 import { EventEmitter } from 'events';
+
+import { t } from '../i18n';
 import { AgentPresetScaffolder } from '../services/agentPresetScaffolder';
+import { OpenClawService, Agent } from '../services/openclawService';
 
 export interface CreateAgentParams {
     name: string;
@@ -39,6 +40,8 @@ export class AgentManager extends EventEmitter {
     private presetScaffolder?: AgentPresetScaffolder;
     private agents: Map<string, Agent> = new Map();
     private activeAgentId: string | null = null;
+    private runningAgentCounts: Map<string, number> = new Map();
+    private reportedAgentStatuses: Map<string, Agent['status']> = new Map();
 
     constructor(service: OpenClawService, presetScaffolder?: AgentPresetScaffolder) {
         super();
@@ -49,17 +52,19 @@ export class AgentManager extends EventEmitter {
 
     private setupListeners() {
         this.service.on('agentCreated', (agent: Agent) => {
-            this.agents.set(agent.id, agent);
-            this.emit('agentCreated', agent);
+            const normalizedAgent = this.storeAgent(agent);
+            this.emit('agentCreated', normalizedAgent);
         });
 
         this.service.on('agentUpdated', (agent: Agent) => {
-            this.agents.set(agent.id, agent);
-            this.emit('agentUpdated', agent);
+            const normalizedAgent = this.storeAgent(agent);
+            this.emit('agentUpdated', normalizedAgent);
         });
 
         this.service.on('agentDeleted', (agentId: string) => {
             this.agents.delete(agentId);
+            this.runningAgentCounts.delete(agentId);
+            this.reportedAgentStatuses.delete(agentId);
             if (this.activeAgentId === agentId) {
                 this.activeAgentId = null;
             }
@@ -71,21 +76,20 @@ export class AgentManager extends EventEmitter {
         if (refresh || this.agents.size === 0) {
             const agents = await this.service.getAgents();
             this.agents.clear();
-            agents.forEach(agent => this.agents.set(agent.id, agent));
+            this.reportedAgentStatuses.clear();
+            agents.forEach(agent => this.storeAgent(agent));
         }
         return Array.from(this.agents.values());
     }
 
     public async getAgent(agentId: string): Promise<Agent | null> {
-        // 先查本地缓存
         if (this.agents.has(agentId)) {
             return this.agents.get(agentId)!;
         }
-        
-        // 从服务器获取
+
         const agent = await this.service.getAgent(agentId);
         if (agent) {
-            this.agents.set(agentId, agent);
+            return this.storeAgent(agent);
         }
         return agent;
     }
@@ -132,26 +136,28 @@ export class AgentManager extends EventEmitter {
                 throw error;
             }
         }
-        this.agents.set(agent.id, agent);
-        return agent;
+        return this.storeAgent(agent);
     }
 
     public async updateAgent(agentId: string, params: UpdateAgentParams): Promise<Agent> {
         const agent = await this.service.updateAgent(agentId, params);
-        this.agents.set(agentId, agent);
-        return agent;
+        return this.storeAgent(agent);
     }
 
     public async deleteAgent(agentId: string): Promise<void> {
         await this.service.deleteAgent(agentId);
         this.agents.delete(agentId);
+        this.runningAgentCounts.delete(agentId);
+        this.reportedAgentStatuses.delete(agentId);
         if (this.activeAgentId === agentId) {
             this.activeAgentId = null;
         }
     }
 
     public getActiveAgent(): Agent | null {
-        if (!this.activeAgentId) return null;
+        if (!this.activeAgentId) {
+            return null;
+        }
         return this.agents.get(this.activeAgentId) || null;
     }
 
@@ -168,6 +174,14 @@ export class AgentManager extends EventEmitter {
         return this.activeAgentId;
     }
 
+    public beginAgentRun(agentId: string): boolean {
+        return this.updateAgentRunState(agentId, 1);
+    }
+
+    public endAgentRun(agentId: string): boolean {
+        return this.updateAgentRunState(agentId, -1);
+    }
+
     public getAgentCount(): number {
         return this.agents.size;
     }
@@ -179,8 +193,8 @@ export class AgentManager extends EventEmitter {
     public searchAgents(query: string): Agent[] {
         const lowerQuery = query.toLowerCase();
         return Array.from(this.agents.values()).filter(agent =>
-            agent.name.toLowerCase().includes(lowerQuery) ||
-            agent.model.toLowerCase().includes(lowerQuery)
+            agent.name.toLowerCase().includes(lowerQuery)
+            || agent.model.toLowerCase().includes(lowerQuery)
         );
     }
 
@@ -198,5 +212,55 @@ export class AgentManager extends EventEmitter {
         this.removeAllListeners();
         this.agents.clear();
         this.activeAgentId = null;
+        this.runningAgentCounts.clear();
+        this.reportedAgentStatuses.clear();
+    }
+
+    private updateAgentRunState(agentId: string, delta: 1 | -1): boolean {
+        const agent = this.agents.get(agentId);
+        if (!agent || agent.status === 'offline') {
+            return false;
+        }
+
+        const previousCount = this.runningAgentCounts.get(agentId) || 0;
+        const nextCount = Math.max(0, previousCount + delta);
+        if (nextCount > 0) {
+            this.runningAgentCounts.set(agentId, nextCount);
+        } else {
+            this.runningAgentCounts.delete(agentId);
+        }
+
+        const normalizedAgent = this.normalizeAgentStatus(agent);
+        if (normalizedAgent.status === agent.status) {
+            return false;
+        }
+
+        this.agents.set(agentId, normalizedAgent);
+        this.emit('agentUpdated', normalizedAgent);
+        return true;
+    }
+
+    private storeAgent(agent: Agent): Agent {
+        this.reportedAgentStatuses.set(agent.id, agent.status);
+        const normalizedAgent = this.normalizeAgentStatus(agent);
+        this.agents.set(normalizedAgent.id, normalizedAgent);
+        return normalizedAgent;
+    }
+
+    private normalizeAgentStatus(agent: Agent): Agent {
+        const reportedStatus = this.reportedAgentStatuses.get(agent.id) || agent.status;
+        if (reportedStatus === 'offline') {
+            return {
+                ...agent,
+                status: 'offline'
+            };
+        }
+
+        return {
+            ...agent,
+            status: (this.runningAgentCounts.get(agent.id) || 0) > 0 || reportedStatus === 'active'
+                ? 'active'
+                : 'idle'
+        };
     }
 }

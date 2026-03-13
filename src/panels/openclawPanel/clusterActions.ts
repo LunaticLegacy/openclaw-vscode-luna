@@ -17,6 +17,8 @@ interface ClusterActionContext {
     loadClusters(selectedClusterId?: string): Promise<void>;
     showClusterView(clusters: AgentCluster[], selectedClusterId?: string): void;
     getCurrentAgentId(): string | null;
+    beginAgentRun(agentId: string): boolean;
+    endAgentRun(agentId: string): boolean;
     nextClusterSwarmRunToken(): number;
     getClusterSwarmRunToken(): number;
     nextClusterAgentRunToken(): number;
@@ -42,6 +44,7 @@ export async function loadClusters(context: ClusterActionContext, selectedCluste
 
 export async function handleBroadcast(context: ClusterActionContext, clusterId: string, message: string): Promise<void> {
     const swarmRunToken = context.nextClusterSwarmRunToken();
+    const runningAgentIds = await beginClusterAgentRuns(context, clusterId);
     try {
         const responses = await context.clusterManager.broadcastToCluster(clusterId, message);
         if (context.getClusterSwarmRunToken() === swarmRunToken) {
@@ -63,6 +66,8 @@ export async function handleBroadcast(context: ClusterActionContext, clusterId: 
                 message: t('panel.failedBroadcast', { error: String(error) })
             });
         }
+    } finally {
+        endClusterAgentRuns(context, runningAgentIds);
     }
 }
 
@@ -81,6 +86,7 @@ export async function promptBroadcastToCluster(context: ClusterActionContext, cl
 
 export async function handleCollaborate(context: ClusterActionContext, clusterId: string, message: string): Promise<void> {
     const swarmRunToken = context.nextClusterSwarmRunToken();
+    const runningAgentIds = await beginClusterAgentRuns(context, clusterId);
     try {
         const result = await context.clusterManager.collaborateOnCluster(clusterId, normalizeOutgoingMessageContent(message), {
             coordinatorAgentId: context.getCurrentAgentId() || undefined
@@ -104,6 +110,8 @@ export async function handleCollaborate(context: ClusterActionContext, clusterId
                 message: t('panel.failedCollaborate', { error: String(error) })
             });
         }
+    } finally {
+        endClusterAgentRuns(context, runningAgentIds);
     }
 }
 
@@ -137,8 +145,10 @@ export async function loadClusterAgentMessages(
             loading: true
         });
 
+        const sessionId = await context.clusterManager.ensureClusterAgentSessionId(clusterId, agentId);
         const session = await context.clusterSessionManager.getOrCreateSession(agentId, {
-            refreshHistory: true
+            refreshHistory: true,
+            sessionId
         });
         context.clusterSessionManager.setCurrentSession(session.id);
 
@@ -175,18 +185,42 @@ export async function handleClusterAgentMessage(
     }
 
     const clusterAgentRunToken = context.nextClusterAgentRunToken();
+    context.beginAgentRun(agentId);
 
     try {
-        const session = await context.clusterSessionManager.getOrCreateSession(agentId);
+        const sessionId = await context.clusterManager.ensureClusterAgentSessionId(clusterId, agentId);
+        const session = await context.clusterSessionManager.getOrCreateSession(agentId, {
+            sessionId
+        });
         context.clusterSessionManager.setCurrentSession(session.id);
-        const response = await context.clusterSessionManager.sendMessage(normalizedContent);
 
-        if (context.getClusterAgentRunToken() === clusterAgentRunToken) {
+        for await (const chunk of context.clusterSessionManager.streamMessage(normalizedContent)) {
+            if (context.getClusterAgentRunToken() !== clusterAgentRunToken) {
+                break;
+            }
+
+            if (!chunk.message) {
+                continue;
+            }
+
             context.postMessage({
-                type: 'clusterAgentResponse',
+                type: 'appendClusterMessage',
                 clusterId,
                 agentId,
-                message: response
+                message: chunk.message,
+                keepPending: true
+            });
+        }
+
+        if (context.getClusterAgentRunToken() === clusterAgentRunToken) {
+            const messages = await context.clusterSessionManager.refreshSessionHistory(session.id, {
+                preferLiveState: true
+            });
+            context.postMessage({
+                type: 'replaceClusterMessages',
+                clusterId,
+                agentId,
+                messages
             });
         }
     } catch (error) {
@@ -196,6 +230,92 @@ export async function handleClusterAgentMessage(
                 message: t('panel.failedSendMessage', { error: String(error) })
             });
         }
+    } finally {
+        context.endAgentRun(agentId);
+    }
+}
+
+async function beginClusterAgentRuns(context: ClusterActionContext, clusterId: string): Promise<string[]> {
+    const cluster = await context.clusterManager.getCluster(clusterId);
+    if (!cluster) {
+        return [];
+    }
+
+    for (const agentId of cluster.agentIds) {
+        context.beginAgentRun(agentId);
+    }
+
+    return cluster.agentIds;
+}
+
+function endClusterAgentRuns(context: ClusterActionContext, agentIds: string[]): void {
+    for (const agentId of agentIds) {
+        context.endAgentRun(agentId);
+    }
+}
+
+export async function handleClusterAgentSessionCommand(
+    context: ClusterActionContext,
+    clusterId: string,
+    agentId: string,
+    command: 'new' | 'clear'
+): Promise<void> {
+    if (!clusterId || !agentId) {
+        return;
+    }
+
+    try {
+        context.postMessage({
+            type: 'setClusterContextLoading',
+            clusterId,
+            agentId,
+            loading: true
+        });
+
+        let sessionId = await context.clusterManager.ensureClusterAgentSessionId(clusterId, agentId);
+        if (command === 'new') {
+            sessionId = await context.clusterManager.resetClusterAgentSessionId(clusterId, agentId);
+        }
+
+        let session = await context.clusterSessionManager.getOrCreateSession(agentId, {
+            refreshHistory: true,
+            sessionId
+        });
+        context.clusterSessionManager.setCurrentSession(session.id);
+
+        if (command === 'clear') {
+            await context.clusterSessionManager.clearHistory().catch(() => undefined);
+            const clearedMessages = await context.clusterSessionManager.refreshSessionHistory(session.id, {
+                preferLiveState: true
+            });
+            if (clearedMessages.length > 0) {
+                sessionId = await context.clusterManager.resetClusterAgentSessionId(clusterId, agentId);
+                session = await context.clusterSessionManager.getOrCreateSession(agentId, {
+                    refreshHistory: true,
+                    sessionId
+                });
+                context.clusterSessionManager.setCurrentSession(session.id);
+            }
+        }
+
+        context.postMessage({
+            type: 'replaceClusterMessages',
+            clusterId,
+            agentId,
+            messages: []
+        });
+    } catch (error) {
+        context.postMessage({
+            type: 'error',
+            message: t('panel.failedLoadContext', { error: String(error) })
+        });
+    } finally {
+        context.postMessage({
+            type: 'setClusterContextLoading',
+            clusterId,
+            agentId,
+            loading: false
+        });
     }
 }
 

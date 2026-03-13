@@ -4,7 +4,12 @@ export interface AiSkillDefinition {
     description: string;
     prompt: string;
     downloadUrl: string;
+    linkLabel?: string;
+    linkDescription?: string;
+    sourceLabel?: string;
 }
+
+export const SKILL_MARKET_URL = 'https://skillmarket.cc/zh/';
 
 const AI_SKILLS: AiSkillDefinition[] = [
     {
@@ -12,35 +17,50 @@ const AI_SKILLS: AiSkillDefinition[] = [
         label: 'Code Review',
         description: 'Find high-signal bugs, regressions, missing tests, and user-visible risks first.',
         prompt: 'Review code with a findings-first mindset. Prioritize correctness, regressions, security, and missing tests over style.',
-        downloadUrl: 'https://github.com/openai/codex/tree/main/.codex/skills'
+        downloadUrl: SKILL_MARKET_URL,
+        linkLabel: 'Browse SkillMarket.cc',
+        linkDescription: 'Open the public SkillMarket catalog to discover and import more skills.',
+        sourceLabel: 'Open Market'
     },
     {
         id: 'debugging',
         label: 'Debugging',
         description: 'Converge on the fastest reproducer, strongest signal, and smallest safe fix.',
         prompt: 'Run a compact debug loop: restate the symptom, rank hypotheses, pick one high-signal probe, and avoid broad rewrites before verification.',
-        downloadUrl: 'https://github.com/openai/codex/tree/main/.codex/skills'
+        downloadUrl: SKILL_MARKET_URL,
+        linkLabel: 'Browse SkillMarket.cc',
+        linkDescription: 'Open the public SkillMarket catalog to discover and import more skills.',
+        sourceLabel: 'Open Market'
     },
     {
         id: 'refactor-planning',
         label: 'Refactor Planning',
         description: 'Plan staged, reversible refactors with rollback and verification gates.',
         prompt: 'Favor small, reversible phases. Include dependency impact, rollback points, and verification gates for each stage.',
-        downloadUrl: 'https://github.com/openai/codex/tree/main/.codex/skills'
+        downloadUrl: SKILL_MARKET_URL,
+        linkLabel: 'Browse SkillMarket.cc',
+        linkDescription: 'Open the public SkillMarket catalog to discover and import more skills.',
+        sourceLabel: 'Open Market'
     },
     {
         id: 'api-design',
         label: 'API Design',
         description: 'Design contracts with explicit schema, examples, compatibility, and error models.',
         prompt: 'Keep request and response schemas, examples, authentication, versioning, and error models internally consistent. Call out breaking changes explicitly.',
-        downloadUrl: 'https://github.com/openai/codex/tree/main/.codex/skills'
+        downloadUrl: SKILL_MARKET_URL,
+        linkLabel: 'Browse SkillMarket.cc',
+        linkDescription: 'Open the public SkillMarket catalog to discover and import more skills.',
+        sourceLabel: 'Open Market'
     },
     {
         id: 'test-authoring',
         label: 'Test Authoring',
         description: 'Add focused tests that cover the real behavioral risk without brittle noise.',
         prompt: 'Write the smallest stable tests that cover the intended behavior and key edge cases. Prefer risk coverage over raw coverage count.',
-        downloadUrl: 'https://github.com/openai/codex/tree/main/.codex/skills'
+        downloadUrl: SKILL_MARKET_URL,
+        linkLabel: 'Browse SkillMarket.cc',
+        linkDescription: 'Open the public SkillMarket catalog to discover and import more skills.',
+        sourceLabel: 'Open Market'
     }
 ];
 

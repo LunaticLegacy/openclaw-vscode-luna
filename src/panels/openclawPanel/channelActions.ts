@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 
 import { t } from '../../i18n';
+import type { AgentManager } from '../../managers/agentManager';
 import type { ChannelManager } from '../../managers/channelManager';
 import type { DiscoveredChannel, OpenClawService } from '../../services/openclawService';
 import { showSuccessStatus } from '../../utils/statusFeedback';
@@ -14,6 +15,7 @@ import {
 
 interface ChannelActionContext {
     service: OpenClawService;
+    agentManager: AgentManager;
     channelManager: ChannelManager;
     importedChannelSessions: Map<string, { agentId: string; sessionId: string }>;
     postMessage(message: Record<string, unknown>): void;
@@ -238,6 +240,7 @@ export async function handleSendChannelMessage(
 
     const channelRunToken = context.nextChannelRunToken();
     context.postRunState('channel', true);
+    let runningAgentId: string | null = null;
 
     try {
         const channel = await context.channelManager.getChannel(channelId);
@@ -249,6 +252,10 @@ export async function handleSendChannelMessage(
                     throw new Error(t('channel.missingAgentHint'));
                 }
 
+                runningAgentId = importedSession.agentId;
+                if (!context.service.providesAgentActivityStatus()) {
+                    context.agentManager.beginAgentRun(runningAgentId);
+                }
                 const response = await context.service.sendMessage(importedSession.sessionId, normalizedContent);
 
                 if (context.getCurrentChannelId() === discoveredChannel.id && context.getChannelRunToken() === channelRunToken) {
@@ -273,6 +280,10 @@ export async function handleSendChannelMessage(
             startActiveChannelSync(context, channel.id, sessionId, context.getChannelLoadToken());
         }
 
+        runningAgentId = channel.agentId;
+        if (!context.service.providesAgentActivityStatus()) {
+            context.agentManager.beginAgentRun(runningAgentId);
+        }
         const response = await context.service.sendMessage(sessionId, normalizedContent);
 
         if (context.getCurrentChannelId() === channel.id && context.getChannelRunToken() === channelRunToken) {
@@ -291,6 +302,9 @@ export async function handleSendChannelMessage(
             });
         }
     } finally {
+        if (runningAgentId && !context.service.providesAgentActivityStatus()) {
+            context.agentManager.endAgentRun(runningAgentId);
+        }
         if (context.getChannelRunToken() === channelRunToken) {
             context.postRunState('channel', false);
         }

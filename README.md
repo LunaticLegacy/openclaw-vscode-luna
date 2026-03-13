@@ -273,7 +273,8 @@ openclaw-vscode-luna/
 - [x] OpenClaw Config UI
 - [x] 7 日 / 30 日用量面板
 - [x] 主路径 smoke 测试
-- [ ] 更多真实宿主级 UI 回归
+- [ ] 接入 Agent 市场
+- [ ] 完成 `P0.md` 内所有内容
 - [ ] 持续补齐文档截图与场景手册
 
 ---

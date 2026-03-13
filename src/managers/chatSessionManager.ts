@@ -1,6 +1,7 @@
-import { OpenClawService, ChatSession, ChatMessage } from '../services/openclawService';
 import { EventEmitter } from 'events';
+
 import { t } from '../i18n';
+import { ChatMessage, ChatSession, CreateChatSessionOptions, OpenClawService } from '../services/openclawService';
 
 export class ChatSessionManager extends EventEmitter {
     private service: OpenClawService;
@@ -12,8 +13,8 @@ export class ChatSessionManager extends EventEmitter {
         this.service = service;
     }
 
-    public async createSession(agentId: string): Promise<ChatSession> {
-        const session = await this.service.createChatSession(agentId);
+    public async createSession(agentId: string, options: CreateChatSessionOptions = {}): Promise<ChatSession> {
+        const session = await this.service.createChatSession(agentId, options);
         this.sessions.set(session.id, session);
         this.currentSessionId = session.id;
         this.emit('sessionCreated', session);
@@ -22,11 +23,23 @@ export class ChatSessionManager extends EventEmitter {
 
     public async getOrCreateSession(
         agentId: string,
-        options: { refreshHistory?: boolean } = {}
+        options: { refreshHistory?: boolean; sessionId?: string } = {}
     ): Promise<ChatSession> {
-        // 查找是否已有该 agent 的 session
+        const requestedSessionId = String(options.sessionId || '').trim();
+        if (requestedSessionId) {
+            const existingById = this.sessions.get(requestedSessionId);
+            if (existingById) {
+                if (options.refreshHistory) {
+                    existingById.messages = await this.service.getChatHistory(existingById.id);
+                    existingById.updatedAt = existingById.messages[existingById.messages.length - 1]?.timestamp || existingById.updatedAt;
+                }
+                this.currentSessionId = existingById.id;
+                return existingById;
+            }
+        }
+
         for (const session of this.sessions.values()) {
-            if (session.agentId === agentId) {
+            if (!requestedSessionId && session.agentId === agentId) {
                 if (options.refreshHistory) {
                     session.messages = await this.service.getChatHistory(session.id);
                     session.updatedAt = session.messages[session.messages.length - 1]?.timestamp || session.updatedAt;
@@ -35,8 +48,20 @@ export class ChatSessionManager extends EventEmitter {
                 return session;
             }
         }
-        
-        return this.createSession(agentId);
+
+        return this.createSession(agentId, {
+            sessionId: requestedSessionId || undefined
+        });
+    }
+
+    public findSessionByAgent(agentId: string): ChatSession | null {
+        for (const session of this.sessions.values()) {
+            if (session.agentId === agentId) {
+                return session;
+            }
+        }
+
+        return null;
     }
 
     public getSession(sessionId: string): ChatSession | null {
@@ -68,8 +93,7 @@ export class ChatSessionManager extends EventEmitter {
         }
 
         const response = await this.service.sendMessage(session.id, content);
-        
-        // 更新本地 session 消息
+
         session.messages.push({
             id: Date.now().toString(),
             role: 'user',
@@ -89,7 +113,6 @@ export class ChatSessionManager extends EventEmitter {
             throw new Error(t('session.noActive'));
         }
 
-        // 添加用户消息
         session.messages.push({
             id: Date.now().toString(),
             role: 'user',
@@ -99,7 +122,7 @@ export class ChatSessionManager extends EventEmitter {
 
         let fullContent = '';
         let emittedStructuredMessage = false;
-        
+
         for await (const chunk of this.service.streamMessage(session.id, content)) {
             if (chunk.message) {
                 const isTransient = Boolean(chunk.message.metadata?.transient);
@@ -118,7 +141,6 @@ export class ChatSessionManager extends EventEmitter {
             yield chunk;
         }
 
-        // 添加助手消息到历史
         if (!emittedStructuredMessage && fullContent.trim()) {
             session.messages.push({
                 id: (Date.now() + 1).toString(),
@@ -126,7 +148,7 @@ export class ChatSessionManager extends EventEmitter {
                 content: fullContent,
                 timestamp: new Date().toISOString()
             });
-            
+
             session.updatedAt = new Date().toISOString();
         }
     }
@@ -137,7 +159,6 @@ export class ChatSessionManager extends EventEmitter {
             return [];
         }
 
-        // 如果本地没有消息，从服务器获取
         if (session.messages.length === 0) {
             const messages = await this.service.getChatHistory(session.id);
             session.messages = messages;
@@ -187,7 +208,7 @@ export class ChatSessionManager extends EventEmitter {
         if (!id) return;
 
         this.sessions.delete(id);
-        
+
         if (this.currentSessionId === id) {
             this.currentSessionId = null;
         }

@@ -36,6 +36,14 @@ interface MessageRouterContext {
     handleAddAgentsToCluster(clusterId: string): Promise<void>;
     handleRemoveAgentsFromCluster(clusterId: string): Promise<void>;
     handleDeleteAgent(agentId: string): Promise<void>;
+    promptCreateAgentFolder(): Promise<void>;
+    promptRenameAgentFolder(folderId: string): Promise<void>;
+    promptDeleteAgentFolder(folderId: string): Promise<void>;
+    handleCreateAgentFolder(name: string): Promise<void>;
+    handleRenameAgentFolder(folderId: string, name: string): Promise<void>;
+    handleDeleteAgentFolder(folderId: string): Promise<void>;
+    handleToggleAgentFolder(folderId: string, collapsed: boolean): Promise<void>;
+    handleMoveAgentToFolder(agentId: string, folderId: string | null): Promise<void>;
     handleCreateTask(data: any): Promise<void>;
     handleUpdateTask(taskId: string, data: any): Promise<void>;
     handleDeleteTask(taskId: string): Promise<void>;
@@ -47,6 +55,7 @@ interface MessageRouterContext {
     promptBroadcastToCluster(clusterId: string): Promise<void>;
     handleCollaborate(clusterId: string, message: string): Promise<void>;
     handleClusterAgentMessage(clusterId: string, agentId: string, content: string): Promise<void>;
+    handleClusterAgentSessionCommand(clusterId: string, agentId: string, command: 'new' | 'clear'): Promise<void>;
     promptCollaborateCluster(clusterId: string): Promise<void>;
     handleSaveAgentSettings(agentId: string, settings: any): Promise<void>;
     handleRetryConnection(): Promise<void>;
@@ -173,6 +182,41 @@ export async function handlePanelMessage(context: MessageRouterContext, message:
             await context.handleDeleteAgent(message.agentId);
             break;
 
+        case 'promptCreateAgentFolder':
+            await context.promptCreateAgentFolder();
+            break;
+
+        case 'promptRenameAgentFolder':
+            await context.promptRenameAgentFolder(message.folderId);
+            break;
+
+        case 'promptDeleteAgentFolder':
+            await context.promptDeleteAgentFolder(message.folderId);
+            break;
+
+        case 'createAgentFolder':
+            await context.handleCreateAgentFolder(message.name);
+            break;
+
+        case 'renameAgentFolder':
+            await context.handleRenameAgentFolder(message.folderId, message.name);
+            break;
+
+        case 'deleteAgentFolder':
+            await context.handleDeleteAgentFolder(message.folderId);
+            break;
+
+        case 'toggleAgentFolder':
+            await context.handleToggleAgentFolder(message.folderId, Boolean(message.collapsed));
+            break;
+
+        case 'moveAgentToFolder':
+            await context.handleMoveAgentToFolder(
+                message.agentId,
+                typeof message.folderId === 'string' ? message.folderId : null
+            );
+            break;
+
         case 'createTask':
             await context.handleCreateTask(message.data);
             break;
@@ -220,6 +264,12 @@ export async function handlePanelMessage(context: MessageRouterContext, message:
 
         case 'sendClusterAgentMessage':
             await context.handleClusterAgentMessage(message.clusterId, message.agentId, message.content);
+            break;
+
+        case 'clusterAgentSessionCommand':
+            if (message.command === 'new' || message.command === 'clear') {
+                await context.handleClusterAgentSessionCommand(message.clusterId, message.agentId, message.command);
+            }
             break;
 
         case 'promptCollaborateCluster':

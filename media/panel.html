@@ -43,6 +43,10 @@
             </nav>
 
             <div class="sidebar-utility">
+                <button id="btn-open-skill-market" class="sidebar-utility-btn" type="button">
+                    <span class="icon">&#128722;</span>
+                    <span>Skill Market</span>
+                </button>
                 <button id="btn-openclaw-config-entry" class="sidebar-utility-btn" type="button" data-console-action="openclaw-config">
                     <span class="icon">&#9881;</span>
                     <span data-i18n="setup.openclawConfig.title">OpenClaw Config</span>
@@ -53,7 +57,10 @@
                 <section class="sidebar-section">
                     <div class="sidebar-section-header">
                         <h3 data-i18n="sidebar.agents">Agents</h3>
-                        <button id="btn-refresh-agents" class="btn btn-secondary btn-small" data-i18n="common.refresh">Refresh</button>
+                        <div class="agent-section-actions">
+                            <button id="btn-new-agent-folder" class="btn btn-secondary btn-small" type="button" data-i18n="sidebar.newFolder">New Folder</button>
+                            <button id="btn-refresh-agents" class="btn btn-secondary btn-small" data-i18n="common.refresh">Refresh</button>
+                        </div>
                     </div>
                     <div id="agent-list" class="agent-list">
                         <div class="loading" data-i18n="common.loading">Loading...</div>
@@ -338,6 +345,7 @@
                     <div class="cluster-toolbar">
                         <div id="cluster-target-tabs" class="cluster-target-tabs"></div>
                         <div id="cluster-mode-tabs" class="cluster-mode-tabs"></div>
+                        <div id="cluster-topology" class="cluster-topology"></div>
                     </div>
 
                     <div id="cluster-messages" class="chat-messages cluster-messages">
@@ -594,6 +602,24 @@
                         <button type="submit" class="btn btn-primary" data-i18n="common.save">Save</button>
                     </div>
                 </form>
+            </div>
+        </div>
+
+        <div id="modal-skill-market" class="modal">
+            <div class="modal-content modal-content-wide">
+                <span class="modal-close">&times;</span>
+                <div class="skill-market-header">
+                    <div>
+                        <h2>Skill Market</h2>
+                        <p id="skill-market-agent-label" class="channel-editor-summary">Browse SkillMarket.cc and enable marketplace-aligned skills for the active agent.</p>
+                    </div>
+                    <div class="skill-market-header-actions">
+                        <button type="button" class="btn btn-primary" data-skill-url="https://skillmarket.cc/zh/">
+                            Open SkillMarket.cc
+                        </button>
+                    </div>
+                </div>
+                <div id="skill-market-grid" class="skill-market-grid"></div>
             </div>
         </div>
 

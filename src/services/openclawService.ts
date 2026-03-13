@@ -40,6 +40,7 @@ export type {
     DiscoveredChannel,
     ChatMessagePart,
     ChatSession,
+    CreateChatSessionOptions,
     ClusterWorkspaceConfig,
     CreateAgentParams,
     CreateClusterParams,
@@ -104,6 +105,10 @@ export class OpenClawService extends EventEmitter {
 
     public supportsCapability(capabilityId: OpenClawBooleanCapabilityId): boolean {
         return isCapabilitySupported(this.mode, capabilityId);
+    }
+
+    public providesAgentActivityStatus(): boolean {
+        return this.mode === 'openclaw';
     }
 
     public async getPreferredAgentId(): Promise<string | null> {
@@ -220,13 +225,16 @@ export class OpenClawService extends EventEmitter {
         this.emit('agentDeleted', agentId);
     }
 
-    public async createChatSession(agentId: string): Promise<ChatSession> {
+    public async createChatSession(
+        agentId: string,
+        options: import('./openclaw/types').CreateChatSessionOptions = {}
+    ): Promise<ChatSession> {
         if (this.localRuntime) {
-            return this.localRuntime.createChatSession(agentId);
+            return this.localRuntime.createChatSession(agentId, options);
         }
 
         if (this.openClawRuntime) {
-            return this.openClawRuntime.createChatSession(agentId);
+            return this.openClawRuntime.createChatSession(agentId, options);
         }
 
         return this.requireTransport().post<ChatSession>('/api/sessions', { agentId });

@@ -148,7 +148,7 @@
         renderClusterWorkspace();
     }
 
-    function appendClusterConversationMessage(clusterId, agentId, message) {
+    function appendClusterConversationMessage(clusterId, agentId, message, options = {}) {
         const conversation = ensureClusterConversation(getClusterConversationKey(clusterId, {
             targetKind: 'agent',
             agentId
@@ -156,7 +156,7 @@
         conversation.messages.push(message);
         conversation.loading = false;
         conversation.loaded = true;
-        conversation.pending = false;
+        conversation.pending = options.keepPending === true;
         renderClusterWorkspace();
     }
 

@@ -284,8 +284,8 @@
             const defaultLinkLabel = t('agentSettings.skills.downloadLink');
             const defaultLinkDescription = t('agentSettings.skills.downloadHint');
             uniqueLinks.set(url, {
-                label: skill.linkLabel || (defaultLinkLabel === 'agentSettings.skills.downloadLink' ? 'Skill Download Address' : defaultLinkLabel),
-                description: skill.linkDescription || (defaultLinkDescription === 'agentSettings.skills.downloadHint' ? 'Open the skill catalog or repository in your browser.' : defaultLinkDescription)
+                label: skill.linkLabel || (defaultLinkLabel === 'agentSettings.skills.downloadLink' ? 'Browse SkillMarket.cc' : defaultLinkLabel),
+                description: skill.linkDescription || (defaultLinkDescription === 'agentSettings.skills.downloadHint' ? 'Open the public SkillMarket catalog in your browser.' : defaultLinkDescription)
             });
         });
 
@@ -295,6 +295,112 @@
                 <div class="skill-link-card-meta">${escapeHtml(entry.description)}</div>
             </button>
         `).join('');
+    }
+
+    function openSkillMarket() {
+        if (!elements.modalSkillMarket) {
+            return;
+        }
+
+        renderSkillMarket();
+        openModal(elements.modalSkillMarket);
+    }
+
+    function renderSkillMarket() {
+        if (!elements.skillMarketGrid) {
+            return;
+        }
+
+        const skills = Array.isArray(state.aiSkills) ? state.aiSkills : [];
+        const activeAgent = state.agents.find(agent => agent.id === state.currentAgentId) || null;
+        const enabledSkills = new Set(Array.isArray(activeAgent?.enabledSkills) ? activeAgent.enabledSkills : []);
+
+        if (elements.skillMarketAgentLabel) {
+            elements.skillMarketAgentLabel.textContent = activeAgent
+                ? `Browse SkillMarket.cc and toggle the marketplace skills currently enabled for ${activeAgent.name}.`
+                : 'Browse SkillMarket.cc. Select an agent to enable marketplace skills directly from this view.';
+        }
+
+        if (skills.length === 0) {
+            elements.skillMarketGrid.innerHTML = '<div class="cluster-agent-picker-empty">No skills available.</div>';
+            return;
+        }
+
+        const heroCard = `
+            <article class="skill-market-hero">
+                <div class="skill-market-hero-copy">
+                    <div class="skill-market-hero-eyebrow">External Marketplace</div>
+                    <h3>SkillMarket.cc</h3>
+                    <p>Use the public marketplace to discover reusable skills, then enable the matching skill set on the current agent inside Luna.</p>
+                </div>
+                <div class="skill-market-hero-actions">
+                    <button type="button" class="btn btn-primary" data-skill-url="https://skillmarket.cc/zh/">
+                        Browse Marketplace
+                    </button>
+                </div>
+            </article>
+        `;
+
+        const skillCards = skills.map(skill => {
+            const isEnabled = enabledSkills.has(skill.id);
+            return `
+                <article class="skill-market-card">
+                    <div class="skill-market-card-head">
+                        <div>
+                            <div class="skill-market-card-title">${escapeHtml(skill.label || skill.id)}</div>
+                            <div class="skill-market-card-meta">${escapeHtml(skill.description || '')}</div>
+                        </div>
+                        <span class="skill-market-badge${isEnabled ? ' is-enabled' : ''}">${isEnabled ? 'Enabled' : 'Available'}</span>
+                    </div>
+                    <div class="skill-market-origin">Source: SkillMarket.cc</div>
+                    <div class="skill-market-prompt">${escapeHtml(skill.prompt || '')}</div>
+                    <div class="skill-market-actions">
+                        <button type="button" class="btn ${isEnabled ? 'btn-secondary' : 'btn-primary'} btn-small" data-skill-market-toggle="true" data-skill-id="${escapeHtml(skill.id)}"${activeAgent ? '' : ' disabled'}>
+                            ${isEnabled ? 'Disable' : 'Enable'}
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-small" data-skill-url="${escapeHtml(skill.downloadUrl || '')}">
+                            ${escapeHtml(skill.sourceLabel || 'Open Market')}
+                        </button>
+                    </div>
+                </article>
+            `;
+        }).join('');
+
+        elements.skillMarketGrid.innerHTML = heroCard + skillCards;
+    }
+
+    function toggleSkillForActiveAgent(skillId) {
+        const agent = state.agents.find(item => item.id === state.currentAgentId);
+        if (!agent) {
+            showError('Select an agent before changing skills.');
+            return;
+        }
+
+        const current = new Set(Array.isArray(agent.enabledSkills) ? agent.enabledSkills : []);
+        if (current.has(skillId)) {
+            current.delete(skillId);
+        } else {
+            current.add(skillId);
+        }
+
+        const nextAgent = {
+            ...agent,
+            enabledSkills: Array.from(current)
+        };
+        upsertAgentState(nextAgent);
+        renderSkillMarket();
+
+        vscode.postMessage({
+            type: 'saveAgentSettings',
+            agentId: agent.id,
+            settings: {
+                name: agent.name,
+                systemPrompt: agent.systemPrompt || '',
+                temperature: agent.temperature ?? 0.7,
+                maxTokens: agent.maxTokens ?? 4096,
+                enabledSkills: nextAgent.enabledSkills
+            }
+        });
     }
 
     function showAgentSettings(agent) {
@@ -333,7 +439,7 @@
         }
         if (skillLinksLabel) {
             const label = t('agentSettings.skills.resources');
-            skillLinksLabel.textContent = label === 'agentSettings.skills.resources' ? 'Skill Resources' : label;
+            skillLinksLabel.textContent = label === 'agentSettings.skills.resources' ? 'SkillMarket Links' : label;
         }
         if (elements.agentSkillsHint) {
             const hint = t('agentSettings.skills.hint');
@@ -343,6 +449,7 @@
         }
         renderAgentSkillsPicker(agent.enabledSkills || []);
         renderAgentSkillLinks();
+        renderSkillMarket();
         
         openModal(modal);
     }

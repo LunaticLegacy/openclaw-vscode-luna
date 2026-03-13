@@ -201,7 +201,11 @@
     }
 
     function renderToolSection(label, value, options = {}) {
-        if (value === undefined) {
+        if (value === undefined || value === null) {
+            return '';
+        }
+
+        if (typeof value === 'string' && !value.trim()) {
             return '';
         }
 

@@ -13,6 +13,10 @@ import {
     OpenClawUsageCostResult
 } from '../openclawCli';
 import {
+    GatewayEventFrame,
+    OpenClawGatewayClient
+} from '../openclawGatewayClient';
+import {
     buildSessionKeyMap,
     delay,
     extractAssistantMessageFromPayload,
@@ -40,6 +44,7 @@ import {
     APIUsage,
     ChatMessage,
     ChatSession,
+    CreateChatSessionOptions,
     CreateAgentParams,
     DiscoveredChannel,
     RealtimeUsageSnapshot,
@@ -81,23 +86,33 @@ interface CachedOpenClawAgentsSnapshot {
 export class OpenClawModeRuntime {
     private readonly runner: OpenClawCliRunner;
     private readonly activeGatewayRuns = new Map<string, { runId: string; abortPromise?: Promise<void> }>();
+    private readonly backendActiveRunsByAgent = new Map<string, Set<string>>();
+    private readonly backendActiveRunsBySession = new Map<string, Set<string>>();
+    private readonly backendRunIds = new Map<string, { agentId: string; sessionKey: string }>();
+    private readonly lastKnownAgents = new Map<string, Agent>();
     private defaultAgentId: string | null = null;
     private mainKey: string | null = null;
     private sessionKeysByAgent: Map<string, string> = new Map();
     private sessionEntriesByKey: Map<string, OpenClawSessionsListEntry> = new Map();
     private snapshotCache: CachedOpenClawAgentsSnapshot | null = null;
     private snapshotPromise: Promise<OpenClawAgentsSnapshot> | null = null;
+    private activityGatewayClient: OpenClawGatewayClient | null = null;
+    private activityGatewayConnectPromise: Promise<void> | null = null;
+    private activityGatewayReconnectTimer: NodeJS.Timeout | null = null;
+    private disposed = false;
 
     constructor(
         private readonly config: OpenClawCliServiceConfig,
         private readonly emitEvent: ServiceEventSink
     ) {
         this.runner = new OpenClawCliRunner(config);
+        void this.ensureActivityGatewayConnection();
     }
 
     public async checkConnection(): Promise<boolean> {
         try {
             await this.runner.health();
+            void this.ensureActivityGatewayConnection();
             return true;
         } catch {
             return false;
@@ -228,8 +243,8 @@ export class OpenClawModeRuntime {
         this.emitEvent('agentDeleted', agentId);
     }
 
-    public async createChatSession(agentId: string): Promise<ChatSession> {
-        const sessionKey = await this.resolveSessionKey(agentId);
+    public async createChatSession(agentId: string, options: CreateChatSessionOptions = {}): Promise<ChatSession> {
+        const sessionKey = String(options.sessionId || '').trim() || await this.resolveSessionKey(agentId);
         const history = await this.getChatHistory(sessionKey).catch(() => []);
         const now = new Date().toISOString();
         return {
@@ -273,6 +288,8 @@ export class OpenClawModeRuntime {
                 config: this.config,
                 runner: this.runner,
                 activeGatewayRuns: this.activeGatewayRuns,
+                handleObservedRunStart: this.handleObservedRunStart.bind(this),
+                handleObservedRunStop: this.handleObservedRunStop.bind(this),
                 readSessionMessages: this.readSessionMessages.bind(this),
                 waitForAssistantMessage: this.waitForAssistantMessage.bind(this)
             }, sessionId, message, knownIds);
@@ -282,6 +299,8 @@ export class OpenClawModeRuntime {
                 config: this.config,
                 runner: this.runner,
                 activeGatewayRuns: this.activeGatewayRuns,
+                handleObservedRunStart: this.handleObservedRunStart.bind(this),
+                handleObservedRunStop: this.handleObservedRunStop.bind(this),
                 readSessionMessages: this.readSessionMessages.bind(this),
                 waitForAssistantMessage: this.waitForAssistantMessage.bind(this)
             }, sessionId, message, knownIds);
@@ -342,7 +361,10 @@ export class OpenClawModeRuntime {
 
     public hasActiveRun(sessionId: string): boolean {
         const normalizedSessionId = sessionId.trim();
-        return normalizedSessionId ? this.activeGatewayRuns.has(normalizedSessionId) : false;
+        return normalizedSessionId
+            ? this.activeGatewayRuns.has(normalizedSessionId)
+                || (this.backendActiveRunsBySession.get(normalizedSessionId)?.size || 0) > 0
+            : false;
     }
 
     public async getUsage(): Promise<APIUsage> {
@@ -378,11 +400,23 @@ export class OpenClawModeRuntime {
     }
 
     public dispose(): void {
+        this.disposed = true;
         this.activeGatewayRuns.clear();
+        this.backendActiveRunsByAgent.clear();
+        this.backendActiveRunsBySession.clear();
+        this.backendRunIds.clear();
+        this.lastKnownAgents.clear();
         this.defaultAgentId = null;
         this.mainKey = null;
         this.sessionKeysByAgent.clear();
         this.sessionEntriesByKey.clear();
+        if (this.activityGatewayReconnectTimer) {
+            clearTimeout(this.activityGatewayReconnectTimer);
+            this.activityGatewayReconnectTimer = null;
+        }
+        this.activityGatewayConnectPromise = null;
+        this.activityGatewayClient?.dispose();
+        this.activityGatewayClient = null;
         this.invalidateSnapshotCache();
     }
 
@@ -462,7 +496,7 @@ export class OpenClawModeRuntime {
                 id,
                 name,
                 model: this.config.defaultModel || 'openclaw',
-                status: id === defaultAgentId ? 'active' : 'idle',
+                status: this.resolveRuntimeAgentStatus(id),
                 createdAt: now,
                 lastActive: sessionKeysByAgent.has(id) ? now : undefined,
                 isDefault: id === defaultAgentId,
@@ -490,6 +524,8 @@ export class OpenClawModeRuntime {
             value: snapshot,
             expiresAt: Date.now() + 5000
         };
+        this.lastKnownAgents.clear();
+        snapshot.agents.forEach(agent => this.lastKnownAgents.set(agent.id, agent));
 
         return snapshot;
     }
@@ -505,7 +541,7 @@ export class OpenClawModeRuntime {
             id: record.id,
             name: record.name?.trim() || gatewayNames.get(record.id) || record.id,
             model: record.model?.trim() || this.config.defaultModel || 'openclaw',
-            status: record.id === defaultAgentId ? 'active' : 'idle',
+            status: this.resolveRuntimeAgentStatus(record.id),
             createdAt: now,
             lastActive: sessionKeysByAgent.has(record.id) ? now : undefined,
             isDefault: Boolean(record.isDefault || record.id === defaultAgentId),
@@ -659,8 +695,300 @@ export class OpenClawModeRuntime {
         });
     }
 
+    private async ensureActivityGatewayConnection(): Promise<void> {
+        if (this.disposed || !this.config.gatewayUrl) {
+            return;
+        }
+
+        if (this.activityGatewayClient) {
+            return;
+        }
+
+        if (this.activityGatewayConnectPromise) {
+            return this.activityGatewayConnectPromise;
+        }
+
+        const client = new OpenClawGatewayClient({
+            url: this.config.gatewayUrl,
+            token: this.config.gatewayToken,
+            timeoutMs: 30000,
+            clientId: 'gateway-activity-monitor',
+            clientDisplayName: 'OpenClaw VS Code Activity Monitor',
+            clientVersion: 'vscode-plugin',
+            caps: ['tool-events']
+        });
+        this.activityGatewayClient = client;
+
+        const connectPromise = client.connect()
+            .catch(() => {
+                if (this.activityGatewayClient === client) {
+                    this.activityGatewayClient = null;
+                }
+                this.scheduleActivityGatewayReconnect();
+            })
+            .finally(() => {
+                if (this.activityGatewayConnectPromise === connectPromise) {
+                    this.activityGatewayConnectPromise = null;
+                }
+            });
+        this.activityGatewayConnectPromise = connectPromise;
+
+        client.on('event', (event: GatewayEventFrame) => {
+            this.handleActivityGatewayEvent(event);
+        });
+        client.on('error', () => {
+            this.scheduleActivityGatewayReconnect();
+        });
+        client.on('close', (event: { intentional?: boolean }) => {
+            if (this.activityGatewayClient === client) {
+                this.activityGatewayClient = null;
+            }
+            if (!event?.intentional) {
+                this.scheduleActivityGatewayReconnect();
+            }
+        });
+
+        await connectPromise;
+    }
+
+    private scheduleActivityGatewayReconnect(): void {
+        if (this.disposed || !this.config.gatewayUrl || this.activityGatewayReconnectTimer) {
+            return;
+        }
+
+        this.activityGatewayReconnectTimer = setTimeout(() => {
+            this.activityGatewayReconnectTimer = null;
+            if (!this.activityGatewayClient) {
+                void this.ensureActivityGatewayConnection();
+            }
+        }, 3000);
+    }
+
+    private handleActivityGatewayEvent(event: GatewayEventFrame): void {
+        if (event.event !== 'agent' && event.event !== 'chat') {
+            return;
+        }
+
+        const payload = event.payload && typeof event.payload === 'object'
+            ? event.payload as Record<string, unknown>
+            : null;
+        if (!payload) {
+            return;
+        }
+
+        const state = this.extractActivityState(payload);
+        if (!state) {
+            return;
+        }
+
+        const sessionKey = this.extractActivitySessionKey(payload);
+        const agentId = this.extractActivityAgentId(payload, sessionKey);
+        if (!agentId) {
+            return;
+        }
+
+        const runId = this.extractActivityRunId(payload, sessionKey, agentId);
+        if (!runId) {
+            return;
+        }
+
+        if (isActiveActivityState(state)) {
+            this.markBackendRunActive(agentId, sessionKey, runId);
+            return;
+        }
+
+        if (isInactiveActivityState(state)) {
+            this.markBackendRunInactive(agentId, sessionKey, runId);
+        }
+    }
+
+    private extractActivityAgentId(payload: Record<string, unknown>, sessionKey: string): string | null {
+        const directAgentId = this.extractActivityValue(payload, 'agentId');
+        if (directAgentId) {
+            return directAgentId;
+        }
+
+        if (sessionKey) {
+            return parseAgentIdFromSessionKey(sessionKey);
+        }
+
+        const runId = this.extractActivityValue(payload, 'runId');
+        if (runId) {
+            const cached = this.backendRunIds.get(runId);
+            if (cached?.agentId) {
+                return cached.agentId;
+            }
+
+            for (const [activeSessionKey, activeRun] of this.activeGatewayRuns.entries()) {
+                if (activeRun.runId === runId) {
+                    return parseAgentIdFromSessionKey(activeSessionKey);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private extractActivitySessionKey(payload: Record<string, unknown>): string {
+        return this.extractActivityValue(payload, 'sessionKey');
+    }
+
+    private extractActivityRunId(payload: Record<string, unknown>, sessionKey: string, agentId: string): string {
+        return this.extractActivityValue(payload, 'runId') || `${sessionKey || agentId}:backend-run`;
+    }
+
+    private extractActivityState(payload: Record<string, unknown>): string {
+        return (this.extractActivityNestedValue(payload, 'state') || this.extractActivityNestedValue(payload, 'phase')).toLowerCase();
+    }
+
+    private extractActivityValue(payload: Record<string, unknown>, key: string): string {
+        const direct = payload[key];
+        if (typeof direct === 'string' && direct.trim()) {
+            return direct.trim();
+        }
+
+        const data = payload.data;
+        if (data && typeof data === 'object') {
+            const nested = (data as Record<string, unknown>)[key];
+            if (typeof nested === 'string' && nested.trim()) {
+                return nested.trim();
+            }
+        }
+
+        return '';
+    }
+
+    private extractActivityNestedValue(payload: Record<string, unknown>, key: string): string {
+        const direct = payload[key];
+        if (typeof direct === 'string' && direct.trim()) {
+            return direct.trim();
+        }
+
+        const data = payload.data;
+        if (data && typeof data === 'object') {
+            const nested = (data as Record<string, unknown>)[key];
+            if (typeof nested === 'string' && nested.trim()) {
+                return nested.trim();
+            }
+        }
+
+        return '';
+    }
+
+    private markBackendRunActive(agentId: string, sessionKey: string, runId: string): void {
+        const wasActive = this.isAgentCurrentlyActive(agentId);
+        this.backendRunIds.set(runId, { agentId, sessionKey });
+        this.addActiveRun(this.backendActiveRunsByAgent, agentId, runId);
+        if (sessionKey) {
+            this.addActiveRun(this.backendActiveRunsBySession, sessionKey, runId);
+        }
+
+        if (!wasActive && this.isAgentCurrentlyActive(agentId)) {
+            this.publishAgentStatusChange(agentId);
+        }
+    }
+
+    private markBackendRunInactive(agentId: string, sessionKey: string, runId: string): void {
+        const cached = this.backendRunIds.get(runId);
+        const resolvedAgentId = cached?.agentId || agentId;
+        const resolvedSessionKey = cached?.sessionKey || sessionKey;
+        const wasActive = this.isAgentCurrentlyActive(resolvedAgentId);
+
+        this.backendRunIds.delete(runId);
+        this.removeActiveRun(this.backendActiveRunsByAgent, resolvedAgentId, runId);
+        if (resolvedSessionKey) {
+            this.removeActiveRun(this.backendActiveRunsBySession, resolvedSessionKey, runId);
+        }
+
+        if (wasActive && !this.isAgentCurrentlyActive(resolvedAgentId)) {
+            this.publishAgentStatusChange(resolvedAgentId);
+        }
+    }
+
+    private addActiveRun(target: Map<string, Set<string>>, key: string, runId: string): void {
+        const runs = target.get(key) || new Set<string>();
+        runs.add(runId);
+        target.set(key, runs);
+    }
+
+    private removeActiveRun(target: Map<string, Set<string>>, key: string, runId: string): void {
+        const runs = target.get(key);
+        if (!runs) {
+            return;
+        }
+
+        runs.delete(runId);
+        if (runs.size === 0) {
+            target.delete(key);
+        }
+    }
+
+    private resolveRuntimeAgentStatus(agentId: string): Agent['status'] {
+        return this.isAgentCurrentlyActive(agentId) ? 'active' : 'idle';
+    }
+
+    private isAgentCurrentlyActive(agentId: string): boolean {
+        if ((this.backendActiveRunsByAgent.get(agentId)?.size || 0) > 0) {
+            return true;
+        }
+
+        for (const sessionKey of this.activeGatewayRuns.keys()) {
+            if (parseAgentIdFromSessionKey(sessionKey) === agentId) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private publishAgentStatusChange(agentId: string): void {
+        this.invalidateSnapshotCache();
+        const existingAgent = this.lastKnownAgents.get(agentId);
+        if (!existingAgent) {
+            return;
+        }
+
+        const nextStatus = this.resolveRuntimeAgentStatus(agentId);
+        if (existingAgent.status === nextStatus) {
+            return;
+        }
+
+        const updatedAgent: Agent = {
+            ...existingAgent,
+            status: nextStatus
+        };
+        this.lastKnownAgents.set(agentId, updatedAgent);
+        this.emitEvent('agentUpdated', updatedAgent);
+    }
+
+    private handleObservedRunStart(sessionKey: string, runId: string): void {
+        const agentId = parseAgentIdFromSessionKey(sessionKey);
+        if (!agentId) {
+            return;
+        }
+
+        this.markBackendRunActive(agentId, sessionKey, runId);
+    }
+
+    private handleObservedRunStop(sessionKey: string, runId: string): void {
+        const agentId = parseAgentIdFromSessionKey(sessionKey);
+        if (!agentId) {
+            return;
+        }
+
+        this.markBackendRunInactive(agentId, sessionKey, runId);
+    }
+
     private invalidateSnapshotCache(): void {
         this.snapshotCache = null;
         this.snapshotPromise = null;
     }
+}
+
+function isActiveActivityState(value: string): boolean {
+    return ['accepted', 'start', 'started', 'running', 'streaming', 'in_flight'].includes(value);
+}
+
+function isInactiveActivityState(value: string): boolean {
+    return ['abort', 'aborted', 'cancelled', 'complete', 'completed', 'done', 'end', 'ended', 'error', 'failed', 'stop', 'stopped', 'timeout'].includes(value);
 }

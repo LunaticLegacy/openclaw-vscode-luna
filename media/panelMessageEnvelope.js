@@ -538,14 +538,6 @@
                                     toolName: toolCall.name,
                                     format: 'pre'
                                 })}
-                                ${renderToolSection('Result', '', {
-                                    toolName: toolCall.name,
-                                    format: 'pre'
-                                })}
-                                ${renderToolSection('Details', '', {
-                                    toolName: toolCall.name,
-                                    format: 'pre'
-                                })}
                             </div>
                         </details>
                     `).join('')}

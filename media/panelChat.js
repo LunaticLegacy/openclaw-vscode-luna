@@ -78,6 +78,23 @@
             return;
         }
 
+        const command = target.kind === 'agent' ? parseClusterAgentCommand(content) : null;
+        if (command) {
+            conversation.loading = true;
+            renderCurrentClusterConversation();
+            updateClusterInputState(cluster);
+            vscode.postMessage({
+                type: 'clusterAgentSessionCommand',
+                clusterId: cluster.id,
+                agentId: target.agentId,
+                command
+            });
+            if (elements.clusterMessageInput) {
+                elements.clusterMessageInput.value = '';
+            }
+            return;
+        }
+
         conversation.messages.push({
             role: 'user',
             content,
@@ -110,6 +127,19 @@
             clusterId: cluster.id,
             message: content
         });
+    }
+
+    function parseClusterAgentCommand(content) {
+        const normalized = String(content || '').trim().toLowerCase();
+        if (normalized === '/new' || normalized === '/reset') {
+            return 'new';
+        }
+
+        if (normalized === '/clear') {
+            return 'clear';
+        }
+
+        return null;
     }
 
     // Show thinking indicator

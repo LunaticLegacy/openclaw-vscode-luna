@@ -106,21 +106,29 @@ export class LocalAgentSessionRepository {
         }
     }
 
-    public createChatSession(agentId: string): ChatSession {
+    public createChatSession(agentId: string, sessionId?: string): ChatSession {
         const agent = this.agents.get(agentId);
         if (!agent) {
             throw new Error(t('service.localAgentNotFound'));
         }
 
+        const normalizedSessionId = String(sessionId || '').trim();
+        if (normalizedSessionId) {
+            const existingById = this.sessions.get(normalizedSessionId);
+            if (existingById) {
+                return existingById;
+            }
+        }
+
         for (const session of this.sessions.values()) {
-            if (session.agentId === agentId) {
+            if (!normalizedSessionId && session.agentId === agentId) {
                 return session;
             }
         }
 
         const now = new Date().toISOString();
         const session: ChatSession = {
-            id: `session:${Date.now()}`,
+            id: normalizedSessionId || `session:${Date.now()}`,
             agentId,
             messages: [],
             createdAt: now,

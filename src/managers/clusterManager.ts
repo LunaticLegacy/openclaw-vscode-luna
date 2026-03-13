@@ -71,12 +71,14 @@ interface PersistedClustersFile {
     version: number;
     clusters: AgentCluster[];
     workspaceConfigs?: Record<string, ClusterWorkspaceConfig>;
+    clusterAgentSessions?: Record<string, string>;
 }
 
 export class ClusterManager extends EventEmitter {
     private service: OpenClawService;
     private clusters: Map<string, AgentCluster> = new Map();
     private workspaceConfigs: Map<string, ClusterWorkspaceConfig> = new Map();
+    private clusterAgentSessionIds: Map<string, string> = new Map();
     private storageFilePath: string;
     private persistedStateLoaded = false;
     private persistedStateLoadPromise: Promise<void> | null = null;
@@ -165,6 +167,7 @@ export class ClusterManager extends EventEmitter {
             await this.persistState();
             const resolvedCluster = this.applyWorkspaceConfig(cluster);
             this.clusters.set(cluster.id, resolvedCluster);
+            this.reconcileClusterAgentSessions(cluster.id, resolvedCluster.agentIds);
             return resolvedCluster;
         }
 
@@ -179,6 +182,7 @@ export class ClusterManager extends EventEmitter {
 
         const resolvedCluster = this.applyWorkspaceConfig(cluster);
         this.clusters.set(cluster.id, resolvedCluster);
+        this.reconcileClusterAgentSessions(cluster.id, resolvedCluster.agentIds);
         await this.persistState();
         this.emit('clusterCreated', resolvedCluster);
         return resolvedCluster;
@@ -199,6 +203,7 @@ export class ClusterManager extends EventEmitter {
                 ...(params.status !== undefined ? { status: params.status } : {})
             });
             this.clusters.set(clusterId, resolvedCluster);
+            this.reconcileClusterAgentSessions(clusterId, resolvedCluster.agentIds);
             return resolvedCluster;
         }
 
@@ -220,6 +225,7 @@ export class ClusterManager extends EventEmitter {
         // i should update workspace config
         const resolvedCluster = this.applyWorkspaceConfig(updatedCluster);
         this.clusters.set(clusterId, updatedCluster);
+        this.reconcileClusterAgentSessions(clusterId, resolvedCluster.agentIds);
         await this.persistState();
         this.emit('clusterUpdated', updatedCluster);
         return updatedCluster;
@@ -230,6 +236,7 @@ export class ClusterManager extends EventEmitter {
             await this.service.deleteCluster(clusterId);
             this.clusters.delete(clusterId);
             this.workspaceConfigs.delete(clusterId);
+            this.clearClusterAgentSessionsForCluster(clusterId);
             this.clearSwarmSessionsForCluster(clusterId);
             await this.persistState();
             return;
@@ -238,6 +245,7 @@ export class ClusterManager extends EventEmitter {
         await this.ensurePersistedStateLoaded();
         this.clusters.delete(clusterId);
         this.workspaceConfigs.delete(clusterId);
+        this.clearClusterAgentSessionsForCluster(clusterId);
         this.clearSwarmSessionsForCluster(clusterId);
         await this.persistState();
         this.emit('clusterDeleted', clusterId);
@@ -445,6 +453,29 @@ export class ClusterManager extends EventEmitter {
         });
     }
 
+    public async ensureClusterAgentSessionId(clusterId: string, agentId: string): Promise<string> {
+        await this.ensurePersistedStateLoaded();
+        const key = this.buildClusterAgentSessionStorageKey(clusterId, agentId);
+        const existing = this.clusterAgentSessionIds.get(key);
+        if (existing) {
+            return existing;
+        }
+
+        const sessionId = buildClusterAgentSessionId(clusterId, agentId);
+        this.clusterAgentSessionIds.set(key, sessionId);
+        await this.persistState();
+        return sessionId;
+    }
+
+    public async resetClusterAgentSessionId(clusterId: string, agentId: string): Promise<string> {
+        await this.ensurePersistedStateLoaded();
+        const key = this.buildClusterAgentSessionStorageKey(clusterId, agentId);
+        const sessionId = buildClusterAgentSessionId(clusterId, agentId);
+        this.clusterAgentSessionIds.set(key, sessionId);
+        await this.persistState();
+        return sessionId;
+    }
+
     public async refresh(): Promise<AgentCluster[]> {
         return this.getClusters(true);
     }
@@ -453,6 +484,7 @@ export class ClusterManager extends EventEmitter {
         this.removeAllListeners();
         this.clusters.clear();
         this.workspaceConfigs.clear();
+        this.clusterAgentSessionIds.clear();
         this.persistedStateLoaded = false;
         this.persistedStateLoadPromise = null;
         this.swarmSessionIds.clear();
@@ -477,6 +509,7 @@ export class ClusterManager extends EventEmitter {
                 this.clusters.clear();
             }
             this.workspaceConfigs.clear();
+            this.clusterAgentSessionIds.clear();
 
             try {
                 const content = await fs.readFile(this.storageFilePath, 'utf8');
@@ -508,6 +541,16 @@ export class ClusterManager extends EventEmitter {
                 for (const [clusterId, workspaceConfig] of Object.entries(data.workspaceConfigs || {})) {
                     this.workspaceConfigs.set(clusterId, normalizeClusterWorkspaceConfig(workspaceConfig));
                 }
+
+                for (const [sessionKey, sessionId] of Object.entries(data.clusterAgentSessions || {})) {
+                    const normalizedSessionKey = String(sessionKey || '').trim();
+                    const normalizedSessionId = String(sessionId || '').trim();
+                    if (!normalizedSessionKey || !normalizedSessionId) {
+                        continue;
+                    }
+
+                    this.clusterAgentSessionIds.set(normalizedSessionKey, normalizedSessionId);
+                }
             } catch (error) {
                 const maybeNodeError = error as NodeJS.ErrnoException;
                 if (maybeNodeError.code !== 'ENOENT') {
@@ -527,9 +570,10 @@ export class ClusterManager extends EventEmitter {
 
     private async persistState(): Promise<void> {
         const payload: PersistedClustersFile = {
-            version: 2,
+            version: 3,
             clusters: Array.from(this.clusters.values()).map(cluster => this.applyWorkspaceConfig(cluster)),
-            workspaceConfigs: Object.fromEntries(this.workspaceConfigs.entries())
+            workspaceConfigs: Object.fromEntries(this.workspaceConfigs.entries()),
+            clusterAgentSessions: Object.fromEntries(this.clusterAgentSessionIds.entries())
         };
 
         await fs.mkdir(path.dirname(this.storageFilePath), { recursive: true });
@@ -625,6 +669,29 @@ export class ClusterManager extends EventEmitter {
         for (const key of this.swarmSessionIds.keys()) {
             if (key.startsWith(prefix)) {
                 this.swarmSessionIds.delete(key);
+            }
+        }
+    }
+
+    private buildClusterAgentSessionStorageKey(clusterId: string, agentId: string): string {
+        return `${clusterId.trim()}::${agentId.trim()}`;
+    }
+
+    private clearClusterAgentSessionsForCluster(clusterId: string): void {
+        const prefix = `${clusterId.trim()}::`;
+        for (const key of this.clusterAgentSessionIds.keys()) {
+            if (key.startsWith(prefix)) {
+                this.clusterAgentSessionIds.delete(key);
+            }
+        }
+    }
+
+    private reconcileClusterAgentSessions(clusterId: string, agentIds: string[]): void {
+        const allowed = new Set(agentIds.map(agentId => this.buildClusterAgentSessionStorageKey(clusterId, agentId)));
+        const prefix = `${clusterId.trim()}::`;
+        for (const key of this.clusterAgentSessionIds.keys()) {
+            if (key.startsWith(prefix) && !allowed.has(key)) {
+                this.clusterAgentSessionIds.delete(key);
             }
         }
     }
@@ -749,6 +816,10 @@ export class ClusterManager extends EventEmitter {
             workspaceConfig
         };
     }
+}
+
+function buildClusterAgentSessionId(clusterId: string, agentId: string): string {
+    return `cluster:${clusterId.trim()}:agent:${agentId.trim()}:session:${Date.now()}`;
 }
 
 function buildClusterId(name: string): string {
