@@ -31,6 +31,7 @@ interface MessageRouterContext {
         agentId?: string;
         agentViewMode?: 'chat' | 'broadcast' | 'collaborate';
     }): Promise<void>;
+    exportRuntimeLogs(): Promise<void>;
     clearChat(): void;
     refreshAgents(force?: boolean): Promise<void>;
     handleCreateAgent(data: any): Promise<void>;
@@ -132,6 +133,12 @@ export async function handlePanelMessage(context: MessageRouterContext, message:
                     : message.agentViewMode === 'collaborate'
                         ? 'collaborate'
                         : 'chat'
+            });
+            break;
+
+        case 'exportRuntimeLogs':
+            await runWithNotificationProgress(t('progress.exportingRuntimeLogs'), async () => {
+                await context.exportRuntimeLogs();
             });
             break;
 

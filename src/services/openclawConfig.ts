@@ -38,6 +38,11 @@ import {
     readJsonFile,
     trimConfigPath
 } from './openclawConfig/utils';
+import {
+    collectRuntimeLogFiles,
+    redactRuntimeExportSecrets,
+    type RuntimeLogCollection
+} from './openclawConfig/runtimeLogExport';
 
 const execFileAsync = promisify(execFile);
 
@@ -60,6 +65,16 @@ export {
     mergeOpenClawAuthProfilesForSave,
     mergeOpenClawConfigForSave
 };
+
+export interface OpenClawRuntimeLogExport {
+    exportedAt: string;
+    runtime: {
+        service: Record<string, unknown>;
+        diagnostics: OpenClawRuntimeDiagnostics;
+        openClawConfig: Record<string, unknown> | null;
+    };
+    filesystem: RuntimeLogCollection;
+}
 
 export async function resolveOpenClawServiceConfig(extensionPath: string): Promise<ResolvedServiceConfig> {
     return resolveOpenClawServiceConfigInternal(extensionPath);
@@ -191,4 +206,75 @@ export async function startOpenClawGateway(extensionPath: string): Promise<void>
             windowsHide: true
         }
     );
+}
+
+export async function buildOpenClawRuntimeLogExport(extensionPath: string): Promise<OpenClawRuntimeLogExport> {
+    const [serviceConfig, diagnostics, openClawConfigState] = await Promise.all([
+        resolveOpenClawServiceConfigInternal(extensionPath),
+        inspectOpenClawEnvironment(extensionPath),
+        loadOpenClawConfigEditorState(extensionPath).catch(() => null)
+    ]);
+
+    const stateDir = openClawConfigState?.stateDir
+        || diagnostics.detectedStateDir
+        || diagnostics.configuredStateDir
+        || (serviceConfig.mode === 'openclaw' ? serviceConfig.stateDir : undefined);
+
+    return {
+        exportedAt: new Date().toISOString(),
+        runtime: {
+            service: summarizeServiceConfigForExport(serviceConfig),
+            diagnostics: redactRuntimeExportSecrets(diagnostics),
+            openClawConfig: openClawConfigState
+                ? redactRuntimeExportSecrets(openClawConfigState as unknown as Record<string, unknown>)
+                : null
+        },
+        filesystem: stateDir
+            ? await collectRuntimeLogFiles(stateDir)
+            : {
+                scannedRoot: null,
+                rootEntries: [],
+                fileCount: 0,
+                scanTruncated: false,
+                files: []
+            }
+    };
+}
+
+function summarizeServiceConfigForExport(serviceConfig: ResolvedServiceConfig): Record<string, unknown> {
+    switch (serviceConfig.mode) {
+        case 'gateway':
+            return {
+                mode: serviceConfig.mode,
+                gatewayUrl: serviceConfig.gatewayUrl,
+                gatewayToken: serviceConfig.gatewayToken ? '[REDACTED]' : '',
+                sourceDescription: serviceConfig.sourceDescription
+            };
+        case 'openclaw':
+            return {
+                mode: serviceConfig.mode,
+                cliEntryPath: serviceConfig.cliEntryPath,
+                nodePath: serviceConfig.nodePath,
+                stateDir: serviceConfig.stateDir,
+                configPath: serviceConfig.configPath,
+                gatewayUrl: serviceConfig.gatewayUrl,
+                gatewayToken: serviceConfig.gatewayToken ? '[REDACTED]' : '',
+                defaultWorkspacePath: serviceConfig.defaultWorkspacePath,
+                defaultModel: serviceConfig.defaultModel,
+                sourceDescription: serviceConfig.sourceDescription
+            };
+        case 'local':
+            return {
+                mode: serviceConfig.mode,
+                providerCount: serviceConfig.providers.length,
+                providers: serviceConfig.providers.map(provider => ({
+                    id: provider.id,
+                    baseUrl: provider.baseUrl,
+                    api: provider.api,
+                    apiKey: provider.apiKey ? '[REDACTED]' : '',
+                    models: provider.models
+                })),
+                sourceDescription: serviceConfig.sourceDescription
+            };
+    }
 }

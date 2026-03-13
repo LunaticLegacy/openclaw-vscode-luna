@@ -26,6 +26,11 @@ export interface AgentCluster {
     workspaceConfig?: ClusterWorkspaceConfig;
 }
 
+export interface ClusterMemberProfile {
+    identity?: string;
+    stance?: string;
+}
+
 export interface ClusterWorkspaceConfig {
     presetId: string;
     collaborationStyle: 'debate' | 'round-robin' | 'review-board' | 'leader-draft';
@@ -33,6 +38,8 @@ export interface ClusterWorkspaceConfig {
     critiqueLevel: 'minimal' | 'standard' | 'aggressive';
     rounds: number;
     briefing?: string;
+    coordinatorAgentId?: string;
+    memberProfiles?: Record<string, ClusterMemberProfile>;
 }
 
 export interface ChatMessage {

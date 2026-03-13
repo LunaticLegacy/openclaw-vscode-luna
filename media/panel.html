@@ -158,6 +158,7 @@
                                         <div id="connection-settings-status" class="console-setup-status hidden"></div>
                                         <div class="form-actions">
                                             <button id="btn-use-detected-gateway" type="button" class="btn btn-secondary" data-i18n="setup.useDetected">Use Detected Values</button>
+                                            <button type="button" class="btn btn-secondary" data-export-runtime-logs="true" data-i18n="setup.exportRuntimeLogs">Export Runtime Logs</button>
                                             <button type="button" class="btn btn-secondary" data-console-action="settings" data-i18n="common.settings">Settings</button>
                                             <button type="submit" class="btn btn-primary" data-i18n="setup.saveAndRetry">Save & Retry</button>
                                         </div>
@@ -257,6 +258,7 @@
                                     <div id="openclaw-config-hint" class="form-hint"></div>
                                     <div id="openclaw-config-status" class="console-setup-status hidden"></div>
                                     <div class="form-actions">
+                                        <button type="button" class="btn btn-secondary" data-export-runtime-logs="true" data-i18n="setup.exportRuntimeLogs">Export Runtime Logs</button>
                                         <button type="submit" class="btn btn-primary" data-i18n="setup.openclawConfig.save">Save OpenClaw Config</button>
                                     </div>
                                 </form>
@@ -664,6 +666,10 @@
                                 <label for="cluster-editor-briefing" data-i18n="clusters.form.briefing">Cluster Briefing</label>
                                 <textarea id="cluster-editor-briefing" rows="4" data-i18n-placeholder="clusters.form.briefingPlaceholder" placeholder="Tell the swarm how this cluster should work."></textarea>
                             </div>
+                            <div class="form-group">
+                                <label for="cluster-editor-coordinator-agent" data-i18n="clusters.form.coordinator">Final Summary Agent</label>
+                                <select id="cluster-editor-coordinator-agent"></select>
+                            </div>
                             <div id="cluster-preset-summary" class="cluster-preset-summary"></div>
                         </section>
                         <aside class="cluster-editor-side">
@@ -672,6 +678,11 @@
                                 <p data-i18n="clusters.form.membersHint">Pick the agents that belong to this cluster.</p>
                             </div>
                             <div id="cluster-editor-agent-picker" class="cluster-agent-picker"></div>
+                            <div class="cluster-editor-side-header">
+                                <h3 data-i18n="clusters.form.memberProfiles">Member Profiles</h3>
+                                <p data-i18n="clusters.form.memberProfilesHint">Customize each member's identity and stance inside the swarm.</p>
+                            </div>
+                            <div id="cluster-editor-member-profiles" class="cluster-member-profiles"></div>
                         </aside>
                     </div>
                     <div class="form-actions">

@@ -6,6 +6,7 @@ import { getAiSkills } from '../config/aiSkills';
 import { getCurrentLocale, t, MESSAGES } from '../i18n';
 import { OpenClawService, ChatMessage, ChatSession, AgentCluster, APIUsage } from '../services/openclawService';
 import {
+    buildOpenClawRuntimeLogExport,
     inspectOpenClawEnvironment,
     loadOpenClawConfigEditorState,
     OpenClawConfigEditorState,
@@ -89,6 +90,10 @@ const OPENCLAW_LUNA_ISSUES_URL = 'https://github.com/LunaticLegacy/openclaw-vsco
 function sanitizeFileSegment(value: string): string {
     const normalized = String(value || '').trim().replace(/[<>:"/\\|?*\x00-\x1f]+/g, '-');
     return normalized.replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'openclaw';
+}
+
+function buildTimestampFileSegment(date: Date = new Date()): string {
+    return date.toISOString().replace(/[:.]/g, '-');
 }
 
 export class OpenClawPanel {
@@ -884,7 +889,7 @@ export class OpenClawPanel {
                 : await this._buildClusterSwarmContextExport(clusterId, cluster, options.mode === 'collaborate' ? 'collaborate' : 'broadcast');
 
             const targetUri = await vscode.window.showSaveDialog({
-                defaultUri: vscode.Uri.file(this._buildClusterExportDefaultPath(exportPayload.fileName)),
+                defaultUri: vscode.Uri.file(this._buildExportDefaultPath(exportPayload.fileName)),
                 filters: {
                     JSON: ['json']
                 }
@@ -972,7 +977,32 @@ export class OpenClawPanel {
         };
     }
 
-    private _buildClusterExportDefaultPath(fileName: string): string {
+    private async _exportRuntimeLogs() {
+        try {
+            const exportPayload = await buildOpenClawRuntimeLogExport(this._extensionUri.fsPath);
+            const fileName = `openclaw-runtime-logs-${buildTimestampFileSegment()}.json`;
+            const targetUri = await vscode.window.showSaveDialog({
+                defaultUri: vscode.Uri.file(this._buildExportDefaultPath(fileName)),
+                filters: {
+                    JSON: ['json']
+                }
+            });
+
+            if (!targetUri) {
+                return;
+            }
+
+            await vscode.workspace.fs.writeFile(
+                targetUri,
+                Buffer.from(JSON.stringify(exportPayload, null, 2), 'utf8')
+            );
+            showSuccessStatus(t('setup.runtimeLogs.exported', { name: path.basename(targetUri.fsPath) }));
+        } catch (error) {
+            vscode.window.showErrorMessage(t('setup.runtimeLogs.exportFailed', { error: String(error) }));
+        }
+    }
+
+    private _buildExportDefaultPath(fileName: string): string {
         const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
             || path.dirname(this._extensionUri.fsPath);
         return path.join(workspacePath, fileName);
@@ -1192,6 +1222,7 @@ export class OpenClawPanel {
             loadClusterAgentMessages: this._loadClusterAgentMessages.bind(this),
             loadClusterAgentSwarmMessages: this._loadClusterAgentSwarmMessages.bind(this),
             exportClusterConversation: this._exportClusterConversation.bind(this),
+            exportRuntimeLogs: this._exportRuntimeLogs.bind(this),
             clearChat: this._clearChat.bind(this),
             refreshAgents: this.refreshAgents.bind(this),
             handleCreateAgent: this._handleCreateAgent.bind(this),

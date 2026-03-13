@@ -211,7 +211,7 @@
         renderClusterWorkspace();
     }
 
-    function replaceSwarmConversationMessages(clusterId, mode, messages) {
+    function replaceSwarmConversationMessages(clusterId, mode, messages, options = {}) {
         const conversation = ensureClusterConversation(getClusterConversationKey(clusterId, {
             targetKind: 'swarm',
             mode
@@ -219,7 +219,7 @@
         conversation.messages = Array.isArray(messages) ? messages : [];
         conversation.loading = false;
         conversation.loaded = true;
-        conversation.pending = false;
+        conversation.pending = options.keepPending === true;
         renderClusterWorkspace();
     }
 

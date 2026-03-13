@@ -268,7 +268,9 @@
                 break;
 
             case 'replaceSwarmMessages':
-                replaceSwarmConversationMessages(message.clusterId, message.mode, message.messages || []);
+                replaceSwarmConversationMessages(message.clusterId, message.mode, message.messages || [], {
+                    keepPending: Boolean(message.keepPending)
+                });
                 break;
 
             case 'appendClusterMessage':

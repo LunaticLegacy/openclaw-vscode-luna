@@ -1,4 +1,4 @@
-import type { ClusterWorkspaceConfig } from '../services/openclawService';
+import type { ClusterMemberProfile, ClusterWorkspaceConfig } from '../services/openclawService';
 
 export interface ClusterWorkModePreset extends ClusterWorkspaceConfig {
     id: string;
@@ -103,7 +103,9 @@ export function createDefaultClusterWorkspaceConfig(): ClusterWorkspaceConfig {
         deliveryStyle: preset.deliveryStyle,
         critiqueLevel: preset.critiqueLevel,
         rounds: preset.rounds,
-        briefing: preset.briefing
+        briefing: preset.briefing,
+        coordinatorAgentId: undefined,
+        memberProfiles: {}
     };
 }
 
@@ -121,8 +123,44 @@ export function normalizeClusterWorkspaceConfig(
         deliveryStyle: normalizeDeliveryStyle(config?.deliveryStyle, preset.deliveryStyle),
         critiqueLevel: normalizeCritiqueLevel(config?.critiqueLevel, preset.critiqueLevel),
         rounds: normalizeRounds(preset.rounds, config?.rounds),
-        briefing: briefing || preset.briefing || ''
+        briefing: briefing || preset.briefing || '',
+        coordinatorAgentId: normalizeCoordinatorAgentId(config?.coordinatorAgentId),
+        memberProfiles: normalizeMemberProfiles(config?.memberProfiles)
     };
+}
+
+function normalizeCoordinatorAgentId(value?: string | null): string | undefined {
+    const normalized = String(value || '').trim();
+    return normalized || undefined;
+}
+
+function normalizeMemberProfiles(
+    value?: Record<string, ClusterMemberProfile> | null
+): Record<string, ClusterMemberProfile> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return {};
+    }
+
+    const normalized: Record<string, ClusterMemberProfile> = {};
+    for (const [agentId, profile] of Object.entries(value)) {
+        const normalizedAgentId = String(agentId || '').trim();
+        if (!normalizedAgentId || !profile || typeof profile !== 'object' || Array.isArray(profile)) {
+            continue;
+        }
+
+        const identity = typeof profile.identity === 'string' ? profile.identity.trim() : '';
+        const stance = typeof profile.stance === 'string' ? profile.stance.trim() : '';
+        if (!identity && !stance) {
+            continue;
+        }
+
+        normalized[normalizedAgentId] = {
+            ...(identity ? { identity } : {}),
+            ...(stance ? { stance } : {})
+        };
+    }
+
+    return normalized;
 }
 
 function normalizePresetId(value?: string | null): string {

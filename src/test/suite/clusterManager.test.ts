@@ -116,6 +116,7 @@ suite('clusterManager', () => {
                 assert.equal(reloadedCluster?.workspaceConfig?.critiqueLevel, 'aggressive');
                 assert.equal(reloadedCluster?.workspaceConfig?.rounds, 3);
                 assert.equal(reloadedCluster?.workspaceConfig?.briefing, 'Stress test the design before release.');
+                assert.equal(reloadedCluster?.workspaceConfig?.coordinatorAgentId, undefined);
             } finally {
                 reloadedManager.dispose();
             }
@@ -282,6 +283,50 @@ suite('clusterManager', () => {
             const alphaMessages = await manager.getClusterAgentSwarmMessages(cluster.id, 'alpha', 'collaborate');
             assert.ok(alphaMessages.some(message => message.role === 'user'));
             assert.ok(alphaMessages.some(message => /alpha/i.test(message.content)));
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
+
+    test('uses the configured coordinator and injects member profiles into prompts', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-member-profiles-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Profiled Swarm',
+                agentIds: ['alpha', 'beta'],
+                workspaceConfig: {
+                    presetId: 'implementation-squad',
+                    collaborationStyle: 'debate',
+                    deliveryStyle: 'balanced',
+                    critiqueLevel: 'standard',
+                    rounds: 1,
+                    briefing: 'Keep positions distinct.',
+                    coordinatorAgentId: 'beta',
+                    memberProfiles: {
+                        alpha: {
+                            identity: 'Skeptical architect',
+                            stance: 'Push for explicit tradeoffs and long-term maintainability.'
+                        },
+                        beta: {
+                            identity: 'Delivery lead',
+                            stance: 'Bias toward shippable synthesis and practical sequencing.'
+                        }
+                    }
+                }
+            });
+
+            const result = await manager.collaborateOnCluster(cluster.id, 'Design the swarm policy.');
+
+            assert.equal(result.coordinatorAgentId, 'beta');
+            assert.equal(service.findPrompt('alpha', 'opening').includes('Assigned identity: Skeptical architect'), true);
+            assert.equal(service.findPrompt('alpha', 'opening').includes('Assigned stance: Push for explicit tradeoffs and long-term maintainability.'), true);
+            assert.equal(service.findPrompt('beta', 'synthesis').includes('Assigned identity: Delivery lead'), true);
+            assert.equal(service.findPrompt('beta', 'synthesis').includes('Assigned stance: Bias toward shippable synthesis and practical sequencing.'), true);
         } finally {
             manager.dispose();
             await fs.rm(root, { recursive: true, force: true });

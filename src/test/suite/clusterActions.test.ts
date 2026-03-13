@@ -8,6 +8,7 @@ import {
     loadClusterSwarmMessages
 } from '../../panels/openclawPanel/clusterActions';
 import type { Agent, AgentCluster, ChatMessage, ChatSession } from '../../services/openclawService';
+import type { ClusterCollaborationProgressEvent } from '../../managers/clusterManager';
 
 suite('clusterActions', () => {
     test('loads persisted swarm messages when entering swarm mode', async () => {
@@ -195,6 +196,65 @@ suite('clusterActions', () => {
         assert.equal(batchIds.size, 1);
         assert.ok(posted.some(message => message.type === 'replaceSwarmMessages'));
     });
+
+    test('posts partial collaboration progress before the full swarm result completes', async () => {
+        const clusterManager = new FakeClusterManager();
+        const sessionManager = new FakeClusterSessionManager();
+        const posted: Array<Record<string, unknown>> = [];
+        const context = createClusterActionContext(clusterManager, sessionManager, posted);
+
+        clusterManager.cluster = {
+            id: 'cluster-1',
+            name: 'Swarm',
+            agentIds: ['alpha'],
+            status: 'active',
+            createdAt: '2026-03-12T00:00:00.000Z'
+        };
+        clusterManager.progressEvents = [{
+            kind: 'round-entry',
+            roundKind: 'opening',
+            agentId: 'alpha',
+            entry: {
+                agentId: 'alpha',
+                ok: true,
+                message: createMessage('alpha-opening', 'assistant', 'opening reply')
+            }
+        }];
+        clusterManager.collaborationResult = {
+            clusterId: 'cluster-1',
+            clusterName: 'Swarm',
+            userMessage: 'plan this',
+            coordinatorAgentId: 'alpha',
+            rounds: [{
+                kind: 'opening',
+                entries: {
+                    alpha: {
+                        agentId: 'alpha',
+                        ok: true,
+                        message: createMessage('alpha-opening', 'assistant', 'opening reply')
+                    }
+                }
+            }],
+            contributions: {},
+            synthesis: {
+                agentId: 'alpha',
+                ok: true,
+                message: createMessage('alpha-final', 'assistant', 'final synthesis')
+            }
+        };
+
+        await handleCollaborate(context, 'cluster-1', 'plan this');
+
+        assert.ok(posted.some(message =>
+            message.type === 'replaceSwarmMessages'
+            && message.keepPending === true
+        ));
+        assert.ok(posted.some(message =>
+            message.type === 'replaceSwarmMessages'
+            && Array.isArray(message.messages)
+            && message.messages.some((entry: any) => entry.content === 'opening reply')
+        ));
+    });
 });
 
 class FakeClusterManager {
@@ -211,6 +271,7 @@ class FakeClusterManager {
         createdAt: '2026-03-12T00:00:00.000Z'
     };
     public collaborationResult: any = null;
+    public progressEvents: ClusterCollaborationProgressEvent[] = [];
     private readonly messagesByKey = new Map<string, ChatMessage[]>();
     private readonly swarmMessagesByKey = new Map<string, ChatMessage[]>();
     private readonly swarmAgentMessagesByKey = new Map<string, ChatMessage[]>();
@@ -303,7 +364,12 @@ class FakeClusterManager {
         return this.cluster?.id === clusterId ? { ...this.cluster } : null;
     }
 
-    public async collaborateOnCluster(): Promise<any> {
+    public async collaborateOnCluster(_clusterId?: string, _message?: string, options?: {
+        onProgress?: (event: ClusterCollaborationProgressEvent) => Promise<void> | void;
+    }): Promise<any> {
+        for (const event of this.progressEvents) {
+            await options?.onProgress?.(event);
+        }
         return this.collaborationResult;
     }
 

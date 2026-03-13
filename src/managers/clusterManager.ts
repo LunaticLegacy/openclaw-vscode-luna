@@ -43,8 +43,26 @@ export interface ClusterBroadcastResult {
     error?: string;
 }
 
+export interface BroadcastClusterOptions {
+    onAgentResult?: (agentId: string, result: ClusterBroadcastResult) => Promise<void> | void;
+}
+
+export type ClusterCollaborationProgressEvent =
+    | {
+        kind: 'round-entry';
+        roundKind: ClusterCollaborationRoundKind;
+        agentId: string;
+        entry: ClusterBroadcastResult;
+    }
+    | {
+        kind: 'synthesis';
+        coordinatorAgentId: string | null;
+        entry: ClusterBroadcastResult | null;
+    };
+
 export interface CollaborateClusterOptions {
     coordinatorAgentId?: string;
+    onProgress?: (event: ClusterCollaborationProgressEvent) => Promise<void> | void;
 }
 
 export type ClusterCollaborationRoundKind =
@@ -82,6 +100,8 @@ interface PersistedClustersFile {
     swarmSessions?: Record<string, string>;
     clusterSwarmMessages?: Record<string, ChatMessage[]>;
 }
+
+const CLUSTER_AGENT_RESPONSE_TIMEOUT_MS = 45000;
 
 export class ClusterManager extends EventEmitter {
     private service: OpenClawService;
@@ -266,7 +286,11 @@ export class ClusterManager extends EventEmitter {
         this.emit('clusterDeleted', clusterId);
     }
 
-    public async broadcastToCluster(clusterId: string, message: string): Promise<Record<string, ClusterBroadcastResult>> {
+    public async broadcastToCluster(
+        clusterId: string,
+        message: string,
+        options: BroadcastClusterOptions = {}
+    ): Promise<Record<string, ClusterBroadcastResult>> {
         if (this.service.supportsRemoteClusters()) {
             const responses = await this.service.sendToCluster(clusterId, message);
             return Object.fromEntries(
@@ -286,34 +310,14 @@ export class ClusterManager extends EventEmitter {
             throw new Error(t('clusterManager.notFound', { clusterId }));
         }
 
-        const results = await Promise.all(
-            cluster.agentIds.map(async agentId => {
-                try {
-                    const result = await this.sendMessageToAgent(agentId, message, {
-                        clusterId,
-                        mode: 'broadcast'
-                    });
-                    return [
-                        agentId,
-                        {
-                            ...result
-                        } satisfies ClusterBroadcastResult
-                    ] as const;
-                } catch (error) {
-                    return [
-                        agentId,
-                        {
-                            agentId,
-                            ok: false,
-                            error: String(error)
-                        } satisfies ClusterBroadcastResult
-                    ] as const;
-                }
-            })
-        );
+        const results = await this.sendMessageToAgents(cluster.agentIds, message, {
+            clusterId,
+            mode: 'broadcast',
+            onAgentResult: options.onAgentResult
+        });
 
         await this.updateCluster(clusterId, { status: 'active' });
-        return Object.fromEntries(results);
+        return results;
     }
 
     public async collaborateOnCluster(
@@ -330,11 +334,21 @@ export class ClusterManager extends EventEmitter {
         const debateSessionIds = new Map<string, string>();
         const rounds: ClusterCollaborationRound[] = [];
 
-        const openingPrompt = buildOpeningContributionPrompt(cluster.name, message, workspaceConfig);
-        const openingEntries = await this.sendMessageToAgents(cluster.agentIds, openingPrompt, {
+        const openingEntries = await this.sendMessageToAgents(cluster.agentIds, agentId => buildOpeningContributionPrompt(
+            cluster.name,
+            message,
+            workspaceConfig,
+            agentId
+        ), {
             clusterId: cluster.id,
             mode: 'collaborate',
-            debateSessionIds
+            debateSessionIds,
+            onAgentResult: (agentId, entry) => options.onProgress?.({
+                kind: 'round-entry',
+                roundKind: 'opening',
+                agentId,
+                entry
+            })
         });
         rounds.push({
             kind: 'opening',
@@ -349,37 +363,49 @@ export class ClusterManager extends EventEmitter {
                 break;
             }
 
-            const critiquePrompt = buildPeerReviewPrompt(
+            const critiqueEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildPeerReviewPrompt(
                 cluster.name,
                 message,
                 workspaceConfig,
+                agentId,
                 successfulAgentIds,
                 latestUsableContributions,
                 debateRound.reviewRound
-            );
-            const critiqueEntries = await this.sendMessageToAgents(successfulAgentIds, critiquePrompt, {
+            ), {
                 clusterId: cluster.id,
                 mode: 'collaborate',
-                debateSessionIds
+                debateSessionIds,
+                onAgentResult: (agentId, entry) => options.onProgress?.({
+                    kind: 'round-entry',
+                    roundKind: debateRound.critiqueKind,
+                    agentId,
+                    entry
+                })
             });
             rounds.push({
                 kind: debateRound.critiqueKind,
                 entries: critiqueEntries
             });
 
-            const revisionPrompt = buildRevisionPrompt(
+            const revisionEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildRevisionPrompt(
                 cluster.name,
                 message,
                 workspaceConfig,
+                agentId,
                 successfulAgentIds,
                 latestUsableContributions,
                 critiqueEntries,
                 debateRound.reviewRound
-            );
-            const revisionEntries = await this.sendMessageToAgents(successfulAgentIds, revisionPrompt, {
+            ), {
                 clusterId: cluster.id,
                 mode: 'collaborate',
-                debateSessionIds
+                debateSessionIds,
+                onAgentResult: (agentId, entry) => options.onProgress?.({
+                    kind: 'round-entry',
+                    roundKind: debateRound.revisionKind,
+                    agentId,
+                    entry
+                })
             });
             rounds.push({
                 kind: debateRound.revisionKind,
@@ -394,7 +420,12 @@ export class ClusterManager extends EventEmitter {
             successfulAgentIds = getSuccessfulAgentIds(cluster.agentIds, latestUsableContributions);
         }
 
-        const coordinatorAgentId = resolveCoordinatorAgentId(cluster.agentIds, successfulAgentIds, options.coordinatorAgentId);
+        const coordinatorAgentId = resolveCoordinatorAgentId(
+            cluster.agentIds,
+            successfulAgentIds,
+            workspaceConfig.coordinatorAgentId,
+            options.coordinatorAgentId
+        );
 
         let synthesis: ClusterBroadcastResult | null = null;
         if (coordinatorAgentId && successfulAgentIds.length > 0) {
@@ -402,6 +433,7 @@ export class ClusterManager extends EventEmitter {
                 cluster,
                 message,
                 workspaceConfig,
+                coordinatorAgentId,
                 successfulAgentIds,
                 latestUsableContributions,
                 rounds
@@ -410,6 +442,11 @@ export class ClusterManager extends EventEmitter {
                 clusterId: cluster.id,
                 mode: 'collaborate',
                 debateSessionIds
+            });
+            await options.onProgress?.({
+                kind: 'synthesis',
+                coordinatorAgentId,
+                entry: synthesis
             });
         }
 
@@ -744,21 +781,26 @@ export class ClusterManager extends EventEmitter {
 
     private async sendMessageToAgents(
         agentIds: string[],
-        message: string,
+        message: string | ((agentId: string) => string | Promise<string>),
         options: {
             clusterId: string;
             mode: 'broadcast' | 'collaborate';
             debateSessionIds?: Map<string, string>;
+            onAgentResult?: (agentId: string, result: ClusterBroadcastResult) => Promise<void> | void;
         }
     ): Promise<Record<string, ClusterBroadcastResult>> {
-        const results = await Promise.all(
-            agentIds.map(async agentId => [
-                agentId,
-                await this.sendMessageToAgent(agentId, message, options)
-            ] as const)
+        const entries: Array<readonly [string, ClusterBroadcastResult]> = await Promise.all(
+            agentIds.map(async agentId => {
+                const resolvedMessage = typeof message === 'function'
+                    ? await message(agentId)
+                    : message;
+                const result = await this.sendMessageToAgent(agentId, resolvedMessage, options);
+                await options.onAgentResult?.(agentId, result);
+                return [agentId, result] as const;
+            })
         );
 
-        return Object.fromEntries(results);
+        return Object.fromEntries(entries);
     }
 
     private async sendMessageToAgent(
@@ -774,11 +816,21 @@ export class ClusterManager extends EventEmitter {
             const sessionId = options.debateSessionIds
                 ? await this.ensureDebateSession(agentId, options.debateSessionIds, options.clusterId, options.mode)
                 : await this.ensureSwarmSession(agentId, options.clusterId, options.mode);
-            const traceResult = await this.sendMessageWithTrace(sessionId, message);
+            const traceResult = await this.sendMessageWithTrace(sessionId, message, CLUSTER_AGENT_RESPONSE_TIMEOUT_MS);
+            if (traceResult.timedOut) {
+                return {
+                    agentId,
+                    ok: false,
+                    message: traceResult.message || undefined,
+                    trace: traceResult.trace,
+                    error: `Timed out after ${Math.round(CLUSTER_AGENT_RESPONSE_TIMEOUT_MS / 1000)}s`
+                };
+            }
+
             return {
                 agentId,
                 ok: true,
-                message: traceResult.message,
+                message: traceResult.message || undefined,
                 trace: traceResult.trace
             };
         } catch (error) {
@@ -902,34 +954,42 @@ export class ClusterManager extends EventEmitter {
 
     private async sendMessageWithTrace(
         sessionId: string,
-        message: string
-    ): Promise<{ message: ChatMessage; trace: ChatMessage[] }> {
+        message: string,
+        timeoutMs: number
+    ): Promise<{ message: ChatMessage | null; trace: ChatMessage[]; timedOut: boolean }> {
         const before = await this.service.getChatHistory(sessionId).catch(() => []);
         const knownIds = new Set(before.map(item => item.id));
-        const response = await this.service.sendMessage(sessionId, message);
+        const responseResult = await raceWithTimeout(this.service.sendMessage(sessionId, message), timeoutMs);
         const after = await this.service.getChatHistory(sessionId).catch(() => []);
 
         const trace = this.normalizeTraceMessages(
             after.filter(item => !knownIds.has(item.id))
         );
 
-        if (trace.length === 0) {
+        const finalTraceMessage = findLastAssistantMessage(trace);
+
+        if (responseResult.timedOut) {
             return {
-                message: response,
-                trace: response ? [response] : []
+                message: finalTraceMessage,
+                trace,
+                timedOut: true
             };
         }
 
-        let finalMessage = response;
-        for (let i = trace.length - 1; i >= 0; i--) {
-            if (trace[i].role === 'assistant') {
-                finalMessage = trace[i];
-                break;
-            }
+        const response = responseResult.value;
+
+        if (trace.length === 0) {
+            return {
+                message: response,
+                trace: response ? [response] : [],
+                timedOut: false
+            };
         }
+
         return {
-            message: finalMessage,
-            trace
+            message: finalTraceMessage || response,
+            trace,
+            timedOut: false
         };
     }
 
@@ -956,6 +1016,7 @@ export class ClusterManager extends EventEmitter {
         cluster: AgentCluster,
         userMessage: string,
         workspaceConfig: ClusterWorkspaceConfig,
+        coordinatorAgentId: string,
         successfulAgentIds: string[],
         contributions: Record<string, ClusterBroadcastResult>,
         rounds: ClusterCollaborationRound[]
@@ -988,6 +1049,7 @@ export class ClusterManager extends EventEmitter {
 
         return [
             `You are coordinating the agent swarm "${cluster.name}".`,
+            ...buildCoordinatorProfilePromptLines(workspaceConfig, coordinatorAgentId),
             buildCoordinatorStyleInstruction(workspaceConfig.collaborationStyle),
             'You are receiving the full transcript of a multi-round swarm debate with peer review.',
             'Synthesize the strongest parts of the debate into one final answer for the user.',
@@ -1066,6 +1128,42 @@ function cloneChatMessages(messages: ChatMessage[]): ChatMessage[] {
     return normalizePersistedChatMessages(messages);
 }
 
+function findLastAssistantMessage(messages: ChatMessage[]): ChatMessage | null {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        if (messages[index]?.role === 'assistant') {
+            return messages[index];
+        }
+    }
+
+    return null;
+}
+
+async function raceWithTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number
+): Promise<{ timedOut: true } | { timedOut: false; value: T }> {
+    if (timeoutMs <= 0) {
+        return {
+            timedOut: false,
+            value: await promise
+        };
+    }
+
+    let timer: NodeJS.Timeout | null = null;
+    try {
+        return await Promise.race([
+            promise.then(value => ({ timedOut: false, value } as const)),
+            new Promise<{ timedOut: true }>(resolve => {
+                timer = setTimeout(() => resolve({ timedOut: true } as const), timeoutMs);
+            })
+        ]);
+    } finally {
+        if (timer) {
+            clearTimeout(timer);
+        }
+    }
+}
+
 function isChatMessageRole(value: unknown): value is ChatMessage['role'] {
     return value === 'user' || value === 'assistant' || value === 'system' || value === 'tool';
 }
@@ -1117,8 +1215,14 @@ function uniqueAgentIds(agentIds: string[]): string[] {
 function resolveCoordinatorAgentId(
     clusterAgentIds: string[],
     successfulAgentIds: string[],
+    configuredAgentId?: string,
     preferredAgentId?: string
 ): string | null {
+    const normalizedConfigured = configuredAgentId?.trim();
+    if (normalizedConfigured && clusterAgentIds.includes(normalizedConfigured)) {
+        return normalizedConfigured;
+    }
+
     const normalizedPreferred = preferredAgentId?.trim();
     if (normalizedPreferred && successfulAgentIds.includes(normalizedPreferred)) {
         return normalizedPreferred;
@@ -1154,12 +1258,15 @@ function buildCollaborationDebateRounds(maxRounds: number): Array<{
 function buildOpeningContributionPrompt(
     clusterName: string,
     userMessage: string,
-    workspaceConfig: ClusterWorkspaceConfig
+    workspaceConfig: ClusterWorkspaceConfig,
+    agentId: string
 ): string {
+    const memberProfileLines = buildMemberProfilePromptLines(workspaceConfig, agentId);
     return [
         `You are part of the agent swarm "${clusterName}".`,
         `Debate stage: opening using ${workspaceConfig.collaborationStyle}.`,
         'This is round 1 of a multi-round swarm debate.',
+        ...memberProfileLines,
         buildOpeningStyleInstruction(workspaceConfig.collaborationStyle),
         buildDeliveryInstruction(workspaceConfig.deliveryStyle),
         buildRiskInstruction(workspaceConfig.critiqueLevel),
@@ -1176,6 +1283,7 @@ function buildPeerReviewPrompt(
     clusterName: string,
     userMessage: string,
     workspaceConfig: ClusterWorkspaceConfig,
+    agentId: string,
     activeAgentIds: string[],
     contributions: Record<string, ClusterBroadcastResult>,
     reviewRound: number
@@ -1185,11 +1293,13 @@ function buildPeerReviewPrompt(
         workspaceConfig.critiqueLevel,
         activeAgentIds.length
     );
+    const memberProfileLines = buildMemberProfilePromptLines(workspaceConfig, agentId);
 
     return [
         `You are part of the agent swarm "${clusterName}".`,
         `Debate stage: critique round ${reviewRound} using ${workspaceConfig.collaborationStyle}.`,
         'This is a peer-review round in a multi-round swarm debate.',
+        ...memberProfileLines,
         peerReviewInstruction,
         buildRiskInstruction(workspaceConfig.critiqueLevel),
         clusterBriefingLine(workspaceConfig),
@@ -1209,15 +1319,18 @@ function buildRevisionPrompt(
     clusterName: string,
     userMessage: string,
     workspaceConfig: ClusterWorkspaceConfig,
+    agentId: string,
     activeAgentIds: string[],
     contributions: Record<string, ClusterBroadcastResult>,
     critiques: Record<string, ClusterBroadcastResult>,
     reviewRound: number
 ): string {
+    const memberProfileLines = buildMemberProfilePromptLines(workspaceConfig, agentId);
     return [
         `You are part of the agent swarm "${clusterName}".`,
         `Debate stage: revision round ${reviewRound} using ${workspaceConfig.collaborationStyle}.`,
         'Revise your position after reading the peer reviews from this round.',
+        ...memberProfileLines,
         buildRevisionInstruction(workspaceConfig.collaborationStyle),
         buildDeliveryInstruction(workspaceConfig.deliveryStyle),
         clusterBriefingLine(workspaceConfig),
@@ -1412,4 +1525,38 @@ function buildCoordinatorStyleInstruction(style: ClusterWorkspaceConfig['collabo
 function clusterBriefingLine(workspaceConfig: ClusterWorkspaceConfig): string {
     const briefing = workspaceConfig.briefing?.trim();
     return briefing ? `Cluster briefing: ${briefing}` : 'Cluster briefing: keep the result coherent and user-facing.';
+}
+
+function buildMemberProfilePromptLines(
+    workspaceConfig: ClusterWorkspaceConfig,
+    agentId: string
+): string[] {
+    const profile = workspaceConfig.memberProfiles?.[agentId];
+    const lines: string[] = [];
+
+    if (profile?.identity?.trim()) {
+        lines.push(`Assigned identity: ${profile.identity.trim()}`);
+    }
+
+    if (profile?.stance?.trim()) {
+        lines.push(`Assigned stance: ${profile.stance.trim()}`);
+        lines.push('Preserve this stance consistently unless the evidence in the debate forces a revision.');
+    }
+
+    return lines;
+}
+
+function buildCoordinatorProfilePromptLines(
+    workspaceConfig: ClusterWorkspaceConfig,
+    agentId: string
+): string[] {
+    const profileLines = buildMemberProfilePromptLines(workspaceConfig, agentId);
+    if (profileLines.length === 0) {
+        return [];
+    }
+
+    return [
+        ...profileLines,
+        'As coordinator, keep your assigned identity and stance while still producing one coherent final answer.'
+    ];
 }

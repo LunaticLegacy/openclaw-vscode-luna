@@ -273,6 +273,7 @@
         elements.connectionSettingsStatus = document.getElementById('connection-settings-status');
         elements.btnRetryConnection = document.getElementById('btn-retry-connection');
         elements.btnUseDetectedGateway = document.getElementById('btn-use-detected-gateway');
+        elements.exportRuntimeLogButtons = document.querySelectorAll('[data-export-runtime-logs]');
         elements.consoleOpenClawConfigPanel = document.getElementById('console-openclaw-config-panel');
         elements.formOpenClawConfig = document.getElementById('form-openclaw-config');
         elements.openclawStateDir = document.getElementById('openclaw-state-dir');
@@ -352,8 +353,10 @@
         elements.clusterEditorCritique = document.getElementById('cluster-editor-critique');
         elements.clusterEditorRounds = document.getElementById('cluster-editor-rounds');
         elements.clusterEditorBriefing = document.getElementById('cluster-editor-briefing');
+        elements.clusterEditorCoordinatorAgent = document.getElementById('cluster-editor-coordinator-agent');
         elements.clusterPresetSummary = document.getElementById('cluster-preset-summary');
         elements.clusterEditorAgentPicker = document.getElementById('cluster-editor-agent-picker');
+        elements.clusterEditorMemberProfiles = document.getElementById('cluster-editor-member-profiles');
         elements.btnCreateTask = document.getElementById('btn-create-task');
         elements.btnRefreshUsage = document.getElementById('btn-refresh-usage');
         elements.btnUsagePeriod7 = document.getElementById('btn-usage-period-7');
@@ -479,6 +482,12 @@
 
         elements.btnUseDetectedGateway?.addEventListener('click', () => {
             applyDetectedGatewayValues();
+        });
+
+        elements.exportRuntimeLogButtons?.forEach(button => {
+            button.addEventListener('click', () => {
+                exportRuntimeLogs();
+            });
         });
 
         elements.formOpenClawConfig?.addEventListener('submit', (e) => {
@@ -724,7 +733,8 @@
             elements.clusterEditorStyle,
             elements.clusterEditorDelivery,
             elements.clusterEditorCritique,
-            elements.clusterEditorRounds
+            elements.clusterEditorRounds,
+            elements.clusterEditorCoordinatorAgent
         ].forEach(input => {
             input?.addEventListener('change', () => {
                 if (input === elements.clusterEditorPreset) {
@@ -736,6 +746,9 @@
         });
         elements.clusterEditorBriefing?.addEventListener('input', () => {
             renderClusterPresetSummary();
+        });
+        elements.clusterEditorAgentPicker?.addEventListener('change', () => {
+            syncClusterMemberCustomizationState();
         });
 
         // Close modal when clicking outside

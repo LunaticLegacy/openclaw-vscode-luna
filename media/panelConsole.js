@@ -114,6 +114,12 @@
         });
     }
 
+    function exportRuntimeLogs() {
+        vscode.postMessage({
+            type: 'exportRuntimeLogs'
+        });
+    }
+
     function applyDetectedGatewayValues() {
         const diagnostics = getRuntimeDiagnostics();
         if (!hasDetectedGateway(diagnostics)) {
