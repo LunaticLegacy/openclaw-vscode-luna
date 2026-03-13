@@ -156,6 +156,137 @@ suite('clusterManager', () => {
             await fs.rm(root, { recursive: true, force: true });
         }
     });
+
+    test('persists cluster-agent chat history and clears it independently', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-history-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        const messages: ChatMessage[] = [
+            {
+                id: 'msg-1',
+                role: 'user',
+                content: 'hello swarm',
+                timestamp: '2026-03-12T00:00:00.000Z',
+                agentId: 'alpha'
+            },
+            {
+                id: 'msg-2',
+                role: 'assistant',
+                content: 'hello back',
+                timestamp: '2026-03-12T00:00:01.000Z',
+                agentId: 'alpha'
+            }
+        ];
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'History Swarm',
+                agentIds: ['alpha', 'beta']
+            });
+
+            await manager.replaceClusterAgentMessages(cluster.id, 'alpha', messages);
+            assert.deepEqual(
+                (await manager.getClusterAgentMessages(cluster.id, 'alpha')).map(toComparableMessage),
+                messages.map(toComparableMessage)
+            );
+
+            const reloadedManager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+            try {
+                assert.deepEqual(
+                    (await reloadedManager.getClusterAgentMessages(cluster.id, 'alpha')).map(toComparableMessage),
+                    messages.map(toComparableMessage)
+                );
+                await reloadedManager.clearClusterAgentMessages(cluster.id, 'alpha');
+                assert.deepEqual(await reloadedManager.getClusterAgentMessages(cluster.id, 'alpha'), []);
+            } finally {
+                reloadedManager.dispose();
+            }
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
+
+    test('persists swarm session ids and swarm chat history for reload', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-swarm-history-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        const swarmMessages: ChatMessage[] = [
+            {
+                id: 'swarm-user-1',
+                role: 'user',
+                content: 'coordinate a release',
+                timestamp: '2026-03-12T00:00:00.000Z',
+                contextLabel: 'Collaborate'
+            },
+            {
+                id: 'swarm-assistant-1',
+                role: 'assistant',
+                content: 'release plan',
+                timestamp: '2026-03-12T00:00:01.000Z',
+                displayName: 'ALPHA (fake-model)',
+                contextLabel: 'Opening positions'
+            }
+        ];
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Persistent Swarm',
+                agentIds: ['alpha', 'beta']
+            });
+
+            await manager.collaborateOnCluster(cluster.id, 'Coordinate a release.');
+            await manager.replaceClusterSwarmMessages(cluster.id, 'collaborate', swarmMessages);
+
+            const persistedFile = JSON.parse(await fs.readFile(storagePath, 'utf8')) as {
+                swarmSessions?: Record<string, string>;
+            };
+            assert.ok(
+                Object.keys(persistedFile.swarmSessions || {}).some(key => key.includes(`${cluster.id}:swarm:collaborate:agent:alpha`)),
+                'expected persisted swarm session ids to include the collaborate lane'
+            );
+
+            const reloadedManager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+            try {
+                assert.deepEqual(
+                    (await reloadedManager.getClusterSwarmMessages(cluster.id, 'collaborate')).map(toComparableMessage),
+                    swarmMessages.map(toComparableMessage)
+                );
+            } finally {
+                reloadedManager.dispose();
+            }
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
+
+    test('reads internal swarm logs for a specific cluster agent', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-agent-swarm-log-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Inspectable Swarm',
+                agentIds: ['alpha', 'beta']
+            });
+
+            await manager.collaborateOnCluster(cluster.id, 'Inspect the internal debate.');
+
+            const alphaMessages = await manager.getClusterAgentSwarmMessages(cluster.id, 'alpha', 'collaborate');
+            assert.ok(alphaMessages.some(message => message.role === 'user'));
+            assert.ok(alphaMessages.some(message => /alpha/i.test(message.content)));
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
 });
 
 type DebateStage =
@@ -309,4 +440,16 @@ function buildFakeResponse(agentId: string, stage: DebateStage): string {
         default:
             return `${agentId} response`;
     }
+}
+
+function toComparableMessage(message: ChatMessage) {
+    return {
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        timestamp: message.timestamp,
+        agentId: message.agentId,
+        displayName: message.displayName,
+        contextLabel: message.contextLabel
+    };
 }

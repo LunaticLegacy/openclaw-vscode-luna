@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project follows Semantic Versioning.
 
+## [0.6.1] - 2026-03-11
+
+This version is a pre-release for v0.7.0, I think.
+
+### Added
+- Attempting to implement everything that mentioned in [P0.md](./P0.md).
+- Skill Market enabled.
+- Agent Folder enabled.
+- Agent Swarm's chat record is exportable now.
+
+### Fixed
+- Fixed the light bulb's function at sidebar.
+- Fixed the issue of chat record lost when using Swarm.
+
 ## [0.6.0] - 2026-03-11
 
 ### Added

@@ -1,5 +1,6 @@
 ﻿import * as fs from 'fs';
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { getClusterWorkModePresets } from '../config/clusterWorkModes';
 import { getAiSkills } from '../config/aiSkills';
 import { getCurrentLocale, t, MESSAGES } from '../i18n';
@@ -55,6 +56,8 @@ import {
     handleRemoveAgentsFromCluster as removeAgentsFromClusterAction,
     handleSaveCluster as saveClusterAction,
     loadClusterAgentMessages as loadClusterAgentMessagesAction,
+    loadClusterAgentSwarmMessages as loadClusterAgentSwarmMessagesAction,
+    loadClusterSwarmMessages as loadClusterSwarmMessagesAction,
     loadClusters as loadClustersAction,
     promptBroadcastToCluster as promptBroadcastToClusterAction,
     promptCollaborateCluster as promptCollaborateClusterAction
@@ -82,6 +85,11 @@ import { handlePanelMessage } from './openclawPanel/messageRouter';
 const SESSION_SYNC_INTERVAL_MS = 450;
 const CHANNEL_SYNC_INTERVAL_MS = 450;
 const OPENCLAW_LUNA_ISSUES_URL = 'https://github.com/LunaticLegacy/openclaw-vscode-luna/issues';
+
+function sanitizeFileSegment(value: string): string {
+    const normalized = String(value || '').trim().replace(/[<>:"/\\|?*\x00-\x1f]+/g, '-');
+    return normalized.replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'openclaw';
+}
 
 export class OpenClawPanel {
     public static currentPanel: OpenClawPanel | undefined;
@@ -390,9 +398,7 @@ export class OpenClawPanel {
             });
         }
         this._postRunState('chat', true);
-        if (!this._service.providesAgentActivityStatus()) {
-            this._agentManager.beginAgentRun(targetAgentId);
-        }
+        this._agentManager.beginAgentRun(targetAgentId);
 
         try {
             const config = vscode.workspace.getConfiguration('openclaw');
@@ -467,9 +473,7 @@ export class OpenClawPanel {
                 });
             }
         } finally {
-            if (!this._service.providesAgentActivityStatus()) {
-                this._agentManager.endAgentRun(targetAgentId);
-            }
+            this._agentManager.endAgentRun(targetAgentId);
             if (this._isCurrentChatRun(chatRunToken, targetAgentId, sessionId)) {
                 this._postRunState('chat', false);
             }
@@ -583,7 +587,7 @@ export class OpenClawPanel {
     }
 
     private _stopActiveChatRun() {
-        if (!this._service.providesAgentActivityStatus() && this._currentAgentId) {
+        if (this._currentAgentId) {
             this._agentManager.endAgentRun(this._currentAgentId);
         }
         this._chatRunToken += 1;
@@ -837,12 +841,141 @@ export class OpenClawPanel {
         await loadClusterAgentMessagesAction(this._createClusterActionContext(), clusterId, agentId);
     }
 
+    private async _loadClusterAgentSwarmMessages(
+        clusterId: string,
+        agentId: string,
+        mode: 'broadcast' | 'collaborate'
+    ) {
+        await loadClusterAgentSwarmMessagesAction(this._createClusterActionContext(), clusterId, agentId, mode);
+    }
+
+    private async _loadClusterSwarmMessages(clusterId: string, mode: 'broadcast' | 'collaborate') {
+        await loadClusterSwarmMessagesAction(this._createClusterActionContext(), clusterId, mode);
+    }
+
     private async _handleClusterAgentMessage(clusterId: string, agentId: string, content: string) {
         await clusterAgentMessageAction(this._createClusterActionContext(), clusterId, agentId, content);
     }
 
     private async _handleClusterAgentSessionCommand(clusterId: string, agentId: string, command: 'new' | 'clear') {
         await clusterAgentSessionCommandAction(this._createClusterActionContext(), clusterId, agentId, command);
+    }
+
+    private async _exportClusterConversation(options: {
+        clusterId: string;
+        targetKind: 'swarm' | 'agent';
+        mode?: 'broadcast' | 'collaborate';
+        agentId?: string;
+        agentViewMode?: 'chat' | 'broadcast' | 'collaborate';
+    }) {
+        const clusterId = String(options.clusterId || '').trim();
+        if (!clusterId) {
+            return;
+        }
+
+        try {
+            const cluster = await this._clusterManager.getCluster(clusterId);
+            if (!cluster) {
+                throw new Error(t('clusterManager.notFound', { clusterId }));
+            }
+
+            const exportPayload = options.targetKind === 'agent'
+                ? await this._buildClusterAgentContextExport(clusterId, cluster, String(options.agentId || '').trim(), options.agentViewMode)
+                : await this._buildClusterSwarmContextExport(clusterId, cluster, options.mode === 'collaborate' ? 'collaborate' : 'broadcast');
+
+            const targetUri = await vscode.window.showSaveDialog({
+                defaultUri: vscode.Uri.file(this._buildClusterExportDefaultPath(exportPayload.fileName)),
+                filters: {
+                    JSON: ['json']
+                }
+            });
+
+            if (!targetUri) {
+                return;
+            }
+
+            await vscode.workspace.fs.writeFile(
+                targetUri,
+                Buffer.from(JSON.stringify(exportPayload.body, null, 2), 'utf8')
+            );
+            showSuccessStatus(t('clusters.exportedContext', { name: path.basename(targetUri.fsPath) }));
+        } catch (error) {
+            vscode.window.showErrorMessage(t('clusters.exportFailed', { error: String(error) }));
+        }
+    }
+
+    private async _buildClusterSwarmContextExport(
+        clusterId: string,
+        cluster: AgentCluster,
+        mode: 'broadcast' | 'collaborate'
+    ): Promise<{ fileName: string; body: Record<string, unknown> }> {
+        const messages = await this._clusterManager.getClusterSwarmMessages(clusterId, mode);
+        return {
+            fileName: `${sanitizeFileSegment(cluster.name)}-swarm-${mode}-context.json`,
+            body: {
+                exportedAt: new Date().toISOString(),
+                kind: 'cluster-swarm-context',
+                cluster: {
+                    id: cluster.id,
+                    name: cluster.name,
+                    agentIds: [...cluster.agentIds]
+                },
+                mode,
+                messageCount: messages.length,
+                messages
+            }
+        };
+    }
+
+    private async _buildClusterAgentContextExport(
+        clusterId: string,
+        cluster: AgentCluster,
+        agentId: string,
+        currentView: 'chat' | 'broadcast' | 'collaborate' = 'chat'
+    ): Promise<{ fileName: string; body: Record<string, unknown> }> {
+        if (!agentId) {
+            throw new Error(t('panel.failedLoadContext', { error: 'Missing agent id' }));
+        }
+
+        const [agent, snapshot] = await Promise.all([
+            this._agentManager.getAgent(agentId),
+            this._clusterManager.getClusterAgentContextSnapshot(clusterId, agentId)
+        ]);
+
+        return {
+            fileName: `${sanitizeFileSegment(cluster.name)}-${sanitizeFileSegment(agent?.name || agentId)}-context.json`,
+            body: {
+                exportedAt: new Date().toISOString(),
+                kind: 'cluster-agent-context',
+                cluster: {
+                    id: cluster.id,
+                    name: cluster.name,
+                    agentIds: [...cluster.agentIds]
+                },
+                agent: {
+                    id: agentId,
+                    name: agent?.name || agentId,
+                    model: agent?.model || null
+                },
+                currentView,
+                messageCounts: {
+                    direct: snapshot.directMessages.length,
+                    broadcast: snapshot.broadcastMessages.length,
+                    collaborate: snapshot.collaborateMessages.length
+                },
+                conversations: {
+                    direct: snapshot.directMessages,
+                    broadcast: snapshot.broadcastMessages,
+                    collaborate: snapshot.collaborateMessages
+                }
+            }
+        };
+    }
+
+    private _buildClusterExportDefaultPath(fileName: string): string {
+        const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+            || path.dirname(this._extensionUri.fsPath);
+        return path.join(workspacePath, fileName);
     }
 
     private _handleStopActiveRun(scope: unknown) {
@@ -982,8 +1115,8 @@ export class OpenClawPanel {
             loadClusters: this._loadClusters.bind(this),
             showClusterView: this.showClusterView.bind(this),
             getCurrentAgentId: () => this._currentAgentId,
-            beginAgentRun: (agentId: string) => !this._service.providesAgentActivityStatus() && this._agentManager.beginAgentRun(agentId),
-            endAgentRun: (agentId: string) => !this._service.providesAgentActivityStatus() && this._agentManager.endAgentRun(agentId),
+            beginAgentRun: (agentId: string) => this._agentManager.beginAgentRun(agentId),
+            endAgentRun: (agentId: string) => this._agentManager.endAgentRun(agentId),
             nextClusterSwarmRunToken: () => ++this._clusterSwarmRunToken,
             getClusterSwarmRunToken: () => this._clusterSwarmRunToken,
             nextClusterAgentRunToken: () => ++this._clusterAgentRunToken,
@@ -1055,7 +1188,10 @@ export class OpenClawPanel {
             handleSendMessage: this._handleSendMessage.bind(this),
             handleStopActiveRun: this._handleStopActiveRun.bind(this),
             activateAgent: this._activateAgent.bind(this),
+            loadClusterSwarmMessages: this._loadClusterSwarmMessages.bind(this),
             loadClusterAgentMessages: this._loadClusterAgentMessages.bind(this),
+            loadClusterAgentSwarmMessages: this._loadClusterAgentSwarmMessages.bind(this),
+            exportClusterConversation: this._exportClusterConversation.bind(this),
             clearChat: this._clearChat.bind(this),
             refreshAgents: this.refreshAgents.bind(this),
             handleCreateAgent: this._handleCreateAgent.bind(this),

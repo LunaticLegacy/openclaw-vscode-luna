@@ -67,11 +67,20 @@ export interface ClusterCollaborationResult {
     synthesis: ClusterBroadcastResult | null;
 }
 
+export interface ClusterAgentContextSnapshot {
+    directMessages: ChatMessage[];
+    broadcastMessages: ChatMessage[];
+    collaborateMessages: ChatMessage[];
+}
+
 interface PersistedClustersFile {
     version: number;
     clusters: AgentCluster[];
     workspaceConfigs?: Record<string, ClusterWorkspaceConfig>;
     clusterAgentSessions?: Record<string, string>;
+    clusterAgentMessages?: Record<string, ChatMessage[]>;
+    swarmSessions?: Record<string, string>;
+    clusterSwarmMessages?: Record<string, ChatMessage[]>;
 }
 
 export class ClusterManager extends EventEmitter {
@@ -79,6 +88,8 @@ export class ClusterManager extends EventEmitter {
     private clusters: Map<string, AgentCluster> = new Map();
     private workspaceConfigs: Map<string, ClusterWorkspaceConfig> = new Map();
     private clusterAgentSessionIds: Map<string, string> = new Map();
+    private clusterAgentMessages: Map<string, ChatMessage[]> = new Map();
+    private clusterSwarmMessages: Map<string, ChatMessage[]> = new Map();
     private storageFilePath: string;
     private persistedStateLoaded = false;
     private persistedStateLoadPromise: Promise<void> | null = null;
@@ -237,6 +248,8 @@ export class ClusterManager extends EventEmitter {
             this.clusters.delete(clusterId);
             this.workspaceConfigs.delete(clusterId);
             this.clearClusterAgentSessionsForCluster(clusterId);
+            this.clearClusterAgentMessagesForCluster(clusterId);
+            this.clearClusterSwarmMessagesForCluster(clusterId);
             this.clearSwarmSessionsForCluster(clusterId);
             await this.persistState();
             return;
@@ -246,6 +259,8 @@ export class ClusterManager extends EventEmitter {
         this.clusters.delete(clusterId);
         this.workspaceConfigs.delete(clusterId);
         this.clearClusterAgentSessionsForCluster(clusterId);
+        this.clearClusterAgentMessagesForCluster(clusterId);
+        this.clearClusterSwarmMessagesForCluster(clusterId);
         this.clearSwarmSessionsForCluster(clusterId);
         await this.persistState();
         this.emit('clusterDeleted', clusterId);
@@ -476,6 +491,97 @@ export class ClusterManager extends EventEmitter {
         return sessionId;
     }
 
+    public async getClusterAgentMessages(clusterId: string, agentId: string): Promise<ChatMessage[]> {
+        await this.ensurePersistedStateLoaded();
+        return cloneChatMessages(
+            this.clusterAgentMessages.get(this.buildClusterAgentSessionStorageKey(clusterId, agentId)) || []
+        );
+    }
+
+    public async replaceClusterAgentMessages(clusterId: string, agentId: string, messages: ChatMessage[]): Promise<void> {
+        await this.ensurePersistedStateLoaded();
+        const key = this.buildClusterAgentSessionStorageKey(clusterId, agentId);
+        const normalizedMessages = normalizePersistedChatMessages(messages);
+
+        if (normalizedMessages.length > 0) {
+            this.clusterAgentMessages.set(key, normalizedMessages);
+        } else {
+            this.clusterAgentMessages.delete(key);
+        }
+
+        await this.persistState();
+    }
+
+    public async clearClusterAgentMessages(clusterId: string, agentId: string): Promise<void> {
+        await this.ensurePersistedStateLoaded();
+        const key = this.buildClusterAgentSessionStorageKey(clusterId, agentId);
+        if (!this.clusterAgentMessages.delete(key)) {
+            return;
+        }
+
+        await this.persistState();
+    }
+
+    public async getClusterAgentSwarmMessages(
+        clusterId: string,
+        agentId: string,
+        mode: 'broadcast' | 'collaborate'
+    ): Promise<ChatMessage[]> {
+        await this.ensurePersistedStateLoaded();
+        const sessionId = this.swarmSessionIds.get(this.buildSwarmSessionKey(clusterId, mode, agentId));
+        if (!sessionId) {
+            return [];
+        }
+
+        const messages = await this.service.getChatHistory(sessionId).catch(() => []);
+        return cloneChatMessages(messages);
+    }
+
+    public async getClusterAgentContextSnapshot(
+        clusterId: string,
+        agentId: string
+    ): Promise<ClusterAgentContextSnapshot> {
+        const [directMessages, broadcastMessages, collaborateMessages] = await Promise.all([
+            this.getClusterAgentMessages(clusterId, agentId),
+            this.getClusterAgentSwarmMessages(clusterId, agentId, 'broadcast'),
+            this.getClusterAgentSwarmMessages(clusterId, agentId, 'collaborate')
+        ]);
+
+        return {
+            directMessages,
+            broadcastMessages,
+            collaborateMessages
+        };
+    }
+
+    public async getClusterSwarmMessages(
+        clusterId: string,
+        mode: 'broadcast' | 'collaborate'
+    ): Promise<ChatMessage[]> {
+        await this.ensurePersistedStateLoaded();
+        return cloneChatMessages(
+            this.clusterSwarmMessages.get(this.buildClusterSwarmStorageKey(clusterId, mode)) || []
+        );
+    }
+
+    public async replaceClusterSwarmMessages(
+        clusterId: string,
+        mode: 'broadcast' | 'collaborate',
+        messages: ChatMessage[]
+    ): Promise<void> {
+        await this.ensurePersistedStateLoaded();
+        const key = this.buildClusterSwarmStorageKey(clusterId, mode);
+        const normalizedMessages = normalizePersistedChatMessages(messages);
+
+        if (normalizedMessages.length > 0) {
+            this.clusterSwarmMessages.set(key, normalizedMessages);
+        } else {
+            this.clusterSwarmMessages.delete(key);
+        }
+
+        await this.persistState();
+    }
+
     public async refresh(): Promise<AgentCluster[]> {
         return this.getClusters(true);
     }
@@ -485,6 +591,8 @@ export class ClusterManager extends EventEmitter {
         this.clusters.clear();
         this.workspaceConfigs.clear();
         this.clusterAgentSessionIds.clear();
+        this.clusterAgentMessages.clear();
+        this.clusterSwarmMessages.clear();
         this.persistedStateLoaded = false;
         this.persistedStateLoadPromise = null;
         this.swarmSessionIds.clear();
@@ -510,6 +618,9 @@ export class ClusterManager extends EventEmitter {
             }
             this.workspaceConfigs.clear();
             this.clusterAgentSessionIds.clear();
+            this.clusterAgentMessages.clear();
+            this.clusterSwarmMessages.clear();
+            this.swarmSessionIds.clear();
 
             try {
                 const content = await fs.readFile(this.storageFilePath, 'utf8');
@@ -551,6 +662,44 @@ export class ClusterManager extends EventEmitter {
 
                     this.clusterAgentSessionIds.set(normalizedSessionKey, normalizedSessionId);
                 }
+
+                for (const [messageKey, messages] of Object.entries(data.clusterAgentMessages || {})) {
+                    const normalizedMessageKey = String(messageKey || '').trim();
+                    if (!normalizedMessageKey) {
+                        continue;
+                    }
+
+                    const normalizedMessages = normalizePersistedChatMessages(messages);
+                    if (normalizedMessages.length === 0) {
+                        continue;
+                    }
+
+                    this.clusterAgentMessages.set(normalizedMessageKey, normalizedMessages);
+                }
+
+                for (const [sessionKey, sessionId] of Object.entries(data.swarmSessions || {})) {
+                    const normalizedSessionKey = String(sessionKey || '').trim();
+                    const normalizedSessionId = String(sessionId || '').trim();
+                    if (!normalizedSessionKey || !normalizedSessionId) {
+                        continue;
+                    }
+
+                    this.swarmSessionIds.set(normalizedSessionKey, normalizedSessionId);
+                }
+
+                for (const [messageKey, messages] of Object.entries(data.clusterSwarmMessages || {})) {
+                    const normalizedMessageKey = String(messageKey || '').trim();
+                    if (!normalizedMessageKey) {
+                        continue;
+                    }
+
+                    const normalizedMessages = normalizePersistedChatMessages(messages);
+                    if (normalizedMessages.length === 0) {
+                        continue;
+                    }
+
+                    this.clusterSwarmMessages.set(normalizedMessageKey, normalizedMessages);
+                }
             } catch (error) {
                 const maybeNodeError = error as NodeJS.ErrnoException;
                 if (maybeNodeError.code !== 'ENOENT') {
@@ -570,10 +719,23 @@ export class ClusterManager extends EventEmitter {
 
     private async persistState(): Promise<void> {
         const payload: PersistedClustersFile = {
-            version: 3,
+            version: 5,
             clusters: Array.from(this.clusters.values()).map(cluster => this.applyWorkspaceConfig(cluster)),
             workspaceConfigs: Object.fromEntries(this.workspaceConfigs.entries()),
-            clusterAgentSessions: Object.fromEntries(this.clusterAgentSessionIds.entries())
+            clusterAgentSessions: Object.fromEntries(this.clusterAgentSessionIds.entries()),
+            clusterAgentMessages: Object.fromEntries(
+                Array.from(this.clusterAgentMessages.entries()).map(([key, messages]) => [
+                    key,
+                    cloneChatMessages(messages)
+                ])
+            ),
+            swarmSessions: Object.fromEntries(this.swarmSessionIds.entries()),
+            clusterSwarmMessages: Object.fromEntries(
+                Array.from(this.clusterSwarmMessages.entries()).map(([key, messages]) => [
+                    key,
+                    cloneChatMessages(messages)
+                ])
+            )
         };
 
         await fs.mkdir(path.dirname(this.storageFilePath), { recursive: true });
@@ -657,6 +819,7 @@ export class ClusterManager extends EventEmitter {
 
         const session = await this.service.createChatSession(agentId);
         this.swarmSessionIds.set(key, session.id);
+        await this.persistState();
         return session.id;
     }
 
@@ -673,6 +836,10 @@ export class ClusterManager extends EventEmitter {
         }
     }
 
+    private buildClusterSwarmStorageKey(clusterId: string, mode: 'broadcast' | 'collaborate'): string {
+        return `${clusterId.trim()}::swarm::${mode}`;
+    }
+
     private buildClusterAgentSessionStorageKey(clusterId: string, agentId: string): string {
         return `${clusterId.trim()}::${agentId.trim()}`;
     }
@@ -686,12 +853,49 @@ export class ClusterManager extends EventEmitter {
         }
     }
 
+    private clearClusterAgentMessagesForCluster(clusterId: string): void {
+        const prefix = `${clusterId.trim()}::`;
+        for (const key of this.clusterAgentMessages.keys()) {
+            if (key.startsWith(prefix)) {
+                this.clusterAgentMessages.delete(key);
+            }
+        }
+    }
+
+    private clearClusterSwarmMessagesForCluster(clusterId: string): void {
+        const prefix = `${clusterId.trim()}::swarm::`;
+        for (const key of this.clusterSwarmMessages.keys()) {
+            if (key.startsWith(prefix)) {
+                this.clusterSwarmMessages.delete(key);
+            }
+        }
+    }
+
     private reconcileClusterAgentSessions(clusterId: string, agentIds: string[]): void {
         const allowed = new Set(agentIds.map(agentId => this.buildClusterAgentSessionStorageKey(clusterId, agentId)));
         const prefix = `${clusterId.trim()}::`;
         for (const key of this.clusterAgentSessionIds.keys()) {
             if (key.startsWith(prefix) && !allowed.has(key)) {
                 this.clusterAgentSessionIds.delete(key);
+            }
+        }
+
+        for (const key of this.clusterAgentMessages.keys()) {
+            if (key.startsWith(prefix) && !allowed.has(key)) {
+                this.clusterAgentMessages.delete(key);
+            }
+        }
+
+        const swarmSessionPrefix = `cluster:${clusterId}:`;
+        const allowedSwarmSessionSuffixes = new Set(
+            agentIds.flatMap(agentId => [
+                this.buildSwarmSessionKey(clusterId, 'broadcast', agentId),
+                this.buildSwarmSessionKey(clusterId, 'collaborate', agentId)
+            ])
+        );
+        for (const key of this.swarmSessionIds.keys()) {
+            if (key.startsWith(swarmSessionPrefix) && !allowedSwarmSessionSuffixes.has(key)) {
+                this.swarmSessionIds.delete(key);
             }
         }
     }
@@ -819,13 +1023,78 @@ export class ClusterManager extends EventEmitter {
 }
 
 function buildClusterAgentSessionId(clusterId: string, agentId: string): string {
-    return `cluster:${clusterId.trim()}:agent:${agentId.trim()}:session:${Date.now()}`;
+    return `cluster:${clusterId.trim()}:agent:${agentId.trim()}:session:${buildUniqueTimestampSuffix()}`;
+}
+
+function normalizePersistedChatMessages(messages: ChatMessage[] | undefined | null): ChatMessage[] {
+    if (!Array.isArray(messages)) {
+        return [];
+    }
+
+    const normalized: ChatMessage[] = [];
+    for (const message of messages) {
+        if (!message || typeof message !== 'object') {
+            continue;
+        }
+
+        const id = typeof message.id === 'string' ? message.id.trim() : '';
+        const role = isChatMessageRole(message.role) ? message.role : null;
+        const content = typeof message.content === 'string' ? message.content : '';
+        const timestamp = typeof message.timestamp === 'string' ? message.timestamp : '';
+
+        if (!id || !role || !timestamp) {
+            continue;
+        }
+
+        normalized.push({
+            ...message,
+            id,
+            role,
+            content,
+            timestamp,
+            agentId: typeof message.agentId === 'string' ? message.agentId : undefined,
+            tokenCount: typeof message.tokenCount === 'number' ? message.tokenCount : undefined,
+            parts: Array.isArray(message.parts) ? [...message.parts] : undefined,
+            metadata: isRecord(message.metadata) ? { ...message.metadata } : undefined
+        });
+    }
+
+    return normalized;
+}
+
+function cloneChatMessages(messages: ChatMessage[]): ChatMessage[] {
+    return normalizePersistedChatMessages(messages);
+}
+
+function isChatMessageRole(value: unknown): value is ChatMessage['role'] {
+    return value === 'user' || value === 'assistant' || value === 'system' || value === 'tool';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function buildClusterId(name: string): string {
     const normalized = name.trim().toLowerCase().replace(/[^a-z0-9-_]+/g, '-').replace(/-+/g, '-');
     const safeName = normalized.replace(/^-|-$/g, '') || 'cluster';
-    return `cluster:${safeName}:${Date.now()}`;
+    return `cluster:${safeName}:${buildUniqueTimestampSuffix()}`;
+}
+
+let lastGeneratedTimestamp = 0;
+let generatedTimestampCounter = 0;
+
+function buildUniqueTimestampSuffix(): string {
+    const now = Date.now();
+    if (now === lastGeneratedTimestamp) {
+        generatedTimestampCounter += 1;
+    } else {
+        lastGeneratedTimestamp = now;
+        generatedTimestampCounter = 0;
+    }
+
+    return generatedTimestampCounter > 0
+        ? `${now}-${generatedTimestampCounter}`
+        : String(now);
 }
 
 function uniqueAgentIds(agentIds: string[]): string[] {

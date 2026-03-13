@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { t } from '../i18n';
 import { AgentManager } from '../managers/agentManager';
 import { Agent } from '../services/openclawService';
+import { getAgentStatusIndicator } from './statusIndicators';
 
 export class AgentTreeItem extends vscode.TreeItem {
     constructor(
@@ -14,13 +15,8 @@ export class AgentTreeItem extends vscode.TreeItem {
         this.tooltip = `${agent.name} (${agent.model})`;
         this.description = agent.model;
 
-        if (agent.status === 'active') {
-            this.iconPath = new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('testing.iconPassed'));
-        } else if (agent.status === 'offline') {
-            this.iconPath = new vscode.ThemeIcon('circle-slash', new vscode.ThemeColor('disabledForeground'));
-        } else {
-            this.iconPath = new vscode.ThemeIcon('circle-outline', new vscode.ThemeColor('descriptionForeground'));
-        }
+        const indicator = getAgentStatusIndicator(agent.status);
+        this.iconPath = new vscode.ThemeIcon(indicator.iconId, new vscode.ThemeColor(indicator.colorId));
 
         this.contextValue = 'agent';
         this.command = {

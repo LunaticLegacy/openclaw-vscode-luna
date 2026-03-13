@@ -40,6 +40,8 @@ export interface ChatMessage {
     role: 'user' | 'assistant' | 'system' | 'tool';
     content: string;
     timestamp: string;
+    displayName?: string;
+    contextLabel?: string;
     agentId?: string;
     tokenCount?: number;
     parts?: ChatMessagePart[];

@@ -95,6 +95,9 @@
             if (elements.btnEditCluster) {
                 elements.btnEditCluster.disabled = true;
             }
+            if (elements.btnExportClusterContext) {
+                elements.btnExportClusterContext.disabled = true;
+            }
             if (elements.clusterWorkmodeSummary) {
                 elements.clusterWorkmodeSummary.innerHTML = '';
             }
@@ -127,10 +130,14 @@
         if (elements.btnEditCluster) {
             elements.btnEditCluster.disabled = false;
         }
+        if (elements.btnExportClusterContext) {
+            elements.btnExportClusterContext.disabled = false;
+        }
         renderClusterWorkmodeSummary(cluster);
 
         renderClusterTargetTabs(cluster);
         renderClusterModeTabs();
+        ensureCurrentClusterConversationLoaded(cluster);
         renderClusterTopology(cluster);
         renderCurrentClusterConversation();
         updateClusterInputState(cluster);
@@ -149,7 +156,13 @@
         const target = getCurrentClusterTargetInfo(cluster);
         const modeLabel = target.kind === 'swarm'
             ? (window.OpenClawI18n ? window.OpenClawI18n.t(target.mode === 'broadcast' ? 'clusters.broadcast' : 'clusters.collaborate') : target.mode)
-            : 'Direct';
+            : (window.OpenClawI18n ? window.OpenClawI18n.t(
+                target.agentViewMode === 'chat'
+                    ? 'clusters.agentViewChat'
+                    : target.agentViewMode === 'broadcast'
+                        ? 'clusters.agentViewBroadcast'
+                        : 'clusters.agentViewCollaborate'
+            ) : target.agentViewMode);
         const collapsed = Boolean(state.clusterTopologyCollapsed);
         const toggleLabel = collapsed ? 'Expand topology view' : 'Collapse topology view';
         const toggleSymbol = collapsed ? '&#9654;' : '&#9660;';
@@ -230,21 +243,34 @@
             return;
         }
 
-        if (state.currentClusterTargetKind !== 'swarm') {
-            elements.clusterModeTabs.innerHTML = '';
-            elements.clusterModeTabs.classList.add('hidden');
+        elements.clusterModeTabs.classList.remove('hidden');
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        if (state.currentClusterTargetKind === 'swarm') {
+            elements.clusterModeTabs.innerHTML = ['broadcast', 'collaborate'].map(mode => `
+                <button
+                    class="cluster-mode-tab ${state.currentClusterSwarmMode === mode ? 'active' : ''}"
+                    type="button"
+                    data-cluster-mode="${mode}"
+                >
+                    ${escapeHtml(t(mode === 'broadcast' ? 'clusters.broadcast' : 'clusters.collaborate'))}
+                </button>
+            `).join('');
             return;
         }
 
-        elements.clusterModeTabs.classList.remove('hidden');
-        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
-        elements.clusterModeTabs.innerHTML = ['broadcast', 'collaborate'].map(mode => `
+        elements.clusterModeTabs.innerHTML = ['chat', 'broadcast', 'collaborate'].map(mode => `
             <button
-                class="cluster-mode-tab ${state.currentClusterSwarmMode === mode ? 'active' : ''}"
+                class="cluster-mode-tab ${state.currentClusterAgentViewMode === mode ? 'active' : ''}"
                 type="button"
-                data-cluster-mode="${mode}"
+                data-cluster-agent-view-mode="${mode}"
             >
-                ${escapeHtml(t(mode === 'broadcast' ? 'clusters.broadcast' : 'clusters.collaborate'))}
+                ${escapeHtml(t(
+                    mode === 'chat'
+                        ? 'clusters.agentViewChat'
+                        : mode === 'broadcast'
+                            ? 'clusters.agentViewBroadcast'
+                            : 'clusters.agentViewCollaborate'
+                ))}
             </button>
         `).join('');
     }
@@ -306,11 +332,13 @@
                 return;
             }
 
-            if (shouldAppendToTrace(msg)) {
+            if (shouldAppendToClusterTrace(msg)) {
                 const currentEntry = entries[entries.length - 1];
+                const batchKey = getClusterTraceBatchKey(msg);
                 const shouldReuseTraceEntry = currentEntry?.kind === 'trace'
                     && currentEntry.displayName === (msg.displayName || '')
-                    && currentEntry.contextLabel === (msg.contextLabel || '');
+                    && currentEntry.contextLabel === (msg.contextLabel || '')
+                    && currentEntry.batchKey === batchKey;
 
                 if (shouldReuseTraceEntry) {
                     currentEntry.messages.push(msg);
@@ -321,6 +349,7 @@
                     kind: 'trace',
                     displayName: msg.displayName || '',
                     contextLabel: msg.contextLabel || '',
+                    batchKey,
                     messages: [msg]
                 });
                 return;
@@ -333,6 +362,24 @@
         });
 
         return entries;
+    }
+
+    function shouldAppendToClusterTrace(msg) {
+        if (msg?.role === 'tool') {
+            return true;
+        }
+
+        if (msg?.role !== 'assistant') {
+            return false;
+        }
+
+        return Boolean(msg.displayName)
+            || Boolean(msg.contextLabel)
+            || isToolUseMessage(msg);
+    }
+
+    function getClusterTraceBatchKey(msg) {
+        return String(msg?.metadata?.swarmBatchId || '');
     }
 
     function sanitizeClusterConversationMessages(messages) {
@@ -478,7 +525,8 @@
     function updateClusterInputState(cluster) {
         const target = getCurrentClusterTargetInfo(cluster);
         const conversation = ensureClusterConversation(target.key);
-        const disabled = !cluster || conversation.loading || conversation.pending;
+        const readOnlyAgentLog = target.kind === 'agent' && target.agentViewMode !== 'chat';
+        const disabled = !cluster || conversation.loading || conversation.pending || readOnlyAgentLog;
 
         if (elements.clusterMessageInput) {
             elements.clusterMessageInput.disabled = disabled;
@@ -490,7 +538,7 @@
         }
 
         if (elements.btnStopCluster) {
-            const canStop = Boolean(cluster) && (conversation.loading || conversation.pending);
+            const canStop = Boolean(cluster) && !readOnlyAgentLog && (conversation.loading || conversation.pending);
             elements.btnStopCluster.classList.toggle('hidden', !canStop);
             elements.btnStopCluster.disabled = !canStop;
         }
@@ -498,6 +546,44 @@
         if (elements.clusterTargetHint) {
             elements.clusterTargetHint.textContent = getClusterTargetHint(cluster, target);
         }
+    }
+
+    function ensureCurrentClusterConversationLoaded(cluster) {
+        if (!cluster) {
+            return;
+        }
+
+        const target = getCurrentClusterTargetInfo(cluster);
+        const conversation = ensureClusterConversation(target.key);
+        if (conversation.loaded || conversation.loading) {
+            return;
+        }
+
+        conversation.loading = true;
+        if (target.kind === 'swarm') {
+            vscode.postMessage({
+                type: 'loadClusterSwarmMessages',
+                clusterId: cluster.id,
+                mode: target.mode
+            });
+            return;
+        }
+
+        if (target.agentViewMode === 'chat') {
+            vscode.postMessage({
+                type: 'loadClusterAgentMessages',
+                clusterId: cluster.id,
+                agentId: target.agentId
+            });
+            return;
+        }
+
+        vscode.postMessage({
+            type: 'loadClusterAgentSwarmMessages',
+            clusterId: cluster.id,
+            agentId: target.agentId,
+            mode: target.agentViewMode
+        });
     }
 
     function selectCluster(clusterId, options = {}) {
@@ -514,30 +600,10 @@
     }
 
     function selectClusterTarget(targetKind, agentId) {
-        const cluster = getCurrentCluster();
-        if (!cluster) {
-            return;
-        }
-
         if (targetKind === 'agent' && agentId) {
             state.currentClusterTargetKind = 'agent';
             state.currentClusterAgentId = agentId;
-
-            const conversation = ensureClusterConversation(getClusterConversationKey(cluster.id, {
-                targetKind: 'agent',
-                agentId
-            }));
-
-            if (!conversation.loaded && !conversation.loading) {
-                conversation.loading = true;
-                renderClusterWorkspace();
-                vscode.postMessage({
-                    type: 'loadClusterAgentMessages',
-                    clusterId: cluster.id,
-                    agentId
-                });
-                return;
-            }
+            state.currentClusterAgentViewMode = state.currentClusterSwarmMode || 'collaborate';
         } else {
             state.currentClusterTargetKind = 'swarm';
         }
@@ -552,6 +618,32 @@
 
         state.currentClusterSwarmMode = mode;
         renderClusterWorkspace();
+    }
+
+    function selectClusterAgentViewMode(mode) {
+        if (!['chat', 'broadcast', 'collaborate'].includes(mode)) {
+            return;
+        }
+
+        state.currentClusterAgentViewMode = mode;
+        renderClusterWorkspace();
+    }
+
+    function exportCurrentClusterConversation() {
+        const cluster = getCurrentCluster();
+        if (!cluster) {
+            return;
+        }
+
+        const target = getCurrentClusterTargetInfo(cluster);
+        vscode.postMessage({
+            type: 'exportClusterConversation',
+            clusterId: cluster.id,
+            targetKind: target.kind,
+            mode: target.mode,
+            agentId: target.agentId,
+            agentViewMode: target.agentViewMode
+        });
     }
 
     function promptBroadcastToCluster(clusterId) {

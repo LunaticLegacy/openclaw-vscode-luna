@@ -253,9 +253,7 @@ export async function handleSendChannelMessage(
                 }
 
                 runningAgentId = importedSession.agentId;
-                if (!context.service.providesAgentActivityStatus()) {
-                    context.agentManager.beginAgentRun(runningAgentId);
-                }
+                context.agentManager.beginAgentRun(runningAgentId);
                 const response = await context.service.sendMessage(importedSession.sessionId, normalizedContent);
 
                 if (context.getCurrentChannelId() === discoveredChannel.id && context.getChannelRunToken() === channelRunToken) {
@@ -281,9 +279,7 @@ export async function handleSendChannelMessage(
         }
 
         runningAgentId = channel.agentId;
-        if (!context.service.providesAgentActivityStatus()) {
-            context.agentManager.beginAgentRun(runningAgentId);
-        }
+        context.agentManager.beginAgentRun(runningAgentId);
         const response = await context.service.sendMessage(sessionId, normalizedContent);
 
         if (context.getCurrentChannelId() === channel.id && context.getChannelRunToken() === channelRunToken) {
@@ -302,7 +298,7 @@ export async function handleSendChannelMessage(
             });
         }
     } finally {
-        if (runningAgentId && !context.service.providesAgentActivityStatus()) {
+        if (runningAgentId) {
             context.agentManager.endAgentRun(runningAgentId);
         }
         if (context.getChannelRunToken() === channelRunToken) {

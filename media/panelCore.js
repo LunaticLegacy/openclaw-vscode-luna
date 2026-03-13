@@ -17,6 +17,7 @@
         currentClusterTargetKind: 'swarm',
         currentClusterAgentId: null,
         currentClusterSwarmMode: 'broadcast',
+        currentClusterAgentViewMode: 'chat',
         agents: [],
         agentFolders: [],
         agentPresets: [],
@@ -316,6 +317,7 @@
         elements.clusterTargetHint = document.getElementById('cluster-target-hint');
         elements.btnSendCluster = document.getElementById('btn-send-cluster');
         elements.btnStopCluster = document.getElementById('btn-stop-cluster');
+        elements.btnExportClusterContext = document.getElementById('btn-export-cluster-context');
         elements.btnEditCluster = document.getElementById('btn-edit-cluster');
         elements.btnNewAgent = document.getElementById('btn-new-agent');
         elements.btnRefreshAgents = document.getElementById('btn-refresh-agents');
@@ -565,6 +567,10 @@
             }
         });
 
+        elements.btnExportClusterContext?.addEventListener('click', () => {
+            exportCurrentClusterConversation();
+        });
+
         elements.btnAddClusterAgent?.addEventListener('click', () => {
             if (state.currentClusterId) {
                 vscode.postMessage({ type: 'addAgentsToCluster', clusterId: state.currentClusterId });
@@ -801,6 +807,15 @@
                 const mode = clusterModeTab.getAttribute('data-cluster-mode');
                 if (mode === 'broadcast' || mode === 'collaborate') {
                     selectClusterSwarmMode(mode);
+                }
+                return;
+            }
+
+            const clusterAgentViewTab = target.closest('[data-cluster-agent-view-mode]');
+            if (clusterAgentViewTab) {
+                const mode = clusterAgentViewTab.getAttribute('data-cluster-agent-view-mode');
+                if (mode) {
+                    selectClusterAgentViewMode(mode);
                 }
                 return;
             }

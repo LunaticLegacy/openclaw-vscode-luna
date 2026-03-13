@@ -251,8 +251,24 @@
                 setClusterConversationLoading(message.clusterId, message.agentId, message.loading);
                 break;
 
+            case 'setClusterSwarmContextLoading':
+                setSwarmConversationLoading(message.clusterId, message.mode, message.loading);
+                break;
+
+            case 'setClusterAgentSwarmContextLoading':
+                setClusterAgentSwarmConversationLoading(message.clusterId, message.agentId, message.mode, message.loading);
+                break;
+
             case 'replaceClusterMessages':
                 replaceClusterConversationMessages(message.clusterId, message.agentId, message.messages || []);
+                break;
+
+            case 'replaceClusterAgentSwarmMessages':
+                replaceClusterAgentSwarmConversationMessages(message.clusterId, message.agentId, message.mode, message.messages || []);
+                break;
+
+            case 'replaceSwarmMessages':
+                replaceSwarmConversationMessages(message.clusterId, message.mode, message.messages || []);
                 break;
 
             case 'appendClusterMessage':

@@ -313,77 +313,84 @@ export async function *streamMessageFromSessionLog(
     message: string,
     knownIds: Set<string>
 ): AsyncGenerator<StreamChunk, void, unknown> {
+    const fallbackRunId = `${sessionKey}:stream-fallback:${Date.now()}`;
     let responsePayload: Record<string, unknown> | null = null;
     let requestError: unknown = null;
     let requestCompleted = false;
     let requestCompletedAt = 0;
     let finalAssistantSeen = false;
 
-    const requestPromise = context.runner.sendChat(sessionKey, message)
-        .then(result => {
-            responsePayload = result;
-            requestCompleted = true;
-            requestCompletedAt = Date.now();
-            return result;
-        })
-        .catch(error => {
-            requestError = error;
-            requestCompleted = true;
-            requestCompletedAt = Date.now();
-            throw error;
-        });
-
-    while (!requestCompleted || Date.now() - requestCompletedAt < 2500) {
-        const currentMessages = await context.readSessionMessages(sessionKey).catch(() => []);
-        const newMessages = currentMessages.filter(item => !knownIds.has(item.id));
-
-        for (const newMessage of newMessages) {
-            knownIds.add(newMessage.id);
-            if (isFinalOpenClawAssistantMessage(newMessage)) {
-                finalAssistantSeen = true;
-            }
-
-            yield {
-                content: newMessage.role === 'assistant' ? newMessage.content : '',
-                done: false,
-                tokenCount: newMessage.tokenCount,
-                message: newMessage
-            };
-        }
-
-        if (requestCompleted) {
-            if (requestError) {
-                break;
-            }
-
-            if (finalAssistantSeen) {
-                break;
-            }
-        }
-
-        await delay(200);
-    }
+    context.handleObservedRunStart(sessionKey, fallbackRunId);
 
     try {
-        await requestPromise;
-    } catch {
-        throw requestError;
-    }
+        const requestPromise = context.runner.sendChat(sessionKey, message)
+            .then(result => {
+                responsePayload = result;
+                requestCompleted = true;
+                requestCompletedAt = Date.now();
+                return result;
+            })
+            .catch(error => {
+                requestError = error;
+                requestCompleted = true;
+                requestCompletedAt = Date.now();
+                throw error;
+            });
 
-    if (!finalAssistantSeen && responsePayload) {
-        const fallbackAssistant = extractAssistantMessageFromPayload(responsePayload, sessionKey);
-        if (fallbackAssistant && !knownIds.has(fallbackAssistant.id)) {
-            yield {
-                content: fallbackAssistant.content,
-                done: false,
-                tokenCount: fallbackAssistant.tokenCount,
-                message: fallbackAssistant
-            };
+        while (!requestCompleted || Date.now() - requestCompletedAt < 2500) {
+            const currentMessages = await context.readSessionMessages(sessionKey).catch(() => []);
+            const newMessages = currentMessages.filter(item => !knownIds.has(item.id));
+
+            for (const newMessage of newMessages) {
+                knownIds.add(newMessage.id);
+                if (isFinalOpenClawAssistantMessage(newMessage)) {
+                    finalAssistantSeen = true;
+                }
+
+                yield {
+                    content: newMessage.role === 'assistant' ? newMessage.content : '',
+                    done: false,
+                    tokenCount: newMessage.tokenCount,
+                    message: newMessage
+                };
+            }
+
+            if (requestCompleted) {
+                if (requestError) {
+                    break;
+                }
+
+                if (finalAssistantSeen) {
+                    break;
+                }
+            }
+
+            await delay(200);
         }
-    }
 
-    yield {
-        content: '',
-        done: true
-    };
+        try {
+            await requestPromise;
+        } catch {
+            throw requestError;
+        }
+
+        if (!finalAssistantSeen && responsePayload) {
+            const fallbackAssistant = extractAssistantMessageFromPayload(responsePayload, sessionKey);
+            if (fallbackAssistant && !knownIds.has(fallbackAssistant.id)) {
+                yield {
+                    content: fallbackAssistant.content,
+                    done: false,
+                    tokenCount: fallbackAssistant.tokenCount,
+                    message: fallbackAssistant
+                };
+            }
+        }
+
+        yield {
+            content: '',
+            done: true
+        };
+    } finally {
+        context.handleObservedRunStop(sessionKey, fallbackRunId);
+    }
 }

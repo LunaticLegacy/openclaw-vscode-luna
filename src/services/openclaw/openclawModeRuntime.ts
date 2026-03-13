@@ -261,19 +261,21 @@ export class OpenClawModeRuntime {
         message: string,
         _options?: SendMessageOptions
     ): Promise<ChatMessage> {
-        const historyBefore = await this.readSessionMessages(sessionId).catch(() => []);
-        const knownIds = new Set(historyBefore.map(item => item.id));
-        const result = await this.runner.sendChat(sessionId, message);
-        const latestAssistant = await this.waitForAssistantMessage(sessionId, knownIds, 4000);
-        return latestAssistant
-            || extractAssistantMessageFromPayload(result, sessionId)
-            || {
-                id: `${sessionId}:${Date.now()}`,
-                role: 'assistant',
-                content: '',
-                timestamp: new Date().toISOString(),
-                agentId: parseAgentIdFromSessionKey(sessionId) || undefined
-            };
+        return this.withObservedFallbackRun(sessionId, async () => {
+            const historyBefore = await this.readSessionMessages(sessionId).catch(() => []);
+            const knownIds = new Set(historyBefore.map(item => item.id));
+            const result = await this.runner.sendChat(sessionId, message);
+            const latestAssistant = await this.waitForAssistantMessage(sessionId, knownIds, 4000);
+            return latestAssistant
+                || extractAssistantMessageFromPayload(result, sessionId)
+                || {
+                    id: `${sessionId}:${Date.now()}`,
+                    role: 'assistant',
+                    content: '',
+                    timestamp: new Date().toISOString(),
+                    agentId: parseAgentIdFromSessionKey(sessionId) || undefined
+                };
+        });
     }
 
     public async *streamMessage(
@@ -977,6 +979,22 @@ export class OpenClawModeRuntime {
         }
 
         this.markBackendRunInactive(agentId, sessionKey, runId);
+    }
+
+    private async withObservedFallbackRun<T>(sessionKey: string, operation: () => Promise<T>): Promise<T> {
+        const agentId = parseAgentIdFromSessionKey(sessionKey);
+        if (!agentId) {
+            return operation();
+        }
+
+        const runId = `${sessionKey}:fallback:${Date.now()}`;
+        this.markBackendRunActive(agentId, sessionKey, runId);
+
+        try {
+            return await operation();
+        } finally {
+            this.markBackendRunInactive(agentId, sessionKey, runId);
+        }
     }
 
     private invalidateSnapshotCache(): void {

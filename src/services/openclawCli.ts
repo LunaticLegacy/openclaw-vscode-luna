@@ -454,30 +454,45 @@ export class OpenClawCliRunner {
 
     public async addCronJob(params: OpenClawCronCreateParams): Promise<Record<string, unknown> | undefined> {
         const args = ['cron', 'add', '--json'];
+        appendGatewayConnectionArgs(args, this.config);
         appendCronAddArgs(args, params);
         return this.execJson<Record<string, unknown>>(args);
     }
 
     public async editCronJob(jobId: string, params: OpenClawCronEditParams): Promise<void> {
-        const args = ['cron', 'edit', jobId];
+        const args = ['cron', 'edit'];
+        appendGatewayConnectionArgs(args, this.config);
+        args.push(jobId);
         appendCronEditArgs(args, params);
         await this.execVoid(args);
     }
 
     public async enableCronJob(jobId: string): Promise<void> {
-        await this.execVoid(['cron', 'enable', jobId]);
+        const args = ['cron', 'enable'];
+        appendGatewayConnectionArgs(args, this.config);
+        args.push(jobId);
+        await this.execVoid(args);
     }
 
     public async disableCronJob(jobId: string): Promise<void> {
-        await this.execVoid(['cron', 'disable', jobId]);
+        const args = ['cron', 'disable'];
+        appendGatewayConnectionArgs(args, this.config);
+        args.push(jobId);
+        await this.execVoid(args);
     }
 
     public async runCronJob(jobId: string): Promise<void> {
-        await this.execVoid(['cron', 'run', jobId]);
+        const args = ['cron', 'run'];
+        appendGatewayConnectionArgs(args, this.config);
+        args.push(jobId);
+        await this.execVoid(args);
     }
 
     public async removeCronJob(jobId: string): Promise<void> {
-        await this.execVoid(['cron', 'rm', jobId]);
+        const args = ['cron', 'rm'];
+        appendGatewayConnectionArgs(args, this.config);
+        args.push(jobId);
+        await this.execVoid(args);
     }
 
     private async gatewayCall<T>(
@@ -647,6 +662,16 @@ function sanitizeAgentId(value: string): string {
     const trimmed = value.trim().toLowerCase();
     const normalized = trimmed.replace(/[^a-z0-9-_]+/g, '-').replace(/-+/g, '-');
     return normalized.replace(/^-|-$/g, '') || 'agent';
+}
+
+function appendGatewayConnectionArgs(target: string[], config: OpenClawCliServiceConfig): void {
+    if (config.gatewayUrl) {
+        target.push('--url', toWebSocketUrl(config.gatewayUrl));
+    }
+
+    if (config.gatewayToken) {
+        target.push('--token', config.gatewayToken);
+    }
 }
 
 function appendCronAddArgs(target: string[], params: OpenClawCronCreateParams): void {

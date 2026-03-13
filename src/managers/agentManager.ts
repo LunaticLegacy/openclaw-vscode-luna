@@ -4,6 +4,8 @@ import { t } from '../i18n';
 import { AgentPresetScaffolder } from '../services/agentPresetScaffolder';
 import { OpenClawService, Agent } from '../services/openclawService';
 
+const MIN_ACTIVE_DISPLAY_MS = 1200;
+
 export interface CreateAgentParams {
     name: string;
     model: string;
@@ -42,11 +44,15 @@ export class AgentManager extends EventEmitter {
     private activeAgentId: string | null = null;
     private runningAgentCounts: Map<string, number> = new Map();
     private reportedAgentStatuses: Map<string, Agent['status']> = new Map();
+    private activeDisplayUntil: Map<string, number> = new Map();
+    private activeReleaseTimers: Map<string, NodeJS.Timeout> = new Map();
+    private serviceConnected: boolean;
 
     constructor(service: OpenClawService, presetScaffolder?: AgentPresetScaffolder) {
         super();
         this.service = service;
         this.presetScaffolder = presetScaffolder;
+        this.serviceConnected = service.isConnected();
         this.setupListeners();
     }
 
@@ -57,7 +63,11 @@ export class AgentManager extends EventEmitter {
         });
 
         this.service.on('agentUpdated', (agent: Agent) => {
+            const previousAgent = this.agents.get(agent.id) || null;
             const normalizedAgent = this.storeAgent(agent);
+            if (previousAgent && areAgentsEquivalent(previousAgent, normalizedAgent)) {
+                return;
+            }
             this.emit('agentUpdated', normalizedAgent);
         });
 
@@ -65,10 +75,21 @@ export class AgentManager extends EventEmitter {
             this.agents.delete(agentId);
             this.runningAgentCounts.delete(agentId);
             this.reportedAgentStatuses.delete(agentId);
+            this.activeDisplayUntil.delete(agentId);
+            this.clearActiveReleaseTimer(agentId);
             if (this.activeAgentId === agentId) {
                 this.activeAgentId = null;
             }
             this.emit('agentDeleted', agentId);
+        });
+
+        this.service.on('connectionChange', (connected: boolean) => {
+            if (connected === this.serviceConnected) {
+                return;
+            }
+
+            this.serviceConnected = connected;
+            this.republishAgentStatuses();
         });
     }
 
@@ -214,6 +235,11 @@ export class AgentManager extends EventEmitter {
         this.activeAgentId = null;
         this.runningAgentCounts.clear();
         this.reportedAgentStatuses.clear();
+        this.activeDisplayUntil.clear();
+        for (const timer of this.activeReleaseTimers.values()) {
+            clearTimeout(timer);
+        }
+        this.activeReleaseTimers.clear();
     }
 
     private updateAgentRunState(agentId: string, delta: 1 | -1): boolean {
@@ -226,41 +252,149 @@ export class AgentManager extends EventEmitter {
         const nextCount = Math.max(0, previousCount + delta);
         if (nextCount > 0) {
             this.runningAgentCounts.set(agentId, nextCount);
+            this.markAgentActiveDisplay(agentId);
         } else {
             this.runningAgentCounts.delete(agentId);
+            this.scheduleActiveRelease(agentId);
         }
 
         const normalizedAgent = this.normalizeAgentStatus(agent);
-        if (normalizedAgent.status === agent.status) {
-            return false;
+        if (normalizedAgent.status !== agent.status) {
+            this.agents.set(agentId, normalizedAgent);
+            this.emit('agentUpdated', normalizedAgent);
         }
 
-        this.agents.set(agentId, normalizedAgent);
-        this.emit('agentUpdated', normalizedAgent);
-        return true;
+        return previousCount !== nextCount;
     }
 
     private storeAgent(agent: Agent): Agent {
         this.reportedAgentStatuses.set(agent.id, agent.status);
+        if (agent.status === 'active') {
+            this.markAgentActiveDisplay(agent.id);
+        } else if (agent.status === 'offline') {
+            this.activeDisplayUntil.delete(agent.id);
+            this.clearActiveReleaseTimer(agent.id);
+        } else {
+            this.scheduleActiveRelease(agent.id);
+        }
         const normalizedAgent = this.normalizeAgentStatus(agent);
         this.agents.set(normalizedAgent.id, normalizedAgent);
         return normalizedAgent;
     }
 
     private normalizeAgentStatus(agent: Agent): Agent {
-        const reportedStatus = this.reportedAgentStatuses.get(agent.id) || agent.status;
-        if (reportedStatus === 'offline') {
+        if (!this.serviceConnected) {
+            this.activeDisplayUntil.delete(agent.id);
+            this.clearActiveReleaseTimer(agent.id);
             return {
                 ...agent,
                 status: 'offline'
             };
         }
 
+        const reportedStatus = this.reportedAgentStatuses.get(agent.id) || agent.status;
+        if (reportedStatus === 'offline') {
+            this.activeDisplayUntil.delete(agent.id);
+            this.clearActiveReleaseTimer(agent.id);
+            return {
+                ...agent,
+                status: 'offline'
+            };
+        }
+
+        const hasTrackedRun = (this.runningAgentCounts.get(agent.id) || 0) > 0;
+        const shouldStayActive = reportedStatus === 'active' || hasTrackedRun || this.isAgentInDisplayLatch(agent.id);
+        if (shouldStayActive) {
+            this.scheduleActiveRelease(agent.id);
+        }
+
         return {
             ...agent,
-            status: (this.runningAgentCounts.get(agent.id) || 0) > 0 || reportedStatus === 'active'
-                ? 'active'
-                : 'idle'
+            status: shouldStayActive ? 'active' : 'idle'
         };
     }
+
+    private republishAgentStatuses(): void {
+        for (const [agentId, agent] of this.agents.entries()) {
+            const normalizedAgent = this.normalizeAgentStatus(agent);
+            if (normalizedAgent.status === agent.status) {
+                continue;
+            }
+
+            this.agents.set(agentId, normalizedAgent);
+            this.emit('agentUpdated', normalizedAgent);
+        }
+    }
+
+    private markAgentActiveDisplay(agentId: string): void {
+        this.activeDisplayUntil.set(agentId, Date.now() + MIN_ACTIVE_DISPLAY_MS);
+        this.scheduleActiveRelease(agentId);
+    }
+
+    private isAgentInDisplayLatch(agentId: string): boolean {
+        return (this.activeDisplayUntil.get(agentId) || 0) > Date.now();
+    }
+
+    private scheduleActiveRelease(agentId: string): void {
+        this.clearActiveReleaseTimer(agentId);
+
+        const releaseAt = this.activeDisplayUntil.get(agentId) || 0;
+        if (releaseAt <= Date.now()) {
+            this.activeDisplayUntil.delete(agentId);
+            return;
+        }
+
+        const delayMs = Math.max(0, releaseAt - Date.now());
+        this.activeReleaseTimers.set(agentId, setTimeout(() => {
+            this.activeReleaseTimers.delete(agentId);
+            const agent = this.agents.get(agentId);
+            if (!agent) {
+                this.activeDisplayUntil.delete(agentId);
+                return;
+            }
+
+            if (this.isAgentInDisplayLatch(agentId)) {
+                this.scheduleActiveRelease(agentId);
+                return;
+            }
+
+            this.activeDisplayUntil.delete(agentId);
+            const normalizedAgent = this.normalizeAgentStatus(agent);
+            if (normalizedAgent.status === agent.status) {
+                return;
+            }
+
+            this.agents.set(agentId, normalizedAgent);
+            this.emit('agentUpdated', normalizedAgent);
+        }, delayMs));
+    }
+
+    private clearActiveReleaseTimer(agentId: string): void {
+        const timer = this.activeReleaseTimers.get(agentId);
+        if (!timer) {
+            return;
+        }
+
+        clearTimeout(timer);
+        this.activeReleaseTimers.delete(agentId);
+    }
+}
+
+function areAgentsEquivalent(left: Agent, right: Agent): boolean {
+    return left.id === right.id
+        && left.name === right.name
+        && left.model === right.model
+        && left.status === right.status
+        && left.systemPrompt === right.systemPrompt
+        && left.temperature === right.temperature
+        && left.maxTokens === right.maxTokens
+        && left.workspacePath === right.workspacePath
+        && left.createdAt === right.createdAt
+        && left.lastActive === right.lastActive
+        && left.isDefault === right.isDefault
+        && left.providerId === right.providerId
+        && left.baseUrl === right.baseUrl
+        && left.api === right.api
+        && left.apiKey === right.apiKey
+        && JSON.stringify(left.enabledSkills || []) === JSON.stringify(right.enabledSkills || []);
 }

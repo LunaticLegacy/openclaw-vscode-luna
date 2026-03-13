@@ -26,7 +26,7 @@ export class LocalAgentSessionRepository {
                     id: agentId,
                     name: model.name,
                     model: model.id,
-                    status: 'active',
+                    status: 'idle',
                     createdAt: now,
                     providerId: provider.id,
                     baseUrl: provider.baseUrl.replace(/\/$/, ''),
@@ -70,6 +70,7 @@ export class LocalAgentSessionRepository {
             id: `local:custom:${Date.now()}`,
             name: params.name,
             model: params.model,
+            status: 'idle',
             systemPrompt: params.systemPrompt || templateAgent.systemPrompt,
             enabledSkills: normalizeEnabledSkills(params.enabledSkills),
             createdAt: new Date().toISOString()

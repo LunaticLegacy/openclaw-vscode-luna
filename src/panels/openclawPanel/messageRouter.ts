@@ -21,7 +21,16 @@ interface MessageRouterContext {
     handleSendMessage(content: string, agentId?: string, options?: { optimisticEcho?: boolean }): Promise<void>;
     handleStopActiveRun(scope: unknown): void;
     activateAgent(agentId: string): Promise<void>;
+    loadClusterSwarmMessages(clusterId: string, mode: 'broadcast' | 'collaborate'): Promise<void>;
     loadClusterAgentMessages(clusterId: string, agentId: string): Promise<void>;
+    loadClusterAgentSwarmMessages(clusterId: string, agentId: string, mode: 'broadcast' | 'collaborate'): Promise<void>;
+    exportClusterConversation(options: {
+        clusterId: string;
+        targetKind: 'swarm' | 'agent';
+        mode?: 'broadcast' | 'collaborate';
+        agentId?: string;
+        agentViewMode?: 'chat' | 'broadcast' | 'collaborate';
+    }): Promise<void>;
     clearChat(): void;
     refreshAgents(force?: boolean): Promise<void>;
     handleCreateAgent(data: any): Promise<void>;
@@ -98,6 +107,32 @@ export async function handlePanelMessage(context: MessageRouterContext, message:
 
         case 'loadClusterAgentMessages':
             await context.loadClusterAgentMessages(message.clusterId, message.agentId);
+            break;
+
+        case 'loadClusterAgentSwarmMessages':
+            if (message.mode === 'broadcast' || message.mode === 'collaborate') {
+                await context.loadClusterAgentSwarmMessages(message.clusterId, message.agentId, message.mode);
+            }
+            break;
+
+        case 'loadClusterSwarmMessages':
+            if (message.mode === 'broadcast' || message.mode === 'collaborate') {
+                await context.loadClusterSwarmMessages(message.clusterId, message.mode);
+            }
+            break;
+
+        case 'exportClusterConversation':
+            await context.exportClusterConversation({
+                clusterId: message.clusterId,
+                targetKind: message.targetKind === 'agent' ? 'agent' : 'swarm',
+                mode: message.mode === 'collaborate' ? 'collaborate' : 'broadcast',
+                agentId: message.agentId,
+                agentViewMode: message.agentViewMode === 'broadcast'
+                    ? 'broadcast'
+                    : message.agentViewMode === 'collaborate'
+                        ? 'collaborate'
+                        : 'chat'
+            });
             break;
 
         case 'clearChat':

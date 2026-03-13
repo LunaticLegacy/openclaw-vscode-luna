@@ -369,6 +369,77 @@ suite('OpenClaw Main Path', () => {
         }
     });
 
+    test('marks an OpenClaw agent active during non-stream runs even without activity gateway events', async () => {
+        const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-status-send-'));
+        const openClawConfig = await createFakeOpenClawConfig(stateDir);
+        setOpenClawCliCommandExecutorForTests(createFakeOpenClawCommandExecutor());
+        const service = new OpenClawService(openClawConfig);
+        const agentManager = new AgentManager(service);
+
+        try {
+            const [agent] = await agentManager.getAgents(true);
+            assert.ok(agent, 'Expected an OpenClaw agent');
+
+            const observedStatuses: string[] = [];
+            agentManager.on('agentUpdated', updatedAgent => {
+                if (updatedAgent.id === agent.id) {
+                    observedStatuses.push(updatedAgent.status);
+                }
+            });
+
+            const session = await service.createChatSession(agent.id);
+            const response = await service.sendMessage(session.id, 'Check status transitions.');
+
+            assert.equal(response.role, 'assistant');
+            await wait(1300);
+            assert.ok(observedStatuses.includes('active'));
+            assert.equal(observedStatuses[observedStatuses.length - 1], 'idle');
+        } finally {
+            agentManager.dispose();
+            service.dispose();
+            setOpenClawCliCommandExecutorForTests(null);
+            await fs.rm(stateDir, { recursive: true, force: true });
+        }
+    });
+
+    test('marks an OpenClaw agent active during stream fallback runs when gateway streaming is unavailable', async () => {
+        const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-status-stream-'));
+        const openClawConfig = await createFakeOpenClawConfig(stateDir);
+        setOpenClawCliCommandExecutorForTests(createFakeOpenClawCommandExecutor());
+        const service = new OpenClawService(openClawConfig);
+        const agentManager = new AgentManager(service);
+
+        try {
+            const [agent] = await agentManager.getAgents(true);
+            assert.ok(agent, 'Expected an OpenClaw agent');
+
+            const observedStatuses: string[] = [];
+            agentManager.on('agentUpdated', updatedAgent => {
+                if (updatedAgent.id === agent.id) {
+                    observedStatuses.push(updatedAgent.status);
+                }
+            });
+
+            const session = await service.createChatSession(agent.id);
+            const chunks: string[] = [];
+            for await (const chunk of service.streamMessage(session.id, 'Check stream status transitions.')) {
+                if (chunk.content) {
+                    chunks.push(chunk.content);
+                }
+            }
+
+            assert.match(chunks.join(''), /Fake OpenClaw reply/i);
+            await wait(1300);
+            assert.ok(observedStatuses.includes('active'));
+            assert.equal(observedStatuses[observedStatuses.length - 1], 'idle');
+        } finally {
+            agentManager.dispose();
+            service.dispose();
+            setOpenClawCliCommandExecutorForTests(null);
+            await fs.rm(stateDir, { recursive: true, force: true });
+        }
+    });
+
     test('merges OpenClaw config edits without dropping unrelated fields', () => {
         const merged = mergeOpenClawConfigForSave({
             telemetry: {
@@ -849,4 +920,8 @@ function readRequestBody(request: http.IncomingMessage): Promise<string> {
         request.on('end', () => resolve(buffer));
         request.on('error', reject);
     });
+}
+
+function wait(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
