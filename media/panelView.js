@@ -36,7 +36,7 @@
             elements.btnClear.title = t('chat.clear');
         }
         if (elements.btnNewAgent) {
-            elements.btnNewAgent.innerHTML = `<span class="icon">+</span> ${t('sidebar.newAgent')}`;
+            elements.btnNewAgent.innerHTML = `${t('sidebar.newAgent')}`;
         }
         
         // Update sidebar titles
@@ -62,6 +62,14 @@
             const key = el.getAttribute('data-i18n-placeholder');
             if (key) {
                 el.placeholder = t(key);
+            }
+        });
+
+        document.querySelectorAll('[data-i18n-title]').forEach(el => {
+            const key = el.getAttribute('data-i18n-title');
+            if (key) {
+                el.title = t(key);
+                el.setAttribute('aria-label', t(key));
             }
         });
 

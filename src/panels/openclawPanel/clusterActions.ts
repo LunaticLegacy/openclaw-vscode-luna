@@ -20,6 +20,7 @@ interface ClusterActionContext {
     agentManager: AgentManager;
     clusterSessionManager: ChatSessionManager;
     postMessage(message: Record<string, unknown>): void;
+    loadAgents(): Promise<void>;
     loadClusters(selectedClusterId?: string): Promise<void>;
     showClusterView(clusters: AgentCluster[], selectedClusterId?: string): void;
     getCurrentAgentId(): string | null;
@@ -51,7 +52,7 @@ export async function loadClusters(context: ClusterActionContext, selectedCluste
     }
 }
 
-export async function handleBroadcast(context: ClusterActionContext, clusterId: string, message: string): Promise<void> {
+export async function handleBroadcast(context: ClusterActionContext, clusterId: string, message: string): Promise<boolean> {
     const swarmRunToken = context.nextClusterSwarmRunToken();
     const runningAgentIds = await beginClusterAgentRuns(context, clusterId);
     try {
@@ -90,6 +91,7 @@ export async function handleBroadcast(context: ClusterActionContext, clusterId: 
                 mode: 'broadcast',
                 messages: conversationMessages
             });
+            return true;
         }
     } catch (error) {
         if (context.getClusterSwarmRunToken() === swarmRunToken) {
@@ -106,6 +108,8 @@ export async function handleBroadcast(context: ClusterActionContext, clusterId: 
     } finally {
         endClusterAgentRuns(context, runningAgentIds);
     }
+
+    return false;
 }
 
 export async function promptBroadcastToCluster(context: ClusterActionContext, clusterId: string): Promise<void> {
@@ -121,7 +125,7 @@ export async function promptBroadcastToCluster(context: ClusterActionContext, cl
     await handleBroadcast(context, clusterId, normalizeOutgoingMessageContent(message));
 }
 
-export async function handleCollaborate(context: ClusterActionContext, clusterId: string, message: string): Promise<void> {
+export async function handleCollaborate(context: ClusterActionContext, clusterId: string, message: string): Promise<boolean> {
     const swarmRunToken = context.nextClusterSwarmRunToken();
     const runningAgentIds = await beginClusterAgentRuns(context, clusterId);
     try {
@@ -157,6 +161,7 @@ export async function handleCollaborate(context: ClusterActionContext, clusterId
                 mode: 'collaborate',
                 messages: conversationMessages
             });
+            return true;
         }
     } catch (error) {
         if (context.getClusterSwarmRunToken() === swarmRunToken) {
@@ -173,6 +178,8 @@ export async function handleCollaborate(context: ClusterActionContext, clusterId
     } finally {
         endClusterAgentRuns(context, runningAgentIds);
     }
+
+    return false;
 }
 
 export async function promptCollaborateCluster(context: ClusterActionContext, clusterId: string): Promise<void> {
@@ -284,10 +291,10 @@ export async function handleClusterAgentMessage(
     clusterId: string,
     agentId: string,
     content: string
-): Promise<void> {
+): Promise<boolean> {
     const normalizedContent = normalizeOutgoingMessageContent(content);
     if (!clusterId || !agentId || !normalizedContent.trim()) {
-        return;
+        return false;
     }
 
     const clusterAgentRunToken = context.nextClusterAgentRunToken();
@@ -329,6 +336,7 @@ export async function handleClusterAgentMessage(
                 agentId,
                 messages
             });
+            return true;
         }
     } catch (error) {
         if (context.getClusterAgentRunToken() === clusterAgentRunToken) {
@@ -340,6 +348,8 @@ export async function handleClusterAgentMessage(
     } finally {
         context.endAgentRun(agentId);
     }
+
+    return false;
 }
 
 export async function loadClusterAgentSwarmMessages(
@@ -477,12 +487,30 @@ export async function handleSaveCluster(
     data: {
         name?: string;
         agentIds?: string[];
+        createAgents?: Array<{
+            name?: string;
+            model?: string;
+            systemPrompt?: string;
+            presetId?: string;
+            enabledSkills?: string[];
+        }>;
         workspaceConfig?: Record<string, unknown>;
     }
 ): Promise<void> {
     const name = typeof data?.name === 'string' ? data.name.trim() : '';
-    const agentIds = Array.isArray(data?.agentIds)
+    const existingAgentIds = Array.isArray(data?.agentIds)
         ? data.agentIds.map(agentId => String(agentId || '').trim()).filter(Boolean)
+        : [];
+    const createAgents = Array.isArray(data?.createAgents)
+        ? data.createAgents
+            .map(agent => ({
+                name: typeof agent?.name === 'string' ? agent.name.trim() : '',
+                model: typeof agent?.model === 'string' ? agent.model.trim() : '',
+                systemPrompt: typeof agent?.systemPrompt === 'string' ? agent.systemPrompt.trim() : '',
+                presetId: typeof agent?.presetId === 'string' ? agent.presetId.trim() : undefined,
+                enabledSkills: Array.isArray(agent?.enabledSkills) ? agent.enabledSkills.filter(Boolean) : undefined
+            }))
+            .filter(agent => agent.name)
         : [];
 
     if (!name) {
@@ -490,39 +518,86 @@ export async function handleSaveCluster(
         return;
     }
 
-    if (agentIds.length === 0) {
+    if (existingAgentIds.length === 0 && createAgents.length === 0) {
         vscode.window.showErrorMessage(t('clusters.validationAgents'));
         return;
     }
 
-    try {
-        const cluster = clusterId
-            ? await context.clusterManager.updateCluster(clusterId, {
-                name,
-                agentIds,
-                workspaceConfig: data.workspaceConfig as any
-            })
-            : await context.clusterManager.createCluster({
-                name,
-                agentIds,
-                workspaceConfig: data.workspaceConfig as any
-            });
+    const createdAgentIds: string[] = [];
+    const totalSteps = createAgents.length
+        + 1
+        + (createAgents.length > 0 ? 1 : 0)
+        + 1;
+    const progressTitle = t(clusterId ? 'progress.savingCluster' : 'progress.creatingCluster');
 
-        showSuccessStatus(clusterId
-            ? t('clusters.updated', { name: cluster.name })
-            : t('clusters.created', { name: cluster.name }));
-        context.postMessage({
-            type: 'clusterSaved',
-            cluster
-        });
-        const refreshedClusters = await context.clusterManager.getClusters();
-        context.showClusterView(
-            refreshedClusters.map(item => item.id === cluster.id ? cluster : item),
-            cluster.id
-        );
-    } catch (error) {
-        vscode.window.showErrorMessage(t(clusterId ? 'clusters.updateFailed' : 'clusters.createFailed', { error: String(error) }));
-    }
+    await vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: progressTitle,
+            cancellable: false
+        },
+        async progress => {
+            const reporter = createStepProgressReporter(progress, totalSteps);
+
+            try {
+                for (const [index, agent] of createAgents.entries()) {
+                    if (!agent.model) {
+                        throw new Error(t('agentBatch.validationModel'));
+                    }
+
+                    reporter.start(t('progress.creatingClusterAgent', {
+                        current: index + 1,
+                        total: createAgents.length,
+                        name: agent.name
+                    }));
+                    const createdAgent = await context.agentManager.createAgent(agent);
+                    createdAgentIds.push(createdAgent.id);
+                    reporter.complete();
+                }
+
+                const agentIds = Array.from(new Set([...existingAgentIds, ...createdAgentIds]));
+                reporter.start(t(clusterId ? 'progress.updatingClusterRecord' : 'progress.creatingClusterRecord'));
+                const cluster = clusterId
+                    ? await context.clusterManager.updateCluster(clusterId, {
+                        name,
+                        agentIds,
+                        workspaceConfig: data.workspaceConfig as any
+                    })
+                    : await context.clusterManager.createCluster({
+                        name,
+                        agentIds,
+                        workspaceConfig: data.workspaceConfig as any
+                    });
+                reporter.complete();
+
+                if (createdAgentIds.length > 0) {
+                    reporter.start(t('progress.refreshingAgents'));
+                    await context.loadAgents();
+                    reporter.complete();
+                }
+
+                context.postMessage({
+                    type: 'clusterSaved',
+                    cluster
+                });
+
+                reporter.start(t('progress.refreshingClusters'));
+                await context.loadClusters(cluster.id);
+                reporter.complete();
+
+                showSuccessStatus(clusterId
+                    ? t('clusters.updated', { name: cluster.name })
+                    : t('clusters.created', { name: cluster.name }));
+            } catch (error) {
+                if (createdAgentIds.length > 0) {
+                    reporter.start(t('progress.rollingBackClusterAgents'));
+                    await Promise.allSettled(createdAgentIds.map(agentId => context.agentManager.deleteAgent(agentId)));
+                    await context.loadAgents();
+                }
+                vscode.window.showErrorMessage(t(clusterId ? 'clusters.updateFailed' : 'clusters.createFailed', { error: String(error) }));
+            }
+        }
+    );
 }
 
 export async function handleAddAgentsToCluster(context: ClusterActionContext, clusterId: string): Promise<void> {
@@ -949,3 +1024,27 @@ function buildSwarmBatchId(mode: SwarmMode): string {
 
 let swarmMessageCounter = 0;
 let swarmBatchCounter = 0;
+
+function createStepProgressReporter(
+    progress: vscode.Progress<{ message?: string; increment?: number }>,
+    totalSteps: number
+): {
+    start(message: string): void;
+    complete(): void;
+} {
+    let completedSteps = 0;
+    let reportedIncrement = 0;
+
+    return {
+        start(message: string) {
+            progress.report({ message });
+        },
+        complete() {
+            completedSteps += 1;
+            const targetIncrement = Math.round((completedSteps / Math.max(1, totalSteps)) * 100);
+            const increment = Math.max(0, targetIncrement - reportedIncrement);
+            reportedIncrement = targetIncrement;
+            progress.report({ increment });
+        }
+    };
+}

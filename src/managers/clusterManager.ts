@@ -310,7 +310,17 @@ export class ClusterManager extends EventEmitter {
             throw new Error(t('clusterManager.notFound', { clusterId }));
         }
 
-        const results = await this.sendMessageToAgents(cluster.agentIds, message, {
+        const participantAgentIds = resolveSwarmParticipantAgentIds(
+            cluster.agentIds,
+            workspaceConfigOrDefault(cluster.workspaceConfig),
+            'broadcast',
+            message
+        );
+        if (participantAgentIds.length === 0) {
+            throw new Error(t('clusterManager.noEligibleAgents'));
+        }
+
+        const results = await this.sendMessageToAgents(participantAgentIds, message, {
             clusterId,
             mode: 'broadcast',
             onAgentResult: options.onAgentResult
@@ -330,11 +340,20 @@ export class ClusterManager extends EventEmitter {
             throw new Error(t('clusterManager.notFound', { clusterId }));
         }
         const workspaceConfig = normalizeClusterWorkspaceConfig(cluster.workspaceConfig);
+        const initialParticipantAgentIds = resolveSwarmParticipantAgentIds(
+            cluster.agentIds,
+            workspaceConfig,
+            'collaborate',
+            message
+        );
+        if (initialParticipantAgentIds.length === 0) {
+            throw new Error(t('clusterManager.noEligibleAgents'));
+        }
 
         const debateSessionIds = new Map<string, string>();
         const rounds: ClusterCollaborationRound[] = [];
 
-        const openingEntries = await this.sendMessageToAgents(cluster.agentIds, agentId => buildOpeningContributionPrompt(
+        const openingEntries = await this.sendMessageToAgents(initialParticipantAgentIds, agentId => buildOpeningContributionPrompt(
             cluster.name,
             message,
             workspaceConfig,
@@ -356,7 +375,7 @@ export class ClusterManager extends EventEmitter {
         });
 
         let latestUsableContributions = openingEntries;
-        let successfulAgentIds = getSuccessfulAgentIds(cluster.agentIds, latestUsableContributions);
+        let successfulAgentIds = getSuccessfulAgentIds(initialParticipantAgentIds, latestUsableContributions);
 
         for (const debateRound of buildCollaborationDebateRounds(workspaceConfig.rounds)) {
             if (successfulAgentIds.length === 0) {
@@ -413,11 +432,11 @@ export class ClusterManager extends EventEmitter {
             });
 
             latestUsableContributions = mergeLatestSuccessfulEntries(
-                cluster.agentIds,
+                initialParticipantAgentIds,
                 revisionEntries,
                 latestUsableContributions
             );
-            successfulAgentIds = getSuccessfulAgentIds(cluster.agentIds, latestUsableContributions);
+            successfulAgentIds = getSuccessfulAgentIds(initialParticipantAgentIds, latestUsableContributions);
         }
 
         const coordinatorAgentId = resolveCoordinatorAgentId(
@@ -1237,6 +1256,46 @@ function resolveCoordinatorAgentId(
     }
 
     return clusterAgentIds[0] || null;
+}
+
+function workspaceConfigOrDefault(config?: ClusterWorkspaceConfig): ClusterWorkspaceConfig {
+    return normalizeClusterWorkspaceConfig(config || createDefaultClusterWorkspaceConfig());
+}
+
+function resolveSwarmParticipantAgentIds(
+    agentIds: string[],
+    workspaceConfig: ClusterWorkspaceConfig,
+    mode: 'broadcast' | 'collaborate',
+    userMessage: string
+): string[] {
+    return agentIds.filter(agentId => isClusterAgentEligibleForSwarm(workspaceConfig, agentId, mode, userMessage));
+}
+
+function isClusterAgentEligibleForSwarm(
+    workspaceConfig: ClusterWorkspaceConfig,
+    agentId: string,
+    mode: 'broadcast' | 'collaborate',
+    userMessage: string
+): boolean {
+    const activation = workspaceConfig.memberProfiles?.[agentId]?.activation;
+    if (!activation) {
+        return true;
+    }
+
+    if (Array.isArray(activation.swarmModes) && !activation.swarmModes.includes(mode)) {
+        return false;
+    }
+
+    if (Array.isArray(activation.keywords) && activation.keywords.length > 0) {
+        const normalizedMessage = userMessage.trim().toLowerCase();
+        if (!normalizedMessage) {
+            return false;
+        }
+
+        return activation.keywords.some(keyword => normalizedMessage.includes(keyword.trim().toLowerCase()));
+    }
+
+    return true;
 }
 
 function buildCollaborationDebateRounds(maxRounds: number): Array<{

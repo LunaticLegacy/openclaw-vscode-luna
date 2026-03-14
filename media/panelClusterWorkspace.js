@@ -95,8 +95,11 @@
             if (elements.btnEditCluster) {
                 elements.btnEditCluster.disabled = true;
             }
-            if (elements.btnExportClusterContext) {
-                elements.btnExportClusterContext.disabled = true;
+            if (elements.btnExportClusterReadableContext) {
+                elements.btnExportClusterReadableContext.disabled = true;
+            }
+            if (elements.btnExportClusterRawContext) {
+                elements.btnExportClusterRawContext.disabled = true;
             }
             if (elements.clusterWorkmodeSummary) {
                 elements.clusterWorkmodeSummary.innerHTML = '';
@@ -130,8 +133,11 @@
         if (elements.btnEditCluster) {
             elements.btnEditCluster.disabled = false;
         }
-        if (elements.btnExportClusterContext) {
-            elements.btnExportClusterContext.disabled = false;
+        if (elements.btnExportClusterReadableContext) {
+            elements.btnExportClusterReadableContext.disabled = false;
+        }
+        if (elements.btnExportClusterRawContext) {
+            elements.btnExportClusterRawContext.disabled = false;
         }
         renderClusterWorkmodeSummary(cluster);
 
@@ -154,6 +160,9 @@
         }
 
         const target = getCurrentClusterTargetInfo(cluster);
+        const coordinatorInfo = typeof resolveClusterCoordinatorInfo === 'function'
+            ? resolveClusterCoordinatorInfo(cluster)
+            : { agentId: cluster.agentIds[0] || '', isAuto: true };
         const modeLabel = target.kind === 'swarm'
             ? (window.OpenClawI18n ? window.OpenClawI18n.t(target.mode === 'broadcast' ? 'clusters.broadcast' : 'clusters.collaborate') : target.mode)
             : (window.OpenClawI18n ? window.OpenClawI18n.t(
@@ -198,6 +207,10 @@
                                 <div class="cluster-topology-node${target.kind === 'agent' && target.agentId === agentId ? ' active' : ''}">
                                     <span class="cluster-topology-node-name">${escapeHtml(resolveClusterAgentLabel(agentId))}</span>
                                     <span class="cluster-topology-node-meta">${escapeHtml(agentId)}</span>
+                                    <div class="cluster-topology-node-badges">
+                                        ${renderClusterTopologyCoordinatorBadge(agentId, coordinatorInfo)}
+                                        ${renderClusterTopologyActivationBadges(cluster, agentId)}
+                                    </div>
                                 </div>
                             </div>
                         `).join('')}
@@ -629,7 +642,7 @@
         renderClusterWorkspace();
     }
 
-    function exportCurrentClusterConversation() {
+    function exportCurrentClusterConversation(exportKind) {
         const cluster = getCurrentCluster();
         if (!cluster) {
             return;
@@ -640,6 +653,7 @@
             type: 'exportClusterConversation',
             clusterId: cluster.id,
             targetKind: target.kind,
+            exportKind: exportKind === 'raw' ? 'raw' : 'readable',
             mode: target.mode,
             agentId: target.agentId,
             agentViewMode: target.agentViewMode
@@ -777,5 +791,44 @@
     function getTranslationOrFallback(t, key, fallback) {
         const translated = t(key);
         return translated && translated !== key ? translated : fallback;
+    }
+
+    function renderClusterTopologyCoordinatorBadge(agentId, coordinatorInfo) {
+        if (!coordinatorInfo?.agentId || coordinatorInfo.agentId !== agentId) {
+            return '';
+        }
+
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        return `
+            <span class="cluster-topology-node-badge is-coordinator">
+                ${escapeHtml(t('clusters.topology.coordinator'))}
+                ${coordinatorInfo.isAuto ? ` · ${escapeHtml(t('clusters.topology.coordinatorAuto'))}` : ''}
+            </span>
+        `;
+    }
+
+    function renderClusterTopologyActivationBadges(cluster, agentId) {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        const config = typeof getClusterWorkModeConfig === 'function' ? getClusterWorkModeConfig(cluster) : (cluster?.workspaceConfig || {});
+        const profile = config?.memberProfiles?.[agentId] || {};
+        const activation = typeof resolveClusterMemberActivation === 'function'
+            ? resolveClusterMemberActivation(profile)
+            : {
+                swarmModes: ['broadcast', 'collaborate'],
+                keywords: []
+            };
+
+        const badges = [];
+        if (activation.swarmModes.length === 0) {
+            badges.push(`<span class="cluster-topology-node-badge">${escapeHtml(t('clusters.topology.sleeping'))}</span>`);
+        } else if (activation.swarmModes.length === 1) {
+            badges.push(`<span class="cluster-topology-node-badge">${escapeHtml(activation.swarmModes[0] === 'broadcast' ? t('clusters.form.memberWakeBroadcast') : t('clusters.form.memberWakeCollaborate'))}</span>`);
+        }
+
+        if (activation.keywords.length > 0) {
+            badges.push(`<span class="cluster-topology-node-badge">${escapeHtml(`${t('clusters.topology.keywordRule')}: ${activation.keywords.join(', ')}`)}</span>`);
+        }
+
+        return badges.join('');
     }
 

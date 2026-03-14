@@ -150,17 +150,51 @@ function normalizeMemberProfiles(
 
         const identity = typeof profile.identity === 'string' ? profile.identity.trim() : '';
         const stance = typeof profile.stance === 'string' ? profile.stance.trim() : '';
-        if (!identity && !stance) {
+        const activation = normalizeMemberActivation(profile.activation);
+        if (!identity && !stance && !activation) {
             continue;
         }
 
         normalized[normalizedAgentId] = {
             ...(identity ? { identity } : {}),
-            ...(stance ? { stance } : {})
+            ...(stance ? { stance } : {}),
+            ...(activation ? { activation } : {})
         };
     }
 
     return normalized;
+}
+
+function normalizeMemberActivation(
+    value?: ClusterMemberProfile['activation'] | null
+): ClusterMemberProfile['activation'] | undefined {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return undefined;
+    }
+
+    const swarmModes = Array.isArray(value.swarmModes)
+        ? Array.from(new Set(
+            value.swarmModes.filter(
+                (mode): mode is 'broadcast' | 'collaborate' => mode === 'broadcast' || mode === 'collaborate'
+            )
+        ))
+        : undefined;
+    const keywords = Array.isArray(value.keywords)
+        ? Array.from(new Set(
+            value.keywords
+                .map(keyword => typeof keyword === 'string' ? keyword.trim() : '')
+                .filter(Boolean)
+        ))
+        : undefined;
+
+    if ((!swarmModes || swarmModes.length === 0) && (!keywords || keywords.length === 0)) {
+        return swarmModes ? { swarmModes: [] } : undefined;
+    }
+
+    return {
+        ...(swarmModes ? { swarmModes } : {}),
+        ...(keywords && keywords.length > 0 ? { keywords } : {})
+    };
 }
 
 function normalizePresetId(value?: string | null): string {

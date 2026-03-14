@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project follows Semantic Versioning.
 
+## [0.7.0] - 2026-03-14
+
+### Added
+- 
+- 
+
+### Fixed
+- 
+- 
+
 ## [0.6.1] - 2026-03-11
 
 This version is a pre-release for v0.7.0, I think.

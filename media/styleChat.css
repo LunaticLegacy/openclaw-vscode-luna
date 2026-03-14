@@ -28,6 +28,56 @@
         linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 84%, transparent), transparent);
 }
 
+.agent-onboarding-panel {
+    padding: 18px;
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--bg-primary) 94%, transparent);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+
+.agent-onboarding-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.agent-onboarding-meta {
+    min-width: 220px;
+    padding: 14px 16px;
+    border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--bg-secondary) 52%, transparent);
+}
+
+.agent-onboarding-meta-label {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.agent-onboarding-meta-value {
+    margin-top: 10px;
+    font-size: 18px;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+.agent-onboarding-meta-hint {
+    margin-top: 6px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
+.agent-onboarding-body textarea {
+    min-height: 180px;
+    resize: vertical;
+}
+
 .console-hero {
     display: flex;
     align-items: flex-start;
@@ -976,5 +1026,16 @@
 .btn-danger:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+@media (max-width: 900px) {
+    .agent-onboarding-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .agent-onboarding-meta {
+        min-width: 0;
+    }
 }
 

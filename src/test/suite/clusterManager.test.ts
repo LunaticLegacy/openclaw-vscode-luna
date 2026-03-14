@@ -332,6 +332,65 @@ suite('clusterManager', () => {
             await fs.rm(root, { recursive: true, force: true });
         }
     });
+
+    test('applies member wake rules before swarm debate and still allows a separate coordinator', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-wake-rules-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Conditional Swarm',
+                agentIds: ['alpha', 'beta'],
+                workspaceConfig: {
+                    presetId: 'implementation-squad',
+                    collaborationStyle: 'leader-draft',
+                    deliveryStyle: 'balanced',
+                    critiqueLevel: 'standard',
+                    rounds: 1,
+                    briefing: 'Wake only the right specialists.',
+                    coordinatorAgentId: 'beta',
+                    memberProfiles: {
+                        alpha: {
+                            identity: 'Risk analyst',
+                            activation: {
+                                swarmModes: ['collaborate'],
+                                keywords: ['risk']
+                            }
+                        },
+                        beta: {
+                            identity: 'Synthesis lead',
+                            activation: {
+                                swarmModes: []
+                            }
+                        }
+                    }
+                }
+            });
+
+            const result = await manager.collaborateOnCluster(cluster.id, 'Review the release risk before rollout.');
+
+            assert.equal(result.coordinatorAgentId, 'beta');
+            assert.deepEqual(
+                service.sentMessages
+                    .filter(entry => entry.stage === 'opening')
+                    .map(entry => entry.agentId),
+                ['alpha']
+            );
+            assert.equal(
+                service.sentMessages.some(entry => entry.agentId === 'beta' && entry.stage === 'opening'),
+                false
+            );
+            assert.equal(
+                service.sentMessages.some(entry => entry.agentId === 'beta' && entry.stage === 'synthesis'),
+                true
+            );
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
 });
 
 type DebateStage =

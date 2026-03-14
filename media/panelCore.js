@@ -7,6 +7,9 @@
     const ONBOARD_COMMAND = 'openclaw onboard --install-daemon';
     const START_OPENCLAW_COMMAND = 'openclaw gateway start';
     const CUSTOM_AGENT_PRESET_ID = 'custom';
+    const CUSTOM_AGENT_MODEL_PROVIDER_OPTION_VALUE = '__custom_agent_provider__';
+    const DIRECT_AGENT_MODEL_PROVIDER_OPTION_VALUE = '__direct_agent_provider__';
+    const CUSTOM_AGENT_MODEL_OPTION_VALUE = '__custom_agent_model__';
     const CUSTOM_OPENCLAW_AUTH_PROVIDER_OPTION_VALUE = '__custom__';
     const CUSTOM_OPENCLAW_DEFAULT_MODEL_OPTION_VALUE = '__custom__';
     
@@ -22,6 +25,7 @@
         agentFolders: [],
         agentPresets: [],
         aiSkills: [],
+        availableModels: [],
         newAgentMode: 'custom',
         newAgentPresetId: CUSTOM_AGENT_PRESET_ID,
         clusters: [],
@@ -59,8 +63,18 @@
         },
         connectionFormDirty: false,
         connectionSettingsStatus: null,
+        agentSettingsFormDirty: false,
+        agentSettingsSaving: false,
+        agentSettingsStatus: null,
         openClawConfigFormDirty: false,
         openClawConfigStatus: null,
+        batchCreateAgentsSaving: false,
+        batchCreateAgentsStatus: null,
+        agentOnboardingAgentId: null,
+        agentOnboardingPresetId: '',
+        agentOnboardingPrompt: '',
+        agentOnboardingSaving: false,
+        agentOnboardingStatus: null,
         chatHomePinned: false,
         forceSetupPanel: false,
         installGuideStatus: null,
@@ -237,7 +251,18 @@
         elements.btnToggleMainSidebar = document.getElementById('btn-toggle-main-sidebar');
         elements.agentList = document.getElementById('agent-list');
         elements.btnNewAgentFolder = document.getElementById('btn-new-agent-folder');
+        elements.btnBatchDeleteAgents = document.getElementById('btn-batch-delete-agents');
         elements.chatHome = document.getElementById('chat-home');
+        elements.chatConsoleHomeContent = document.getElementById('chat-console-home-content');
+        elements.agentOnboardingPanel = document.getElementById('agent-onboarding-panel');
+        elements.agentOnboardingAgentName = document.getElementById('agent-onboarding-agent-name');
+        elements.agentOnboardingAgentModel = document.getElementById('agent-onboarding-agent-model');
+        elements.agentOnboardingPresetGrid = document.getElementById('agent-onboarding-preset-grid');
+        elements.agentOnboardingPresetSummary = document.getElementById('agent-onboarding-preset-summary');
+        elements.agentOnboardingPrompt = document.getElementById('agent-onboarding-prompt');
+        elements.agentOnboardingStatus = document.getElementById('agent-onboarding-status');
+        elements.btnSaveAgentOnboarding = document.getElementById('btn-save-agent-onboarding');
+        elements.btnOpenAgentOnboardingSettings = document.getElementById('btn-open-agent-onboarding-settings');
         elements.clusterSidebarList = document.getElementById('cluster-sidebar-list');
         elements.chatMessages = document.getElementById('chat-messages');
         elements.messageInput = document.getElementById('message-input');
@@ -287,6 +312,7 @@
         elements.openclawAuthProvider = document.getElementById('openclaw-auth-provider-select');
         elements.openclawAuthProviderCustom = document.getElementById('openclaw-auth-provider-custom');
         elements.openclawAuthApiKey = document.getElementById('openclaw-auth-api-key');
+        elements.secretRevealButtons = document.querySelectorAll('[data-press-reveal]');
         elements.openclawConfigHint = document.getElementById('openclaw-config-hint');
         elements.openclawConfigStatus = document.getElementById('openclaw-config-status');
         elements.btnRefreshOpenclawConfig = document.getElementById('btn-refresh-openclaw-config');
@@ -318,7 +344,8 @@
         elements.clusterTargetHint = document.getElementById('cluster-target-hint');
         elements.btnSendCluster = document.getElementById('btn-send-cluster');
         elements.btnStopCluster = document.getElementById('btn-stop-cluster');
-        elements.btnExportClusterContext = document.getElementById('btn-export-cluster-context');
+        elements.btnExportClusterReadableContext = document.getElementById('btn-export-cluster-readable-context');
+        elements.btnExportClusterRawContext = document.getElementById('btn-export-cluster-raw-context');
         elements.btnEditCluster = document.getElementById('btn-edit-cluster');
         elements.btnNewAgent = document.getElementById('btn-new-agent');
         elements.btnRefreshAgents = document.getElementById('btn-refresh-agents');
@@ -329,9 +356,21 @@
         elements.newAgentPresetPanel = document.getElementById('new-agent-preset-panel');
         elements.newAgentPresetGrid = document.getElementById('new-agent-preset-grid');
         elements.newAgentPresetDescription = document.getElementById('new-agent-preset-description');
+        elements.newAgentSingleFields = document.getElementById('new-agent-single-fields');
+        elements.newAgentBatchPanel = document.getElementById('new-agent-batch-panel');
         elements.newAgentName = document.getElementById('new-agent-name');
+        elements.newAgentModelProvider = document.getElementById('new-agent-model-provider');
+        elements.newAgentModelProviderCustom = document.getElementById('new-agent-model-provider-custom');
         elements.newAgentModel = document.getElementById('new-agent-model');
+        elements.newAgentModelCustom = document.getElementById('new-agent-model-custom');
         elements.newAgentPrompt = document.getElementById('new-agent-prompt');
+        elements.batchAgentNames = document.getElementById('batch-agent-names');
+        elements.batchAgentModelProvider = document.getElementById('batch-agent-model-provider');
+        elements.batchAgentModelProviderCustom = document.getElementById('batch-agent-model-provider-custom');
+        elements.batchAgentModel = document.getElementById('batch-agent-model');
+        elements.batchAgentModelCustom = document.getElementById('batch-agent-model-custom');
+        elements.batchAgentPrompt = document.getElementById('batch-agent-prompt');
+        elements.batchAgentFormStatus = document.getElementById('batch-agent-form-status');
         elements.navTabs = document.querySelectorAll('.nav-tab');
         elements.views = document.querySelectorAll('.view');
         elements.tokenCount = document.getElementById('token-count');
@@ -357,6 +396,12 @@
         elements.clusterPresetSummary = document.getElementById('cluster-preset-summary');
         elements.clusterEditorAgentPicker = document.getElementById('cluster-editor-agent-picker');
         elements.clusterEditorMemberProfiles = document.getElementById('cluster-editor-member-profiles');
+        elements.clusterBatchAgentNames = document.getElementById('cluster-batch-agent-names');
+        elements.clusterBatchAgentModelProvider = document.getElementById('cluster-batch-agent-model-provider');
+        elements.clusterBatchAgentModelProviderCustom = document.getElementById('cluster-batch-agent-model-provider-custom');
+        elements.clusterBatchAgentModel = document.getElementById('cluster-batch-agent-model');
+        elements.clusterBatchAgentModelCustom = document.getElementById('cluster-batch-agent-model-custom');
+        elements.clusterBatchAgentPrompt = document.getElementById('cluster-batch-agent-prompt');
         elements.btnCreateTask = document.getElementById('btn-create-task');
         elements.btnRefreshUsage = document.getElementById('btn-refresh-usage');
         elements.btnUsagePeriod7 = document.getElementById('btn-usage-period-7');
@@ -391,6 +436,11 @@
         elements.modalAgentSettings = document.getElementById('modal-agent-settings');
         elements.modalSkillMarket = document.getElementById('modal-skill-market');
         elements.formAgentSettings = document.getElementById('form-agent-settings');
+        elements.settingsAgentFormStatus = document.getElementById('settings-agent-form-status');
+        elements.settingsAgentModelProvider = document.getElementById('settings-agent-model-provider');
+        elements.settingsAgentModelProviderCustom = document.getElementById('settings-agent-model-provider-custom');
+        elements.settingsAgentModel = document.getElementById('settings-agent-model');
+        elements.settingsAgentModelCustom = document.getElementById('settings-agent-model-custom');
         elements.agentSkillsPicker = document.getElementById('settings-agent-skills');
         elements.agentSkillsHint = document.getElementById('settings-agent-skills-hint');
         elements.agentSkillLinks = document.getElementById('settings-agent-skill-links');
@@ -422,6 +472,17 @@
 
             e.preventDefault();
             sendMessage();
+        });
+        elements.agentOnboardingPrompt?.addEventListener('input', () => {
+            state.agentOnboardingPrompt = elements.agentOnboardingPrompt.value;
+            state.agentOnboardingStatus = null;
+            renderAgentOnboarding();
+        });
+        elements.btnSaveAgentOnboarding?.addEventListener('click', () => {
+            saveAgentOnboarding();
+        });
+        elements.btnOpenAgentOnboardingSettings?.addEventListener('click', () => {
+            openAgentOnboardingSettings();
         });
 
         elements.btnSendCluster?.addEventListener('click', sendClusterMessage);
@@ -517,6 +578,10 @@
             });
         });
 
+        elements.secretRevealButtons?.forEach(button => {
+            bindSecretRevealButton(button);
+        });
+
         elements.openclawDefaultModel?.addEventListener('change', () => {
             syncOpenClawDefaultModelCustomVisibility();
             markOpenClawConfigFormDirty();
@@ -550,6 +615,10 @@
             openNewAgentModal();
         });
 
+        elements.btnBatchDeleteAgents?.addEventListener('click', () => {
+            vscode.postMessage({ type: 'promptDeleteAgentsBatch' });
+        });
+
         elements.btnNewAgentFolder?.addEventListener('click', () => {
             createAgentFolder();
         });
@@ -576,8 +645,12 @@
             }
         });
 
-        elements.btnExportClusterContext?.addEventListener('click', () => {
-            exportCurrentClusterConversation();
+        elements.btnExportClusterReadableContext?.addEventListener('click', () => {
+            exportCurrentClusterConversation('readable');
+        });
+
+        elements.btnExportClusterRawContext?.addEventListener('click', () => {
+            exportCurrentClusterConversation('raw');
         });
 
         elements.btnAddClusterAgent?.addEventListener('click', () => {
@@ -679,7 +752,7 @@
         elements.newAgentModeButtons?.forEach(button => {
             button.addEventListener('click', () => {
                 const mode = button.getAttribute('data-new-agent-mode');
-                if (mode === 'custom' || mode === 'preset') {
+                if (mode === 'custom' || mode === 'preset' || mode === 'batch') {
                     setNewAgentMode(mode);
                 }
             });
@@ -691,6 +764,12 @@
                 e.preventDefault();
                 saveAgentSettings();
             });
+
+            const markDirty = () => {
+                markAgentSettingsDirty();
+            };
+            elements.formAgentSettings.addEventListener('input', markDirty);
+            elements.formAgentSettings.addEventListener('change', markDirty);
             
             // Range input listener for temperature
             const tempRange = document.getElementById('settings-agent-temperature');
@@ -708,6 +787,31 @@
                 });
             }
         }
+
+        elements.newAgentModelProvider?.addEventListener('change', () => {
+            handleAgentModelProviderChange('new');
+        });
+        elements.newAgentModel?.addEventListener('change', () => {
+            syncAgentModelCustomVisibility('new');
+        });
+        elements.batchAgentModelProvider?.addEventListener('change', () => {
+            handleAgentModelProviderChange('batch');
+        });
+        elements.batchAgentModel?.addEventListener('change', () => {
+            syncAgentModelCustomVisibility('batch');
+        });
+        elements.settingsAgentModelProvider?.addEventListener('change', () => {
+            handleAgentModelProviderChange('settings');
+        });
+        elements.settingsAgentModel?.addEventListener('change', () => {
+            syncAgentModelCustomVisibility('settings');
+        });
+        elements.clusterBatchAgentModelProvider?.addEventListener('change', () => {
+            handleAgentModelProviderChange('clusterBatch');
+        });
+        elements.clusterBatchAgentModel?.addEventListener('change', () => {
+            syncAgentModelCustomVisibility('clusterBatch');
+        });
 
         if (elements.formTask) {
             elements.formTask.addEventListener('submit', (e) => {
@@ -866,6 +970,15 @@
                     setNewAgentMode('preset');
                     applySelectedAgentPreset(presetId, { resetToDefault: false });
                 }
+                return;
+            }
+
+            const onboardingPresetCard = target.closest('[data-agent-onboarding-preset-id]');
+            if (onboardingPresetCard) {
+                const presetId = onboardingPresetCard.getAttribute('data-agent-onboarding-preset-id');
+                if (presetId) {
+                    applyAgentOnboardingPreset(presetId);
+                }
             }
         });
 
@@ -909,5 +1022,43 @@
                 }
             });
         }, true);
+    }
+
+    function bindSecretRevealButton(button) {
+        const inputId = button?.getAttribute('data-press-reveal');
+        if (!inputId) {
+            return;
+        }
+
+        const toggleReveal = (reveal) => {
+            const input = document.getElementById(inputId);
+            if (!(input instanceof HTMLInputElement)) {
+                return;
+            }
+
+            input.type = reveal ? 'text' : 'password';
+            button.classList.toggle('active', reveal);
+        };
+
+        button.addEventListener('pointerdown', (event) => {
+            event.preventDefault();
+            toggleReveal(true);
+        });
+        ['pointerup', 'pointercancel', 'pointerleave', 'blur'].forEach(eventName => {
+            button.addEventListener(eventName, () => {
+                toggleReveal(false);
+            });
+        });
+        button.addEventListener('keydown', (event) => {
+            if (event.key === ' ' || event.key === 'Enter') {
+                event.preventDefault();
+                toggleReveal(true);
+            }
+        });
+        button.addEventListener('keyup', (event) => {
+            if (event.key === ' ' || event.key === 'Enter') {
+                toggleReveal(false);
+            }
+        });
     }
 

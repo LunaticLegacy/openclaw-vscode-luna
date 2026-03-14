@@ -1,8 +1,10 @@
 import * as assert from 'assert/strict';
+import * as vscode from 'vscode';
 import {
     handleCollaborate,
     handleClusterAgentMessage,
     handleClusterAgentSessionCommand,
+    handleSaveCluster,
     loadClusterAgentMessages,
     loadClusterAgentSwarmMessages,
     loadClusterSwarmMessages
@@ -255,6 +257,44 @@ suite('clusterActions', () => {
             && message.messages.some((entry: any) => entry.content === 'opening reply')
         ));
     });
+
+    test('creates new agents before saving a cluster when quick-create members are provided', async () => {
+        const clusterManager = new FakeClusterManager();
+        const sessionManager = new FakeClusterSessionManager();
+        const posted: Array<Record<string, unknown>> = [];
+        const context = createClusterActionContext(clusterManager, sessionManager, posted);
+
+        await withCapturedProgress(async progressEvents => {
+            await handleSaveCluster(context, undefined, {
+                name: 'New Swarm',
+                agentIds: ['alpha'],
+                createAgents: [{
+                    name: 'Gamma',
+                    model: 'model-c',
+                    systemPrompt: 'shared prompt'
+                }]
+            });
+
+            assert.deepEqual(
+                progressEvents
+                    .map(event => event.message)
+                    .filter((message): message is string => Boolean(message)),
+                [
+                    'Creating cluster member 1/1: Gamma...',
+                    'Creating cluster record...',
+                    'Refreshing agents...',
+                    'Refreshing clusters...'
+                ]
+            );
+            assert.ok(progressEvents.some(event => typeof event.increment === 'number' && event.increment > 0));
+        });
+
+        assert.deepEqual(context.__createdAgents.map((agent: any) => agent.name), ['Gamma']);
+        assert.deepEqual(clusterManager.cluster.agentIds, ['alpha', 'gamma']);
+        assert.equal(context.__metrics.loadAgentsCalls, 1);
+        assert.deepEqual(context.__metrics.loadClustersCalls, ['cluster-created']);
+        assert.ok(posted.some(message => message.type === 'clusterSaved'));
+    });
 });
 
 class FakeClusterManager {
@@ -272,6 +312,7 @@ class FakeClusterManager {
     };
     public collaborationResult: any = null;
     public progressEvents: ClusterCollaborationProgressEvent[] = [];
+    public clusterList: AgentCluster[] = [];
     private readonly messagesByKey = new Map<string, ChatMessage[]>();
     private readonly swarmMessagesByKey = new Map<string, ChatMessage[]>();
     private readonly swarmAgentMessagesByKey = new Map<string, ChatMessage[]>();
@@ -362,6 +403,35 @@ class FakeClusterManager {
 
     public async getCluster(clusterId: string): Promise<AgentCluster | null> {
         return this.cluster?.id === clusterId ? { ...this.cluster } : null;
+    }
+
+    public async createCluster(params: { name: string; agentIds: string[]; workspaceConfig?: Record<string, unknown> }): Promise<AgentCluster> {
+        this.cluster = {
+            id: 'cluster-created',
+            name: params.name,
+            agentIds: [...params.agentIds],
+            status: 'active',
+            createdAt: '2026-03-12T00:00:00.000Z',
+            workspaceConfig: params.workspaceConfig as never
+        };
+        this.clusterList = [this.cluster];
+        return { ...this.cluster };
+    }
+
+    public async updateCluster(clusterId: string, params: { name?: string; agentIds?: string[]; workspaceConfig?: Record<string, unknown> }): Promise<AgentCluster> {
+        this.cluster = {
+            ...this.cluster,
+            id: clusterId,
+            name: params.name || this.cluster.name,
+            agentIds: params.agentIds ? [...params.agentIds] : [...this.cluster.agentIds],
+            workspaceConfig: (params.workspaceConfig as never) || this.cluster.workspaceConfig
+        };
+        this.clusterList = [this.cluster];
+        return { ...this.cluster };
+    }
+
+    public async getClusters(): Promise<AgentCluster[]> {
+        return this.clusterList.length > 0 ? this.clusterList.map(cluster => ({ ...cluster })) : [{ ...this.cluster }];
     }
 
     public async collaborateOnCluster(_clusterId?: string, _message?: string, options?: {
@@ -456,8 +526,13 @@ function createClusterActionContext(
     posted: Array<Record<string, unknown>>
 ) {
     let clusterAgentRunToken = 0;
+    const createdAgents: Array<{ id: string; name: string; model: string }> = [];
+    const metrics = {
+        loadAgentsCalls: 0,
+        loadClustersCalls: [] as Array<string | undefined>
+    };
 
-    return {
+    const context = {
         clusterManager,
         agentManager: {
             getAgents: async (): Promise<Agent[]> => [
@@ -475,13 +550,35 @@ function createClusterActionContext(
                     status: 'idle',
                     createdAt: '2026-03-12T00:00:00.000Z'
                 }
-            ]
+            ],
+            createAgent: async (params: { name: string; model: string }) => {
+                const created = {
+                    id: params.name.toLowerCase(),
+                    name: params.name,
+                    model: params.model,
+                    status: 'idle' as const,
+                    createdAt: '2026-03-12T00:00:00.000Z'
+                };
+                createdAgents.push(created);
+                return created;
+            },
+            deleteAgent: async (agentId: string) => {
+                const index = createdAgents.findIndex(agent => agent.id === agentId);
+                if (index >= 0) {
+                    createdAgents.splice(index, 1);
+                }
+            }
         } as never,
         clusterSessionManager,
         postMessage: (message: Record<string, unknown>) => {
             posted.push(message);
         },
-        loadClusters: async () => undefined,
+        loadAgents: async () => {
+            metrics.loadAgentsCalls += 1;
+        },
+        loadClusters: async (selectedClusterId?: string) => {
+            metrics.loadClustersCalls.push(selectedClusterId);
+        },
         showClusterView: () => undefined,
         getCurrentAgentId: () => null,
         beginAgentRun: () => true,
@@ -493,7 +590,14 @@ function createClusterActionContext(
             return clusterAgentRunToken;
         },
         getClusterAgentRunToken: () => clusterAgentRunToken
-    } as unknown as Parameters<typeof loadClusterAgentMessages>[0];
+    } as unknown as Parameters<typeof loadClusterAgentMessages>[0] & {
+        __createdAgents: typeof createdAgents;
+        __metrics: typeof metrics;
+    };
+
+    (context as any).__createdAgents = createdAgents;
+    (context as any).__metrics = metrics;
+    return context;
 }
 
 function createMessage(id: string, role: ChatMessage['role'], content: string): ChatMessage {
@@ -508,4 +612,26 @@ function createMessage(id: string, role: ChatMessage['role'], content: string): 
 
 function cloneMessages(messages: ChatMessage[]): ChatMessage[] {
     return messages.map(message => ({ ...message }));
+}
+
+async function withCapturedProgress<T>(
+    run: (progressEvents: Array<{ message?: string; increment?: number }>) => Promise<T>
+): Promise<T> {
+    const originalWithProgress = (vscode as any).window.withProgress;
+    const progressEvents: Array<{ message?: string; increment?: number }> = [];
+
+    (vscode as any).window.withProgress = async (
+        _options: unknown,
+        task: (progress: { report(value: { message?: string; increment?: number }): void }) => Promise<T>
+    ): Promise<T> => await task({
+        report(value: { message?: string; increment?: number }) {
+            progressEvents.push({ ...value });
+        }
+    });
+
+    try {
+        return await run(progressEvents);
+    } finally {
+        (vscode as any).window.withProgress = originalWithProgress;
+    }
 }

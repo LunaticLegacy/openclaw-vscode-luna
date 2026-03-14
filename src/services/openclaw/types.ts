@@ -29,6 +29,10 @@ export interface AgentCluster {
 export interface ClusterMemberProfile {
     identity?: string;
     stance?: string;
+    activation?: {
+        swarmModes?: Array<'broadcast' | 'collaborate'>;
+        keywords?: string[];
+    };
 }
 
 export interface ClusterWorkspaceConfig {
