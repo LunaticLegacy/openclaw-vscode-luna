@@ -161,6 +161,7 @@ form {
 
 .cluster-rounds-group {
     align-self: start;
+    margin-top: -6px;
 }
 
 .form-actions {

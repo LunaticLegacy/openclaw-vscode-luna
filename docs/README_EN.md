@@ -102,6 +102,7 @@ The first win is simple: connect, create an agent, send a message.
 - Switch between `Broadcast / Collaborate / Member Chat` inside one workspace
 - Open clusters directly from the sidebar
 - Add or remove members without leaving VS Code
+- Support custom Swarm workflows
 
 ### Scheduled Tasks
 

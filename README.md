@@ -102,6 +102,7 @@ OpenClaw Luna 是一个 VS Code 扩展，用来把 OpenClaw 的日常控制路�
 - 在一个工作区里切换 `Broadcast / Collaborate / 成员直连`
 - 从侧边栏直接进入某个集群
 - 支持集群成员增删和协作上下文切换
+- 支持定制化集群工作流
 
 ### 定时任务面板
 
