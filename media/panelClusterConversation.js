@@ -55,6 +55,15 @@
             state.currentClusterAgentId = null;
         }
 
+        if (isReplayCluster(cluster)) {
+            const replay = getClusterReplay(cluster);
+            state.currentClusterTargetKind = 'swarm';
+            state.currentClusterAgentId = null;
+            state.currentClusterSwarmMode = replay?.mode === 'collaborate' ? 'collaborate' : 'broadcast';
+            state.currentClusterAgentViewMode = 'chat';
+            return;
+        }
+
         if (!state.currentClusterSwarmMode) {
             state.currentClusterSwarmMode = 'broadcast';
         }
@@ -382,6 +391,10 @@
             return t('clusters.chatPlaceholder');
         }
 
+        if (isReplayCluster(cluster)) {
+            return t('clusters.chatPlaceholderReplay');
+        }
+
         if (target.kind === 'agent') {
             if (target.agentViewMode === 'broadcast' || target.agentViewMode === 'collaborate') {
                 return t('clusters.chatPlaceholderAgentReadonly', {
@@ -403,6 +416,10 @@
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
         if (!cluster) {
             return '';
+        }
+
+        if (isReplayCluster(cluster)) {
+            return t('clusters.replayReadonlyHint');
         }
 
         if (target.kind === 'agent') {

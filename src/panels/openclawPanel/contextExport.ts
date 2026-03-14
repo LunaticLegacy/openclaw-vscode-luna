@@ -54,6 +54,12 @@ export interface ClusterContextExportBundle {
 
 export type ClusterContextExportKind = 'readable' | 'raw';
 
+export interface ClusterSwarmReplayImport {
+    sourcePath: string;
+    importedAt: string;
+    body: ClusterSwarmContextExportBody;
+}
+
 export function buildClusterContextExportBundle(
     baseName: string,
     body: ClusterContextExportBody
@@ -73,6 +79,56 @@ export function resolveContextExportPath(selectedPath: string, kind: ClusterCont
         ? path.join(parsed.dir, parsed.name)
         : selectedPath;
     return `${normalizedBasePath}.${kind === 'readable' ? 'md' : 'json'}`;
+}
+
+export function parseClusterSwarmReplayImport(
+    sourcePath: string,
+    rawContent: string
+): ClusterSwarmReplayImport {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(rawContent);
+    } catch {
+        throw new Error('Replay JSON is invalid.');
+    }
+
+    if (!parsed || typeof parsed !== 'object') {
+        throw new Error('Replay JSON must be an object.');
+    }
+
+    const body = parsed as Partial<ClusterSwarmContextExportBody>;
+    if (body.kind !== 'cluster-swarm-context') {
+        throw new Error('Only swarm context JSON exports can be replayed.');
+    }
+
+    if (!body.cluster?.id || !body.cluster?.name || !Array.isArray(body.cluster?.agentIds)) {
+        throw new Error('Replay JSON is missing cluster information.');
+    }
+
+    if (body.mode !== 'broadcast' && body.mode !== 'collaborate') {
+        throw new Error('Replay JSON is missing a valid swarm mode.');
+    }
+
+    const normalizedMessages = normalizeReplayMessages(body.messages);
+
+    return {
+        sourcePath,
+        importedAt: new Date().toISOString(),
+        body: {
+            exportedAt: typeof body.exportedAt === 'string' && body.exportedAt.trim()
+                ? body.exportedAt
+                : new Date().toISOString(),
+            kind: 'cluster-swarm-context',
+            cluster: {
+                id: body.cluster.id,
+                name: body.cluster.name,
+                agentIds: [...body.cluster.agentIds]
+            },
+            mode: body.mode,
+            messageCount: normalizedMessages.length,
+            messages: normalizedMessages
+        }
+    };
 }
 
 function renderReadableClusterContextMarkdown(body: ClusterContextExportBody): string {
@@ -181,4 +237,48 @@ function shouldIncludeInReadableExport(message: ChatMessage): boolean {
         return false;
     }
     return Boolean(String(message.content || '').trim());
+}
+
+function normalizeReplayMessages(messages: unknown): ChatMessage[] {
+    if (!Array.isArray(messages)) {
+        return [];
+    }
+
+    const normalized: ChatMessage[] = [];
+    for (const message of messages) {
+        if (!message || typeof message !== 'object') {
+            continue;
+        }
+
+        const record = message as Partial<ChatMessage>;
+        const id = typeof record.id === 'string' ? record.id.trim() : '';
+        const role = record.role;
+        const timestamp = typeof record.timestamp === 'string' ? record.timestamp.trim() : '';
+        if (!id || !timestamp || (role !== 'user' && role !== 'assistant' && role !== 'system' && role !== 'tool')) {
+            continue;
+        }
+
+        normalized.push({
+            ...record,
+            id,
+            role,
+            content: typeof record.content === 'string' ? record.content : '',
+            timestamp,
+            displayName: typeof record.displayName === 'string' ? record.displayName : undefined,
+            contextLabel: typeof record.contextLabel === 'string' ? record.contextLabel : undefined,
+            agentId: typeof record.agentId === 'string' ? record.agentId : undefined,
+            tokenCount: typeof record.tokenCount === 'number' ? record.tokenCount : undefined,
+            toolCallId: typeof record.toolCallId === 'string' ? record.toolCallId : undefined,
+            toolName: typeof record.toolName === 'string' ? record.toolName : undefined,
+            toolArguments: record.toolArguments,
+            toolDetails: record.toolDetails,
+            isError: typeof record.isError === 'boolean' ? record.isError : undefined,
+            parts: Array.isArray(record.parts) ? [...record.parts] : undefined,
+            metadata: record.metadata && typeof record.metadata === 'object' && !Array.isArray(record.metadata)
+                ? { ...record.metadata }
+                : undefined
+        });
+    }
+
+    return normalized;
 }

@@ -2,6 +2,7 @@ import * as assert from 'assert/strict';
 import type { ChatMessage } from '../../services/openclawService';
 import {
     buildClusterContextExportBundle,
+    parseClusterSwarmReplayImport,
     resolveContextExportPath,
     type ClusterAgentContextExportBody,
     type ClusterSwarmContextExportBody
@@ -119,6 +120,47 @@ suite('contextExport', () => {
         assert.match(bundle.readableMarkdown, /### Collaboration Timeline/);
         assert.match(bundle.readableMarkdown, /Final merged answer/);
         assert.match(bundle.readableMarkdown, /Coordinator: Alpha/);
+    });
+
+    test('parses swarm replay import and normalizes messages', () => {
+        const replay = parseClusterSwarmReplayImport('C:\\temp\\swarm.json', JSON.stringify({
+            exportedAt: '2026-03-14T00:00:00.000Z',
+            kind: 'cluster-swarm-context',
+            cluster: {
+                id: 'cluster-1',
+                name: 'Swarm',
+                agentIds: ['alpha', 'beta']
+            },
+            mode: 'broadcast',
+            messageCount: 3,
+            messages: [
+                createMessage('msg-1', 'user', 'Run the swarm'),
+                createMessage('msg-2', 'assistant', 'Alpha reply', {
+                    agentId: 'alpha',
+                    metadata: {
+                        swarmLatencyMs: 2300
+                    }
+                }),
+                {
+                    ignore: true
+                }
+            ]
+        }));
+
+        assert.equal(replay.sourcePath, 'C:\\temp\\swarm.json');
+        assert.equal(replay.body.mode, 'broadcast');
+        assert.equal(replay.body.messageCount, 2);
+        assert.equal(replay.body.messages[1]?.agentId, 'alpha');
+        assert.equal(replay.body.messages[1]?.metadata?.swarmLatencyMs, 2300);
+    });
+
+    test('rejects non-swarm replay imports', () => {
+        assert.throws(
+            () => parseClusterSwarmReplayImport('C:\\temp\\agent.json', JSON.stringify({
+                kind: 'cluster-agent-context'
+            })),
+            /Only swarm context JSON exports can be replayed\./
+        );
     });
 });
 

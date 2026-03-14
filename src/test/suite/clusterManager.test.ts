@@ -126,6 +126,30 @@ suite('clusterManager', () => {
         }
     });
 
+    test('prefers the last non-empty assistant message when trace ends with an empty placeholder', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-final-trace-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService([], {
+            appendTrailingEmptyAssistant: true
+        });
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Trace Swarm',
+                agentIds: ['alpha', 'beta']
+            });
+            const result = await manager.collaborateOnCluster(cluster.id, 'Synthesize a release recommendation.');
+
+            assert.match(result.contributions.alpha.message?.content || '', /revision-2/i);
+            assert.match(result.contributions.beta.message?.content || '', /revision-2/i);
+            assert.match(result.synthesis?.message?.content || '', /final synthesis by alpha/i);
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
+
     test('persists and rotates cluster-agent session ids independently', async () => {
         const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-session-'));
         const storagePath = path.join(root, 'clusters.json');
@@ -391,9 +415,157 @@ suite('clusterManager', () => {
             await fs.rm(root, { recursive: true, force: true });
         }
     });
+
+    test('delegates broadcast prompts through the configured parent-child chain', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-broadcast-topology-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Hierarchical Broadcast',
+                agentIds: ['alpha', 'beta'],
+                workspaceConfig: {
+                    presetId: 'implementation-squad',
+                    collaborationStyle: 'leader-draft',
+                    deliveryStyle: 'balanced',
+                    critiqueLevel: 'standard',
+                    rounds: 1,
+                    memberProfiles: {
+                        beta: {
+                            parentAgentId: 'alpha',
+                            activation: {
+                                swarmModes: ['broadcast']
+                            }
+                        }
+                    }
+                }
+            });
+
+            const result = await manager.broadcastToCluster(cluster.id, 'Review deployment blast radius.');
+
+            assert.deepEqual(Object.keys(result), ['alpha', 'beta']);
+            assert.deepEqual(
+                service.sentMessages
+                    .filter(entry => entry.stage === 'broadcast')
+                    .map(entry => entry.agentId),
+                ['alpha', 'beta']
+            );
+            assert.equal(service.findPrompt('alpha', 'broadcast'), 'Review deployment blast radius.');
+            assert.match(service.findPrompt('beta', 'broadcast'), /awakened by parent agent "alpha"/i);
+            assert.match(service.findPrompt('beta', 'broadcast'), /Broadcast from alpha/i);
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
+
+    test('only wakes descendants when their parent branch is covered', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-topology-coverage-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Hierarchical Collaborate',
+                agentIds: ['alpha', 'beta', 'gamma'],
+                workspaceConfig: {
+                    presetId: 'implementation-squad',
+                    collaborationStyle: 'debate',
+                    deliveryStyle: 'balanced',
+                    critiqueLevel: 'standard',
+                    rounds: 1,
+                    memberProfiles: {
+                        alpha: {
+                            activation: {
+                                swarmModes: []
+                            }
+                        },
+                        beta: {
+                            parentAgentId: 'alpha',
+                            activation: {
+                                swarmModes: ['collaborate']
+                            }
+                        },
+                        gamma: {
+                            activation: {
+                                swarmModes: ['collaborate']
+                            }
+                        }
+                    }
+                }
+            });
+
+            await manager.collaborateOnCluster(cluster.id, 'Review the rollout risk.');
+
+            assert.deepEqual(
+                service.sentMessages
+                    .filter(entry => entry.stage === 'opening')
+                    .map(entry => entry.agentId),
+                ['gamma']
+            );
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
+
+    test('passes parent context down nested collaborate branches', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-topology-context-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Nested Collaborate',
+                agentIds: ['alpha', 'beta', 'gamma'],
+                workspaceConfig: {
+                    presetId: 'implementation-squad',
+                    collaborationStyle: 'debate',
+                    deliveryStyle: 'balanced',
+                    critiqueLevel: 'standard',
+                    rounds: 1,
+                    memberProfiles: {
+                        beta: {
+                            parentAgentId: 'alpha',
+                            activation: {
+                                swarmModes: ['collaborate']
+                            }
+                        },
+                        gamma: {
+                            parentAgentId: 'beta',
+                            activation: {
+                                swarmModes: ['collaborate']
+                            }
+                        }
+                    }
+                }
+            });
+
+            await manager.collaborateOnCluster(cluster.id, 'Design the release topology.');
+
+            assert.deepEqual(
+                service.sentMessages
+                    .filter(entry => entry.stage === 'opening')
+                    .map(entry => entry.agentId),
+                ['alpha', 'beta', 'gamma']
+            );
+            assert.match(service.findPrompt('beta', 'opening'), /Wake route: swarm -> alpha/i);
+            assert.match(service.findPrompt('beta', 'opening'), /Opening from alpha/i);
+            assert.match(service.findPrompt('gamma', 'opening'), /Wake route: swarm -> alpha -> beta/i);
+            assert.match(service.findPrompt('gamma', 'opening'), /Opening from beta/i);
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
 });
 
 type DebateStage =
+    | 'broadcast'
     | 'opening'
     | 'critique-1'
     | 'revision-1'
@@ -418,11 +590,14 @@ class FakeCollaborationService extends EventEmitter {
         private readonly failures: Array<{
             agentId: string;
             stage: DebateStage;
-        }> = []
+        }> = [],
+        private readonly options: {
+            appendTrailingEmptyAssistant?: boolean;
+        } = {}
     ) {
         super();
 
-        for (const agentId of ['alpha', 'beta']) {
+        for (const agentId of ['alpha', 'beta', 'gamma', 'delta']) {
             this.agents.set(agentId, {
                 id: agentId,
                 name: agentId.toUpperCase(),
@@ -484,6 +659,14 @@ class FakeCollaborationService extends EventEmitter {
             timestamp: new Date().toISOString()
         } satisfies ChatMessage);
         history.push(response);
+        if (this.options.appendTrailingEmptyAssistant) {
+            history.push({
+                id: `placeholder-${this.sentMessages.length}`,
+                role: 'assistant',
+                content: '',
+                timestamp: new Date().toISOString()
+            });
+        }
         this.sessionMessages.set(sessionId, history);
         return response;
     }
@@ -504,6 +687,10 @@ class FakeCollaborationService extends EventEmitter {
 }
 
 function detectDebateStage(prompt: string): DebateStage {
+    if (!prompt.includes('Debate stage:') && !prompt.includes('You are coordinating the agent swarm')) {
+        return 'broadcast';
+    }
+
     if (prompt.includes('Debate stage: opening')) {
         return 'opening';
     }
@@ -529,6 +716,8 @@ function detectDebateStage(prompt: string): DebateStage {
 
 function buildFakeResponse(agentId: string, stage: DebateStage): string {
     switch (stage) {
+        case 'broadcast':
+            return `Broadcast from ${agentId}`;
         case 'opening':
             return `Opening from ${agentId}\nPosition: ${agentId} opening.`;
         case 'critique-1':

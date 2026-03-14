@@ -65,7 +65,7 @@
 
 你有三种进入方式：
 
-- 命令面板 `OpenClaw: Open Panel`
+- 命令面板 `OpenClaw Luna: Open OpenClaw Luna`
 - 右下角状态栏 `OpenClaw`
 - 侧边栏 `OpenClaw` Activity Bar
 

@@ -33,6 +33,7 @@ interface MessageRouterContext {
         agentId?: string;
         agentViewMode?: 'chat' | 'broadcast' | 'collaborate';
     }): Promise<void>;
+    importClusterReplay(): Promise<void>;
     exportRuntimeLogs(): Promise<void>;
     clearChat(): void;
     refreshAgents(force?: boolean): Promise<void>;
@@ -139,6 +140,10 @@ export async function handlePanelMessage(context: MessageRouterContext, message:
                         ? 'collaborate'
                         : 'chat'
             });
+            break;
+
+        case 'importClusterReplay':
+            await context.importClusterReplay();
             break;
 
         case 'exportRuntimeLogs':

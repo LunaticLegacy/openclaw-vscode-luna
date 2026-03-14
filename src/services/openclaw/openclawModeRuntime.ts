@@ -48,6 +48,7 @@ import {
     CreateAgentParams,
     DiscoveredChannel,
     RealtimeUsageSnapshot,
+    RuntimeNotice,
     SendMessageOptions,
     ServiceEventSink,
     StreamChunk,
@@ -90,6 +91,7 @@ export class OpenClawModeRuntime {
     private readonly backendActiveRunsBySession = new Map<string, Set<string>>();
     private readonly backendRunIds = new Map<string, { agentId: string; sessionKey: string }>();
     private readonly lastKnownAgents = new Map<string, Agent>();
+    private readonly seenRuntimeNoticeKeys = new Set<string>();
     private defaultAgentId: string | null = null;
     private mainKey: string | null = null;
     private sessionKeysByAgent: Map<string, string> = new Map();
@@ -286,7 +288,7 @@ export class OpenClawModeRuntime {
         const knownIds = new Set(historyBefore.map(item => item.id));
 
         try {
-            yield* streamMessageViaGateway({
+            for await (const chunk of streamMessageViaGateway({
                 config: this.config,
                 runner: this.runner,
                 activeGatewayRuns: this.activeGatewayRuns,
@@ -294,10 +296,13 @@ export class OpenClawModeRuntime {
                 handleObservedRunStop: this.handleObservedRunStop.bind(this),
                 readSessionMessages: this.readSessionMessages.bind(this),
                 waitForAssistantMessage: this.waitForAssistantMessage.bind(this)
-            }, sessionId, message, knownIds);
+            }, sessionId, message, knownIds)) {
+                this.publishRuntimeNoticeFromMessage(chunk.message, sessionId);
+                yield chunk;
+            }
             return;
         } catch {
-            yield* streamMessageFromSessionLog({
+            for await (const chunk of streamMessageFromSessionLog({
                 config: this.config,
                 runner: this.runner,
                 activeGatewayRuns: this.activeGatewayRuns,
@@ -305,7 +310,10 @@ export class OpenClawModeRuntime {
                 handleObservedRunStop: this.handleObservedRunStop.bind(this),
                 readSessionMessages: this.readSessionMessages.bind(this),
                 waitForAssistantMessage: this.waitForAssistantMessage.bind(this)
-            }, sessionId, message, knownIds);
+            }, sessionId, message, knownIds)) {
+                this.publishRuntimeNoticeFromMessage(chunk.message, sessionId);
+                yield chunk;
+            }
         }
     }
 
@@ -408,6 +416,7 @@ export class OpenClawModeRuntime {
         this.backendActiveRunsBySession.clear();
         this.backendRunIds.clear();
         this.lastKnownAgents.clear();
+        this.seenRuntimeNoticeKeys.clear();
         this.defaultAgentId = null;
         this.mainKey = null;
         this.sessionKeysByAgent.clear();
@@ -794,6 +803,8 @@ export class OpenClawModeRuntime {
             return;
         }
 
+        this.publishRuntimeNoticeFromLifecyclePayload(sessionKey, payload);
+
         if (isActiveActivityState(state)) {
             this.markBackendRunActive(agentId, sessionKey, runId);
             return;
@@ -1001,12 +1012,69 @@ export class OpenClawModeRuntime {
         this.snapshotCache = null;
         this.snapshotPromise = null;
     }
+
+    private publishRuntimeNoticeFromLifecyclePayload(sessionKey: string, payload: Record<string, unknown>): void {
+        const lifecycleMessage = normalizeOpenClawGatewayLifecycleEvent(sessionKey, payload);
+        this.publishRuntimeNoticeFromMessage(lifecycleMessage, sessionKey);
+    }
+
+    private publishRuntimeNoticeFromMessage(message: ChatMessage | undefined | null, sessionId?: string): void {
+        if (!message || message.metadata?.noticeType !== 'lifecycle') {
+            return;
+        }
+
+        const kind = typeof message.metadata?.noticeKind === 'string'
+            ? message.metadata.noticeKind
+            : '';
+        if (kind !== 'fallback' && kind !== 'compression') {
+            return;
+        }
+
+        const noticeKey = String(message.id || `${kind}:${message.agentId || ''}:${message.content}`);
+        if (this.seenRuntimeNoticeKeys.has(noticeKey)) {
+            return;
+        }
+        this.seenRuntimeNoticeKeys.add(noticeKey);
+
+        const notice: RuntimeNotice = {
+            kind,
+            message: message.content,
+            agentId: message.agentId,
+            sessionId: sessionId?.trim() || undefined,
+            phase: typeof message.metadata?.phase === 'string' ? message.metadata.phase : undefined
+        };
+        this.emitEvent('runtimeNotice', notice);
+    }
 }
 
-function isActiveActivityState(value: string): boolean {
-    return ['accepted', 'start', 'started', 'running', 'streaming', 'in_flight'].includes(value);
+export function isActiveActivityState(value: string): boolean {
+    return [
+        'accepted',
+        'start',
+        'started',
+        'running',
+        'streaming',
+        'in_flight',
+        'compact',
+        'compaction',
+        'compacting',
+        'compress',
+        'compressed',
+        'compressing',
+        'compression',
+        'context_refresh',
+        'context-refresh',
+        'refreshing_context',
+        'rollback',
+        'rolling_back',
+        'rolling-back',
+        'rewind',
+        'rewinding',
+        'revert',
+        'reverting'
+    ].includes(value);
 }
 
-function isInactiveActivityState(value: string): boolean {
+export function isInactiveActivityState(value: string): boolean {
     return ['abort', 'aborted', 'cancelled', 'complete', 'completed', 'done', 'end', 'ended', 'error', 'failed', 'stop', 'stopped', 'timeout'].includes(value);
 }

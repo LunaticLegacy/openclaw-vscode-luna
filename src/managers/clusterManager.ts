@@ -41,6 +41,11 @@ export interface ClusterBroadcastResult {
     message?: ChatMessage;
     trace?: ChatMessage[];
     error?: string;
+    timing?: {
+        startedAt: string;
+        completedAt: string;
+        elapsedMs: number;
+    };
 }
 
 export interface BroadcastClusterOptions {
@@ -99,6 +104,24 @@ interface PersistedClustersFile {
     clusterAgentMessages?: Record<string, ChatMessage[]>;
     swarmSessions?: Record<string, string>;
     clusterSwarmMessages?: Record<string, ChatMessage[]>;
+}
+
+interface SwarmActivationNode {
+    agentId: string;
+    parentAgentId: string | null;
+    depth: number;
+    children: SwarmActivationNode[];
+}
+
+interface SwarmActivationPlan {
+    rootNodes: SwarmActivationNode[];
+    orderedAgentIds: string[];
+}
+
+interface SwarmRoutingContext {
+    ancestorAgentIds: string[];
+    parentNode: SwarmActivationNode | null;
+    parentResult: ClusterBroadcastResult | null;
 }
 
 const CLUSTER_AGENT_RESPONSE_TIMEOUT_MS = 45000;
@@ -310,21 +333,31 @@ export class ClusterManager extends EventEmitter {
             throw new Error(t('clusterManager.notFound', { clusterId }));
         }
 
-        const participantAgentIds = resolveSwarmParticipantAgentIds(
+        const activationPlan = resolveSwarmActivationPlan(
             cluster.agentIds,
             workspaceConfigOrDefault(cluster.workspaceConfig),
             'broadcast',
             message
         );
-        if (participantAgentIds.length === 0) {
+        if (activationPlan.orderedAgentIds.length === 0) {
             throw new Error(t('clusterManager.noEligibleAgents'));
         }
 
-        const results = await this.sendMessageToAgents(participantAgentIds, message, {
+        const results = await this.sendHierarchicalMessages(
+            activationPlan,
+            async (node, routing) => routing.parentNode
+                ? buildDelegatedBroadcastPrompt(cluster.name, message, {
+                    delegatedByAgentId: routing.parentNode.agentId,
+                    routeAgentIds: [...routing.ancestorAgentIds, routing.parentNode.agentId],
+                    parentContext: extractSwarmResultContext(routing.parentResult)
+                })
+                : message,
+            {
             clusterId,
             mode: 'broadcast',
             onAgentResult: options.onAgentResult
-        });
+            }
+        );
 
         await this.updateCluster(clusterId, { status: 'active' });
         return results;
@@ -340,25 +373,36 @@ export class ClusterManager extends EventEmitter {
             throw new Error(t('clusterManager.notFound', { clusterId }));
         }
         const workspaceConfig = normalizeClusterWorkspaceConfig(cluster.workspaceConfig);
-        const initialParticipantAgentIds = resolveSwarmParticipantAgentIds(
+        const activationPlan = resolveSwarmActivationPlan(
             cluster.agentIds,
             workspaceConfig,
             'collaborate',
             message
         );
-        if (initialParticipantAgentIds.length === 0) {
+        if (activationPlan.orderedAgentIds.length === 0) {
             throw new Error(t('clusterManager.noEligibleAgents'));
         }
+        const initialParticipantAgentIds = [...activationPlan.orderedAgentIds];
 
         const debateSessionIds = new Map<string, string>();
         const rounds: ClusterCollaborationRound[] = [];
 
-        const openingEntries = await this.sendMessageToAgents(initialParticipantAgentIds, agentId => buildOpeningContributionPrompt(
-            cluster.name,
-            message,
-            workspaceConfig,
-            agentId
-        ), {
+        const openingEntries = await this.sendHierarchicalMessages(
+            activationPlan,
+            async (node, routing) => buildOpeningContributionPrompt(
+                cluster.name,
+                message,
+                workspaceConfig,
+                node.agentId,
+                routing.parentNode
+                    ? {
+                        delegatedByAgentId: routing.parentNode.agentId,
+                        routeAgentIds: [...routing.ancestorAgentIds, routing.parentNode.agentId],
+                        parentContext: extractSwarmResultContext(routing.parentResult)
+                    }
+                    : undefined
+            ),
+            {
             clusterId: cluster.id,
             mode: 'collaborate',
             debateSessionIds,
@@ -368,7 +412,8 @@ export class ClusterManager extends EventEmitter {
                 agentId,
                 entry
             })
-        });
+            }
+        );
         rounds.push({
             kind: 'opening',
             entries: openingEntries
@@ -822,6 +867,54 @@ export class ClusterManager extends EventEmitter {
         return Object.fromEntries(entries);
     }
 
+    private async sendHierarchicalMessages(
+        plan: SwarmActivationPlan,
+        message: (
+            node: SwarmActivationNode,
+            routing: SwarmRoutingContext
+        ) => string | Promise<string>,
+        options: {
+            clusterId: string;
+            mode: 'broadcast' | 'collaborate';
+            debateSessionIds?: Map<string, string>;
+            onAgentResult?: (agentId: string, result: ClusterBroadcastResult) => Promise<void> | void;
+        }
+    ): Promise<Record<string, ClusterBroadcastResult>> {
+        const results: Record<string, ClusterBroadcastResult> = {};
+
+        const visitNode = async (
+            node: SwarmActivationNode,
+            routing: SwarmRoutingContext
+        ): Promise<void> => {
+            const resolvedMessage = await message(node, routing);
+            const result = await this.sendMessageToAgent(node.agentId, resolvedMessage, options);
+            results[node.agentId] = result;
+            await options.onAgentResult?.(node.agentId, result);
+
+            if (!result.ok) {
+                return;
+            }
+
+            for (const child of node.children) {
+                await visitNode(child, {
+                    ancestorAgentIds: [...routing.ancestorAgentIds, node.agentId],
+                    parentNode: node,
+                    parentResult: result
+                });
+            }
+        };
+
+        for (const rootNode of plan.rootNodes) {
+            await visitNode(rootNode, {
+                ancestorAgentIds: [],
+                parentNode: null,
+                parentResult: null
+            });
+        }
+
+        return results;
+    }
+
     private async sendMessageToAgent(
         agentId: string,
         message: string,
@@ -831,18 +924,22 @@ export class ClusterManager extends EventEmitter {
             debateSessionIds?: Map<string, string>;
         }
     ): Promise<ClusterBroadcastResult> {
+        const startedAtMs = Date.now();
+        const startedAt = new Date(startedAtMs).toISOString();
         try {
             const sessionId = options.debateSessionIds
                 ? await this.ensureDebateSession(agentId, options.debateSessionIds, options.clusterId, options.mode)
                 : await this.ensureSwarmSession(agentId, options.clusterId, options.mode);
             const traceResult = await this.sendMessageWithTrace(sessionId, message, CLUSTER_AGENT_RESPONSE_TIMEOUT_MS);
+            const timing = buildClusterResultTiming(startedAtMs, startedAt);
             if (traceResult.timedOut) {
                 return {
                     agentId,
                     ok: false,
                     message: traceResult.message || undefined,
                     trace: traceResult.trace,
-                    error: `Timed out after ${Math.round(CLUSTER_AGENT_RESPONSE_TIMEOUT_MS / 1000)}s`
+                    error: `Timed out after ${Math.round(CLUSTER_AGENT_RESPONSE_TIMEOUT_MS / 1000)}s`,
+                    timing
                 };
             }
 
@@ -850,13 +947,15 @@ export class ClusterManager extends EventEmitter {
                 agentId,
                 ok: true,
                 message: traceResult.message || undefined,
-                trace: traceResult.trace
+                trace: traceResult.trace,
+                timing
             };
         } catch (error) {
             return {
                 agentId,
                 ok: false,
-                error: String(error)
+                error: String(error),
+                timing: buildClusterResultTiming(startedAtMs, startedAt)
             };
         }
     }
@@ -1148,13 +1247,23 @@ function cloneChatMessages(messages: ChatMessage[]): ChatMessage[] {
 }
 
 function findLastAssistantMessage(messages: ChatMessage[]): ChatMessage | null {
+    let fallbackAssistant: ChatMessage | null = null;
     for (let index = messages.length - 1; index >= 0; index -= 1) {
-        if (messages[index]?.role === 'assistant') {
-            return messages[index];
+        const message = messages[index];
+        if (message?.role !== 'assistant') {
+            continue;
+        }
+
+        if (!fallbackAssistant) {
+            fallbackAssistant = message;
+        }
+
+        if (hasRenderableMessageBody(message)) {
+            return message;
         }
     }
 
-    return null;
+    return fallbackAssistant;
 }
 
 async function raceWithTimeout<T>(
@@ -1189,6 +1298,41 @@ function isChatMessageRole(value: unknown): value is ChatMessage['role'] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasRenderableMessageBody(message: ChatMessage): boolean {
+    if (message.content.trim()) {
+        return true;
+    }
+
+    return Array.isArray(message.parts) && message.parts.some(part => {
+        if (!part || typeof part !== 'object') {
+            return false;
+        }
+
+        if (part.type === 'text') {
+            return Boolean(part.text?.trim());
+        }
+
+        if (part.type === 'thinking') {
+            return Boolean(part.thinking?.trim());
+        }
+
+        if (part.type === 'toolResult') {
+            return Boolean(part.result?.trim());
+        }
+
+        return false;
+    });
+}
+
+function buildClusterResultTiming(startedAtMs: number, startedAt: string): ClusterBroadcastResult['timing'] {
+    const completedAtMs = Date.now();
+    return {
+        startedAt,
+        completedAt: new Date(completedAtMs).toISOString(),
+        elapsedMs: Math.max(0, completedAtMs - startedAtMs)
+    };
 }
 
 function buildClusterId(name: string): string {
@@ -1262,13 +1406,109 @@ function workspaceConfigOrDefault(config?: ClusterWorkspaceConfig): ClusterWorks
     return normalizeClusterWorkspaceConfig(config || createDefaultClusterWorkspaceConfig());
 }
 
-function resolveSwarmParticipantAgentIds(
+function resolveSwarmActivationPlan(
     agentIds: string[],
     workspaceConfig: ClusterWorkspaceConfig,
     mode: 'broadcast' | 'collaborate',
     userMessage: string
-): string[] {
-    return agentIds.filter(agentId => isClusterAgentEligibleForSwarm(workspaceConfig, agentId, mode, userMessage));
+): SwarmActivationPlan {
+    const parentMap = resolveClusterMemberParentMap(agentIds, workspaceConfig);
+    const childrenByParent = new Map<string, string[]>();
+    const orderedAgentIds: string[] = [];
+
+    for (const agentId of agentIds) {
+        childrenByParent.set(agentId, []);
+    }
+
+    for (const agentId of agentIds) {
+        const parentAgentId = parentMap.get(agentId) || null;
+        if (parentAgentId) {
+            childrenByParent.get(parentAgentId)?.push(agentId);
+        }
+    }
+
+    const buildNode = (
+        agentId: string,
+        parentAgentId: string | null,
+        depth: number
+    ): SwarmActivationNode | null => {
+        if (!isClusterAgentEligibleForSwarm(workspaceConfig, agentId, mode, userMessage)) {
+            return null;
+        }
+
+        const node: SwarmActivationNode = {
+            agentId,
+            parentAgentId,
+            depth,
+            children: []
+        };
+        orderedAgentIds.push(agentId);
+
+        const childIds = childrenByParent.get(agentId) || [];
+        node.children = childIds
+            .map(childAgentId => buildNode(childAgentId, agentId, depth + 1))
+            .filter((childNode): childNode is SwarmActivationNode => Boolean(childNode));
+        return node;
+    };
+
+    const rootNodes = agentIds
+        .filter(agentId => !parentMap.get(agentId))
+        .map(agentId => buildNode(agentId, null, 0))
+        .filter((node): node is SwarmActivationNode => Boolean(node));
+
+    return {
+        rootNodes,
+        orderedAgentIds
+    };
+}
+
+function resolveClusterMemberParentMap(
+    agentIds: string[],
+    workspaceConfig: ClusterWorkspaceConfig
+): Map<string, string | null> {
+    const rawParentMap = new Map<string, string | null>();
+    const knownAgentIds = new Set(agentIds);
+
+    for (const agentId of agentIds) {
+        const configuredParentId = workspaceConfig.memberProfiles?.[agentId]?.parentAgentId?.trim() || '';
+        rawParentMap.set(
+            agentId,
+            configuredParentId && configuredParentId !== agentId && knownAgentIds.has(configuredParentId)
+                ? configuredParentId
+                : null
+        );
+    }
+
+    const sanitizedParentMap = new Map<string, string | null>();
+    for (const agentId of agentIds) {
+        const candidateParentId = rawParentMap.get(agentId) || null;
+        const isValid = candidateParentId
+            ? !introducesParentCycle(agentId, candidateParentId, rawParentMap)
+            : false;
+        sanitizedParentMap.set(agentId, isValid ? candidateParentId : null);
+    }
+
+    return sanitizedParentMap;
+}
+
+function introducesParentCycle(
+    agentId: string,
+    candidateParentId: string,
+    parentMap: Map<string, string | null>
+): boolean {
+    const visited = new Set<string>([agentId]);
+    let currentAgentId: string | null = candidateParentId;
+
+    while (currentAgentId) {
+        if (visited.has(currentAgentId)) {
+            return true;
+        }
+
+        visited.add(currentAgentId);
+        currentAgentId = parentMap.get(currentAgentId) || null;
+    }
+
+    return false;
 }
 
 function isClusterAgentEligibleForSwarm(
@@ -1318,14 +1558,23 @@ function buildOpeningContributionPrompt(
     clusterName: string,
     userMessage: string,
     workspaceConfig: ClusterWorkspaceConfig,
-    agentId: string
+    agentId: string,
+    delegatedContext?: {
+        delegatedByAgentId: string;
+        routeAgentIds: string[];
+        parentContext: string;
+    }
 ): string {
     const memberProfileLines = buildMemberProfilePromptLines(workspaceConfig, agentId);
+    const wakeContextLines = delegatedContext
+        ? buildDelegatedWakeContextLines(delegatedContext)
+        : [];
     return [
         `You are part of the agent swarm "${clusterName}".`,
         `Debate stage: opening using ${workspaceConfig.collaborationStyle}.`,
         'This is round 1 of a multi-round swarm debate.',
         ...memberProfileLines,
+        ...wakeContextLines,
         buildOpeningStyleInstruction(workspaceConfig.collaborationStyle),
         buildDeliveryInstruction(workspaceConfig.deliveryStyle),
         buildRiskInstruction(workspaceConfig.critiqueLevel),
@@ -1584,6 +1833,55 @@ function buildCoordinatorStyleInstruction(style: ClusterWorkspaceConfig['collabo
 function clusterBriefingLine(workspaceConfig: ClusterWorkspaceConfig): string {
     const briefing = workspaceConfig.briefing?.trim();
     return briefing ? `Cluster briefing: ${briefing}` : 'Cluster briefing: keep the result coherent and user-facing.';
+}
+
+function buildDelegatedBroadcastPrompt(
+    clusterName: string,
+    userMessage: string,
+    delegatedContext: {
+        delegatedByAgentId: string;
+        routeAgentIds: string[];
+        parentContext: string;
+    }
+): string {
+    return [
+        `You are part of the agent swarm "${clusterName}".`,
+        ...buildDelegatedWakeContextLines(delegatedContext),
+        'Handle the original swarm request using the upstream context above.',
+        'Respond in the same language as the user request.',
+        'Do not mention the internal wake chain unless the user explicitly asks.',
+        '',
+        'User request:',
+        userMessage
+    ].join('\n');
+}
+
+function buildDelegatedWakeContextLines(delegatedContext: {
+    delegatedByAgentId: string;
+    routeAgentIds: string[];
+    parentContext: string;
+}): string[] {
+    return [
+        `Wake route: swarm -> ${delegatedContext.routeAgentIds.join(' -> ')}`,
+        `You were awakened by parent agent "${delegatedContext.delegatedByAgentId}".`,
+        'Use the upstream parent context below before answering from your own lane.',
+        '',
+        'Parent context:',
+        delegatedContext.parentContext || 'No upstream context was provided.'
+    ];
+}
+
+function extractSwarmResultContext(result: ClusterBroadcastResult | null): string {
+    if (!result) {
+        return '';
+    }
+
+    const messageContent = result.message?.content?.trim();
+    if (messageContent) {
+        return messageContent;
+    }
+
+    return result.error || '';
 }
 
 function buildMemberProfilePromptLines(

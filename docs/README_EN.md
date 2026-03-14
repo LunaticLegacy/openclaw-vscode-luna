@@ -65,7 +65,7 @@ The extension has been published to the marketplace.
 
 You have three ways to access it:
 
-- Command palette: `OpenClaw: Open Panel`
+- Command palette: `OpenClaw Luna: Open OpenClaw Luna`
 - Status bar item in the bottom-right corner: `OpenClaw`
 - Activity Bar sidebar: `OpenClaw`
 

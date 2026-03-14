@@ -67,6 +67,11 @@
             return;
         }
 
+        if (isReplayCluster(cluster)) {
+            showError(window.OpenClawI18n ? window.OpenClawI18n.t('clusters.replayReadonlyHint') : 'Replay clusters are read-only.');
+            return;
+        }
+
         const content = normalizeOutgoingMessage(elements.clusterMessageInput?.value || '');
         if (!content.trim()) {
             return;

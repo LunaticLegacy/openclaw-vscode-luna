@@ -2,6 +2,8 @@ import * as assert from 'assert/strict';
 import { AgentManager } from '../../managers/agentManager';
 import { getAgentStatusIndicator, getClusterStatusIndicator } from '../../providers/statusIndicators';
 import { LocalServiceConfig } from '../../services/openclawConfig';
+import { normalizeOpenClawGatewayLifecycleEvent } from '../../services/openclaw/helpers';
+import { isActiveActivityState } from '../../services/openclaw/openclawModeRuntime';
 import { OpenClawService } from '../../services/openclawService';
 
 function wait(ms: number): Promise<void> {
@@ -120,5 +122,34 @@ suite('Status Indicators', () => {
             agentManager.dispose();
             service.dispose();
         }
+    });
+
+    test('treats context compression and rollback phases as active runtime states', () => {
+        assert.equal(isActiveActivityState('compacting'), true);
+        assert.equal(isActiveActivityState('compression'), true);
+        assert.equal(isActiveActivityState('rollback'), true);
+        assert.equal(isActiveActivityState('rewinding'), true);
+    });
+
+    test('classifies rollback and compression lifecycle notices for runtime prompts', () => {
+        const rollback = normalizeOpenClawGatewayLifecycleEvent('agent:default:main', {
+            runId: 'run-rollback',
+            seq: 1,
+            data: {
+                phase: 'rollback',
+                message: 'Rolling back to the previous checkpoint.'
+            }
+        });
+        const compression = normalizeOpenClawGatewayLifecycleEvent('agent:default:main', {
+            runId: 'run-compress',
+            seq: 2,
+            data: {
+                phase: 'compacting',
+                message: 'Compacting context to continue the run.'
+            }
+        });
+
+        assert.equal(rollback?.metadata?.noticeKind, 'fallback');
+        assert.equal(compression?.metadata?.noticeKind, 'compression');
     });
 });
