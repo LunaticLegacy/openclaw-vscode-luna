@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project follows Semantic Versioning.
 
+## [0.7.0] - 2026-03-14
+
+### Added
+- Added cluster conversation export for both swarm-level and per-agent views, with readable Markdown and raw JSON bundles.
+- Added runtime log export with recursive log collection, cron capture, and automatic secret redaction for release diagnostics.
+- Added richer cluster and agent management flows, including inline agent creation inside cluster setup, batch agent creation, and agent add/remove actions for existing clusters.
+
+### Fixed
+- Fixed swarm progress rendering so broadcast/collaborate runs stream intermediate agent outputs into the panel instead of updating only after completion.
+- Fixed cluster agent chat persistence so dedicated swarm conversations survive view switches, and `/new` plus `/clear` reset the right session state.
+- Fixed cluster execution robustness with member activation filters, configured coordinator support, and timeout handling for stalled agent replies.
+
+## [0.6.1] - 2026-03-11
+
+This version was the pre-release milestone on the way to v0.7.0.
+
+### Added
+- Attempting to implement everything that mentioned in [P0.md](./P0.md).
+- Skill Market enabled.
+- Agent Folder enabled.
+- Agent Swarm's chat record is exportable now.
+
+### Fixed
+- Fixed the light bulb's function at sidebar.
+- Fixed the issue of chat record lost when using Swarm.
+
 ## [0.6.0] - 2026-03-11
 
 ### Added

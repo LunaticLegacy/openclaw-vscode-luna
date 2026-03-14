@@ -68,6 +68,33 @@ form {
     gap: 8px;
 }
 
+.secure-input-group {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+}
+
+.secure-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.secure-toggle-btn.active,
+.secure-toggle-btn:hover {
+    color: var(--accent-strong);
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary));
+}
+
 .form-group label {
     display: block;
     margin-bottom: 6px;
@@ -117,6 +144,27 @@ form {
     margin-top: 20px;
 }
 
+.form-status {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.form-status.success {
+    border-color: color-mix(in srgb, #2ea043 50%, var(--border));
+    color: #2ea043;
+}
+
+.form-status.error {
+    border-color: color-mix(in srgb, #d1242f 50%, var(--border));
+    color: #d1242f;
+}
+
 .task-form-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -127,6 +175,14 @@ form {
     display: grid;
     grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.9fr);
     gap: 20px;
+}
+
+.cluster-editor-bottom {
+    margin-top: 20px;
+    padding: 18px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 95%, white 5%), var(--bg-secondary));
 }
 
 .cluster-form-grid {
@@ -172,6 +228,90 @@ form {
 
 .cluster-editor-side .cluster-agent-picker {
     max-height: none;
+}
+
+.cluster-editor-create {
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+}
+
+.cluster-member-profiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.cluster-member-profile-card {
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg-secondary);
+}
+
+.cluster-member-profile-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.cluster-member-profile-badges {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.cluster-member-profile-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 8px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary));
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.cluster-member-profile-title {
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.cluster-member-profile-meta {
+    margin-top: 4px;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.cluster-member-profile-card .form-group {
+    margin-top: 12px;
+}
+
+.cluster-member-mode-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.cluster-member-mode-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-primary);
+    font-size: 12px;
+}
+
+.cluster-member-mode-option input[type="checkbox"] {
+    width: auto;
+    margin: 0;
 }
 
 .cluster-agent-option {
@@ -510,6 +650,24 @@ form {
     background: linear-gradient(110deg, transparent 0%, rgba(99, 165, 255, 0.12) 58%, transparent 100%);
     opacity: 0.65;
     pointer-events: none;
+}
+
+@media (max-width: 900px) {
+    .cluster-editor-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .cluster-form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .cluster-member-profiles {
+        grid-template-columns: 1fr;
+    }
+
+    .cluster-member-mode-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 .new-agent-preset-card:hover {

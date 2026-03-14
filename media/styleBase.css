@@ -292,6 +292,13 @@ body {
     gap: 6px;
 }
 
+.agent-primary-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+}
+
 .agent-list {
     display: flex;
     flex-direction: column;
@@ -426,7 +433,7 @@ body {
 }
 
 .status-offline {
-    background: var(--error);
+    background: var(--text-secondary);
 }
 
 .agent-info {

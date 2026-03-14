@@ -12,6 +12,9 @@
         if (elements.btnNewAgentFolder) {
             elements.btnNewAgentFolder.disabled = isBusy;
         }
+        if (elements.btnBatchDeleteAgents) {
+            elements.btnBatchDeleteAgents.disabled = isBusy;
+        }
     }
 
     function renderAgentMutationBanner() {
@@ -131,7 +134,6 @@
                     <div class="agent-model">${escapeHtml(agent.model)}</div>
                 </div>
                 <div class="agent-actions">
-                    ${currentFolderId ? `<button class="agent-action-btn" data-action="ungroup" title="${escapeHtml(t('sidebar.removeFromFolder'))}">Out</button>` : ''}
                     <button class="agent-action-btn" data-action="settings" title="${escapeHtml(settingsTitle)}" ${canEditAgentSettings ? '' : 'disabled aria-disabled="true"'}>&#9881;</button>
                     <button class="agent-action-btn" data-action="folder" title="${escapeHtml(t('common.openInExplorer'))}">&#128193;</button>
                 </div>
@@ -187,8 +189,6 @@
                     vscode.postMessage({ type: 'openAgentSettings', agentId });
                 } else if (action === 'folder') {
                     vscode.postMessage({ type: 'openAgentFolder', agentId });
-                } else if (action === 'ungroup') {
-                    moveAgentToFolder(agentId, null);
                 }
             });
         });
@@ -275,8 +275,8 @@
                             <span class="agent-folder-count">${folderAgents.length}</span>
                         </button>
                         <div class="agent-folder-actions">
-                            <button class="agent-action-btn" type="button" data-agent-folder-action="rename" data-agent-folder-id="${folder.id}" title="${escapeHtml(t('common.edit'))}">&#9998;</button>
-                            <button class="agent-action-btn" type="button" data-agent-folder-action="delete" data-agent-folder-id="${folder.id}" title="${escapeHtml(t('common.delete'))}">&#128465;</button>
+                            <button class="agent-action-btn" type="button" data-agent-folder-action="rename" data-agent-folder-id="${folder.id}" title="${escapeHtml(t('common.edit'))}">📝</button>
+                            <button class="agent-action-btn" type="button" data-agent-folder-action="delete" data-agent-folder-id="${folder.id}" title="${escapeHtml(t('common.delete'))}">🗃️</button>
                         </div>
                     </div>
                     <div class="agent-folder-body ${folder.collapsed ? 'hidden' : ''}">

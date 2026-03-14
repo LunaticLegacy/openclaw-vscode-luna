@@ -30,6 +30,7 @@ export class OpenClawExtensionRuntime {
     private readonly statusBarItem: vscode.StatusBarItem;
     private sidebarView: vscode.TreeView<vscode.TreeItem> | undefined;
     private sidebarWasVisible = false;
+    private statusBarRefreshToken = 0;
 
     private constructor(
         public readonly context: vscode.ExtensionContext,
@@ -52,22 +53,37 @@ export class OpenClawExtensionRuntime {
         this.usageTreeProvider = new UsageTreeProvider(usageManager);
         this.taskTreeProvider = new TaskTreeProvider(taskManager);
 
+        this.service.on('connectionChange', () => {
+            this.refreshAllViews();
+            void this.refreshStatusBarIndicator();
+        });
+
+        this.agentManager.on('agentCreated', () => {
+            void this.refreshStatusBarIndicator();
+        });
+        this.agentManager.on('agentUpdated', () => {
+            void this.refreshStatusBarIndicator();
+        });
+        this.agentManager.on('agentDeleted', () => {
+            void this.refreshStatusBarIndicator();
+        });
+
         this.statusBarItem = vscode.window.createStatusBarItem(
             vscode.StatusBarAlignment.Right,
             100
         );
-        this.statusBarItem.text = '$(rocket) OpenClaw';
         this.statusBarItem.tooltip = t('statusBar.tooltip');
         this.statusBarItem.command = 'openclaw.openPanel';
+        this.applyStatusBarIndicatorState('offline');
         this.statusBarItem.show();
 
         this.taskManager.on('taskRunStarted', (task: ScheduledTask) => {
-            if (task.agentId && !this.service.providesAgentActivityStatus()) {
+            if (task.agentId) {
                 this.agentManager.beginAgentRun(task.agentId);
             }
         });
         this.taskManager.on('taskRunCompleted', (task: ScheduledTask) => {
-            if (task.agentId && !this.service.providesAgentActivityStatus()) {
+            if (task.agentId) {
                 this.agentManager.endAgentRun(task.agentId);
             }
         });
@@ -144,6 +160,7 @@ export class OpenClawExtensionRuntime {
     public async initialize(): Promise<void> {
         await vscode.commands.executeCommand('setContext', 'openclaw.enabled', true);
         this.refreshAllViews();
+        await this.refreshStatusBarIndicator();
         void this.taskManager.refresh().catch(error => {
             console.error('Failed to initialize scheduled tasks.', error);
         });
@@ -176,6 +193,7 @@ export class OpenClawExtensionRuntime {
         this.service.updateConfig(nextConfig);
         this.usageManager.invalidate();
         this.refreshAllViews();
+        await this.refreshStatusBarIndicator();
     }
 
     public dispose(): void {
@@ -188,5 +206,37 @@ export class OpenClawExtensionRuntime {
         this.taskManager.dispose();
         this.service.dispose();
         this.statusBarItem.dispose();
+    }
+
+    private async refreshStatusBarIndicator(): Promise<void> {
+        const refreshToken = ++this.statusBarRefreshToken;
+
+        try {
+            const connected = this.service.isConnected();
+            if (!connected) {
+                if (refreshToken === this.statusBarRefreshToken) {
+                    this.applyStatusBarIndicatorState('offline');
+                }
+                return;
+            }
+
+            const agents = await this.agentManager.getAgents();
+            if (refreshToken !== this.statusBarRefreshToken) {
+                return;
+            }
+
+            const hasActiveAgent = agents.some(agent => agent.status === 'active');
+            this.applyStatusBarIndicatorState(hasActiveAgent ? 'active' : 'idle');
+        } catch {
+            if (refreshToken === this.statusBarRefreshToken) {
+                this.applyStatusBarIndicatorState('offline');
+            }
+        }
+    }
+
+    private applyStatusBarIndicatorState(state: 'active' | 'idle' | 'offline'): void {
+        void state;
+        this.statusBarItem.text = '$(rocket) OpenClaw';
+        this.statusBarItem.color = undefined;
     }
 }

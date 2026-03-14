@@ -5,7 +5,13 @@ import { t } from '../../i18n';
 import type { AgentCluster } from '../../services/openclawService';
 import type { AgentManager } from '../../managers/agentManager';
 import type { ChatSessionManager } from '../../managers/chatSessionManager';
-import type { ClusterManager } from '../../managers/clusterManager';
+import type {
+    ClusterBroadcastResult,
+    ClusterCollaborationProgressEvent,
+    ClusterCollaborationResult,
+    ClusterManager
+} from '../../managers/clusterManager';
+import type { Agent, ChatMessage } from '../../services/openclawService';
 import { showSuccessStatus } from '../../utils/statusFeedback';
 import { normalizeOutgoingMessageContent } from './helpers';
 
@@ -14,6 +20,7 @@ interface ClusterActionContext {
     agentManager: AgentManager;
     clusterSessionManager: ChatSessionManager;
     postMessage(message: Record<string, unknown>): void;
+    loadAgents(): Promise<void>;
     loadClusters(selectedClusterId?: string): Promise<void>;
     showClusterView(clusters: AgentCluster[], selectedClusterId?: string): void;
     getCurrentAgentId(): string | null;
@@ -24,6 +31,9 @@ interface ClusterActionContext {
     nextClusterAgentRunToken(): number;
     getClusterAgentRunToken(): number;
 }
+
+type SwarmMode = 'broadcast' | 'collaborate';
+type PresentedChatMessage = ChatMessage;
 
 export async function loadClusters(context: ClusterActionContext, selectedClusterId?: string): Promise<void> {
     try {
@@ -42,17 +52,46 @@ export async function loadClusters(context: ClusterActionContext, selectedCluste
     }
 }
 
-export async function handleBroadcast(context: ClusterActionContext, clusterId: string, message: string): Promise<void> {
+export async function handleBroadcast(context: ClusterActionContext, clusterId: string, message: string): Promise<boolean> {
     const swarmRunToken = context.nextClusterSwarmRunToken();
     const runningAgentIds = await beginClusterAgentRuns(context, clusterId);
     try {
-        const responses = await context.clusterManager.broadcastToCluster(clusterId, message);
+        const agents = await context.agentManager.getAgents();
+        const progress = await initializeClusterSwarmProgress(context, clusterId, 'broadcast', message);
+        const responses = await context.clusterManager.broadcastToCluster(clusterId, message, {
+            onAgentResult: async (_agentId, entry) => {
+                if (context.getClusterSwarmRunToken() !== swarmRunToken) {
+                    return;
+                }
+
+                await appendClusterSwarmProgressMessages(
+                    context,
+                    progress,
+                    buildConversationMessagesForEntry(
+                        entry,
+                        resolveAgentLabel(agents, entry.agentId),
+                        t('clusters.broadcast')
+                    )
+                );
+            }
+        });
+
         if (context.getClusterSwarmRunToken() === swarmRunToken) {
+            const conversationMessages = await finalizeClusterSwarmProgress(
+                context,
+                progress,
+                buildBroadcastConversationMessages(
+                    responses,
+                    agents
+                )
+            );
             context.postMessage({
-                type: 'broadcastResults',
+                type: 'replaceSwarmMessages',
                 clusterId,
-                responses
+                mode: 'broadcast',
+                messages: conversationMessages
             });
+            return true;
         }
     } catch (error) {
         if (context.getClusterSwarmRunToken() === swarmRunToken) {
@@ -69,6 +108,8 @@ export async function handleBroadcast(context: ClusterActionContext, clusterId: 
     } finally {
         endClusterAgentRuns(context, runningAgentIds);
     }
+
+    return false;
 }
 
 export async function promptBroadcastToCluster(context: ClusterActionContext, clusterId: string): Promise<void> {
@@ -84,19 +125,43 @@ export async function promptBroadcastToCluster(context: ClusterActionContext, cl
     await handleBroadcast(context, clusterId, normalizeOutgoingMessageContent(message));
 }
 
-export async function handleCollaborate(context: ClusterActionContext, clusterId: string, message: string): Promise<void> {
+export async function handleCollaborate(context: ClusterActionContext, clusterId: string, message: string): Promise<boolean> {
     const swarmRunToken = context.nextClusterSwarmRunToken();
     const runningAgentIds = await beginClusterAgentRuns(context, clusterId);
     try {
+        const agents = await context.agentManager.getAgents();
+        const progress = await initializeClusterSwarmProgress(context, clusterId, 'collaborate', message);
         const result = await context.clusterManager.collaborateOnCluster(clusterId, normalizeOutgoingMessageContent(message), {
-            coordinatorAgentId: context.getCurrentAgentId() || undefined
+            coordinatorAgentId: context.getCurrentAgentId() || undefined,
+            onProgress: async (event: ClusterCollaborationProgressEvent) => {
+                if (context.getClusterSwarmRunToken() !== swarmRunToken) {
+                    return;
+                }
+
+                await appendClusterSwarmProgressMessages(
+                    context,
+                    progress,
+                    buildConversationMessagesForProgressEvent(event, agents)
+                );
+            }
         });
 
         if (context.getClusterSwarmRunToken() === swarmRunToken) {
+            const conversationMessages = await finalizeClusterSwarmProgress(
+                context,
+                progress,
+                buildCollaborationConversationMessages(
+                    result,
+                    agents
+                )
+            );
             context.postMessage({
-                type: 'collaborationResults',
-                result
+                type: 'replaceSwarmMessages',
+                clusterId,
+                mode: 'collaborate',
+                messages: conversationMessages
             });
+            return true;
         }
     } catch (error) {
         if (context.getClusterSwarmRunToken() === swarmRunToken) {
@@ -113,6 +178,8 @@ export async function handleCollaborate(context: ClusterActionContext, clusterId
     } finally {
         endClusterAgentRuns(context, runningAgentIds);
     }
+
+    return false;
 }
 
 export async function promptCollaborateCluster(context: ClusterActionContext, clusterId: string): Promise<void> {
@@ -126,6 +193,45 @@ export async function promptCollaborateCluster(context: ClusterActionContext, cl
     }
 
     await handleCollaborate(context, clusterId, normalizeOutgoingMessageContent(message));
+}
+
+export async function loadClusterSwarmMessages(
+    context: ClusterActionContext,
+    clusterId: string,
+    mode: SwarmMode
+): Promise<void> {
+    if (!clusterId || (mode !== 'broadcast' && mode !== 'collaborate')) {
+        return;
+    }
+
+    try {
+        context.postMessage({
+            type: 'setClusterSwarmContextLoading',
+            clusterId,
+            mode,
+            loading: true
+        });
+
+        const messages = await context.clusterManager.getClusterSwarmMessages(clusterId, mode);
+        context.postMessage({
+            type: 'replaceSwarmMessages',
+            clusterId,
+            mode,
+            messages
+        });
+    } catch (error) {
+        context.postMessage({
+            type: 'error',
+            message: t('panel.failedLoadContext', { error: String(error) })
+        });
+    } finally {
+        context.postMessage({
+            type: 'setClusterSwarmContextLoading',
+            clusterId,
+            mode,
+            loading: false
+        });
+    }
 }
 
 export async function loadClusterAgentMessages(
@@ -151,12 +257,19 @@ export async function loadClusterAgentMessages(
             sessionId
         });
         context.clusterSessionManager.setCurrentSession(session.id);
+        const persistedMessages = await context.clusterManager.getClusterAgentMessages(clusterId, agentId);
+        const resolvedMessages = session.messages.length > 0 ? session.messages : persistedMessages;
+        session.messages = resolvedMessages;
+
+        if (resolvedMessages.length > 0) {
+            await context.clusterManager.replaceClusterAgentMessages(clusterId, agentId, resolvedMessages);
+        }
 
         context.postMessage({
             type: 'replaceClusterMessages',
             clusterId,
             agentId,
-            messages: session.messages
+            messages: resolvedMessages
         });
     } catch (error) {
         context.postMessage({
@@ -178,10 +291,10 @@ export async function handleClusterAgentMessage(
     clusterId: string,
     agentId: string,
     content: string
-): Promise<void> {
+): Promise<boolean> {
     const normalizedContent = normalizeOutgoingMessageContent(content);
     if (!clusterId || !agentId || !normalizedContent.trim()) {
-        return;
+        return false;
     }
 
     const clusterAgentRunToken = context.nextClusterAgentRunToken();
@@ -216,12 +329,14 @@ export async function handleClusterAgentMessage(
             const messages = await context.clusterSessionManager.refreshSessionHistory(session.id, {
                 preferLiveState: true
             });
+            await context.clusterManager.replaceClusterAgentMessages(clusterId, agentId, messages);
             context.postMessage({
                 type: 'replaceClusterMessages',
                 clusterId,
                 agentId,
                 messages
             });
+            return true;
         }
     } catch (error) {
         if (context.getClusterAgentRunToken() === clusterAgentRunToken) {
@@ -232,6 +347,51 @@ export async function handleClusterAgentMessage(
         }
     } finally {
         context.endAgentRun(agentId);
+    }
+
+    return false;
+}
+
+export async function loadClusterAgentSwarmMessages(
+    context: ClusterActionContext,
+    clusterId: string,
+    agentId: string,
+    mode: SwarmMode
+): Promise<void> {
+    if (!clusterId || !agentId || (mode !== 'broadcast' && mode !== 'collaborate')) {
+        return;
+    }
+
+    try {
+        context.postMessage({
+            type: 'setClusterAgentSwarmContextLoading',
+            clusterId,
+            agentId,
+            mode,
+            loading: true
+        });
+
+        const messages = await context.clusterManager.getClusterAgentSwarmMessages(clusterId, agentId, mode);
+        context.postMessage({
+            type: 'replaceClusterAgentSwarmMessages',
+            clusterId,
+            agentId,
+            mode,
+            messages: decorateClusterAgentLogMessages(messages, mode)
+        });
+    } catch (error) {
+        context.postMessage({
+            type: 'error',
+            message: t('panel.failedLoadContext', { error: String(error) })
+        });
+    } finally {
+        context.postMessage({
+            type: 'setClusterAgentSwarmContextLoading',
+            clusterId,
+            agentId,
+            mode,
+            loading: false
+        });
     }
 }
 
@@ -276,6 +436,7 @@ export async function handleClusterAgentSessionCommand(
         if (command === 'new') {
             sessionId = await context.clusterManager.resetClusterAgentSessionId(clusterId, agentId);
         }
+        await context.clusterManager.clearClusterAgentMessages(clusterId, agentId);
 
         let session = await context.clusterSessionManager.getOrCreateSession(agentId, {
             refreshHistory: true,
@@ -290,6 +451,7 @@ export async function handleClusterAgentSessionCommand(
             });
             if (clearedMessages.length > 0) {
                 sessionId = await context.clusterManager.resetClusterAgentSessionId(clusterId, agentId);
+                await context.clusterManager.clearClusterAgentMessages(clusterId, agentId);
                 session = await context.clusterSessionManager.getOrCreateSession(agentId, {
                     refreshHistory: true,
                     sessionId
@@ -325,12 +487,30 @@ export async function handleSaveCluster(
     data: {
         name?: string;
         agentIds?: string[];
+        createAgents?: Array<{
+            name?: string;
+            model?: string;
+            systemPrompt?: string;
+            presetId?: string;
+            enabledSkills?: string[];
+        }>;
         workspaceConfig?: Record<string, unknown>;
     }
 ): Promise<void> {
     const name = typeof data?.name === 'string' ? data.name.trim() : '';
-    const agentIds = Array.isArray(data?.agentIds)
+    const existingAgentIds = Array.isArray(data?.agentIds)
         ? data.agentIds.map(agentId => String(agentId || '').trim()).filter(Boolean)
+        : [];
+    const createAgents = Array.isArray(data?.createAgents)
+        ? data.createAgents
+            .map(agent => ({
+                name: typeof agent?.name === 'string' ? agent.name.trim() : '',
+                model: typeof agent?.model === 'string' ? agent.model.trim() : '',
+                systemPrompt: typeof agent?.systemPrompt === 'string' ? agent.systemPrompt.trim() : '',
+                presetId: typeof agent?.presetId === 'string' ? agent.presetId.trim() : undefined,
+                enabledSkills: Array.isArray(agent?.enabledSkills) ? agent.enabledSkills.filter(Boolean) : undefined
+            }))
+            .filter(agent => agent.name)
         : [];
 
     if (!name) {
@@ -338,39 +518,86 @@ export async function handleSaveCluster(
         return;
     }
 
-    if (agentIds.length === 0) {
+    if (existingAgentIds.length === 0 && createAgents.length === 0) {
         vscode.window.showErrorMessage(t('clusters.validationAgents'));
         return;
     }
 
-    try {
-        const cluster = clusterId
-            ? await context.clusterManager.updateCluster(clusterId, {
-                name,
-                agentIds,
-                workspaceConfig: data.workspaceConfig as any
-            })
-            : await context.clusterManager.createCluster({
-                name,
-                agentIds,
-                workspaceConfig: data.workspaceConfig as any
-            });
+    const createdAgentIds: string[] = [];
+    const totalSteps = createAgents.length
+        + 1
+        + (createAgents.length > 0 ? 1 : 0)
+        + 1;
+    const progressTitle = t(clusterId ? 'progress.savingCluster' : 'progress.creatingCluster');
 
-        showSuccessStatus(clusterId
-            ? t('clusters.updated', { name: cluster.name })
-            : t('clusters.created', { name: cluster.name }));
-        context.postMessage({
-            type: 'clusterSaved',
-            cluster
-        });
-        const refreshedClusters = await context.clusterManager.getClusters();
-        context.showClusterView(
-            refreshedClusters.map(item => item.id === cluster.id ? cluster : item),
-            cluster.id
-        );
-    } catch (error) {
-        vscode.window.showErrorMessage(t(clusterId ? 'clusters.updateFailed' : 'clusters.createFailed', { error: String(error) }));
-    }
+    await vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: progressTitle,
+            cancellable: false
+        },
+        async progress => {
+            const reporter = createStepProgressReporter(progress, totalSteps);
+
+            try {
+                for (const [index, agent] of createAgents.entries()) {
+                    if (!agent.model) {
+                        throw new Error(t('agentBatch.validationModel'));
+                    }
+
+                    reporter.start(t('progress.creatingClusterAgent', {
+                        current: index + 1,
+                        total: createAgents.length,
+                        name: agent.name
+                    }));
+                    const createdAgent = await context.agentManager.createAgent(agent);
+                    createdAgentIds.push(createdAgent.id);
+                    reporter.complete();
+                }
+
+                const agentIds = Array.from(new Set([...existingAgentIds, ...createdAgentIds]));
+                reporter.start(t(clusterId ? 'progress.updatingClusterRecord' : 'progress.creatingClusterRecord'));
+                const cluster = clusterId
+                    ? await context.clusterManager.updateCluster(clusterId, {
+                        name,
+                        agentIds,
+                        workspaceConfig: data.workspaceConfig as any
+                    })
+                    : await context.clusterManager.createCluster({
+                        name,
+                        agentIds,
+                        workspaceConfig: data.workspaceConfig as any
+                    });
+                reporter.complete();
+
+                if (createdAgentIds.length > 0) {
+                    reporter.start(t('progress.refreshingAgents'));
+                    await context.loadAgents();
+                    reporter.complete();
+                }
+
+                context.postMessage({
+                    type: 'clusterSaved',
+                    cluster
+                });
+
+                reporter.start(t('progress.refreshingClusters'));
+                await context.loadClusters(cluster.id);
+                reporter.complete();
+
+                showSuccessStatus(clusterId
+                    ? t('clusters.updated', { name: cluster.name })
+                    : t('clusters.created', { name: cluster.name }));
+            } catch (error) {
+                if (createdAgentIds.length > 0) {
+                    reporter.start(t('progress.rollingBackClusterAgents'));
+                    await Promise.allSettled(createdAgentIds.map(agentId => context.agentManager.deleteAgent(agentId)));
+                    await context.loadAgents();
+                }
+                vscode.window.showErrorMessage(t(clusterId ? 'clusters.updateFailed' : 'clusters.createFailed', { error: String(error) }));
+            }
+        }
+    );
 }
 
 export async function handleAddAgentsToCluster(context: ClusterActionContext, clusterId: string): Promise<void> {
@@ -475,4 +702,349 @@ export async function handleRemoveAgentsFromCluster(context: ClusterActionContex
     } catch (error) {
         vscode.window.showErrorMessage(t('clusters.updateFailed', { error: String(error) }));
     }
+}
+
+async function initializeClusterSwarmProgress(
+    context: ClusterActionContext,
+    clusterId: string,
+    mode: SwarmMode,
+    userMessage: string
+): Promise<{
+    clusterId: string;
+    mode: SwarmMode;
+    batchId: string;
+    messages: PresentedChatMessage[];
+    seenKeys: Set<string>;
+}> {
+    const persistedMessages = await context.clusterManager.getClusterSwarmMessages(clusterId, mode);
+    const batchId = buildSwarmBatchId(mode);
+    const messages = [
+        ...persistedMessages,
+        buildSwarmUserMessage(userMessage, mode, batchId)
+    ];
+    await context.clusterManager.replaceClusterSwarmMessages(clusterId, mode, messages);
+    context.postMessage({
+        type: 'replaceSwarmMessages',
+        clusterId,
+        mode,
+        messages,
+        keepPending: true
+    });
+
+    return {
+        clusterId,
+        mode,
+        batchId,
+        messages,
+        seenKeys: new Set(messages.map(buildSwarmProgressMessageKey))
+    };
+}
+
+async function appendClusterSwarmProgressMessages(
+    context: ClusterActionContext,
+    progress: {
+        clusterId: string;
+        mode: SwarmMode;
+        batchId: string;
+        messages: PresentedChatMessage[];
+        seenKeys: Set<string>;
+    },
+    messages: PresentedChatMessage[]
+): Promise<void> {
+    const nextMessages = messages
+        .map(message => attachSwarmBatchMetadata(message, progress.batchId))
+        .filter(message => {
+            const key = buildSwarmProgressMessageKey(message);
+            if (progress.seenKeys.has(key)) {
+                return false;
+            }
+            progress.seenKeys.add(key);
+            return true;
+        });
+
+    if (nextMessages.length === 0) {
+        return;
+    }
+
+    progress.messages.push(...nextMessages);
+    await context.clusterManager.replaceClusterSwarmMessages(progress.clusterId, progress.mode, progress.messages);
+    context.postMessage({
+        type: 'replaceSwarmMessages',
+        clusterId: progress.clusterId,
+        mode: progress.mode,
+        messages: progress.messages,
+        keepPending: true
+    });
+}
+
+async function finalizeClusterSwarmProgress(
+    context: ClusterActionContext,
+    progress: {
+        clusterId: string;
+        mode: SwarmMode;
+        batchId: string;
+        messages: PresentedChatMessage[];
+        seenKeys: Set<string>;
+    },
+    assistantMessages: PresentedChatMessage[]
+): Promise<PresentedChatMessage[]> {
+    await appendClusterSwarmProgressMessages(context, progress, assistantMessages);
+    await context.clusterManager.replaceClusterSwarmMessages(progress.clusterId, progress.mode, progress.messages);
+    return progress.messages;
+}
+
+function buildBroadcastConversationMessages(
+    responses: Record<string, ClusterBroadcastResult>,
+    agents: Agent[]
+): PresentedChatMessage[] {
+    const messages: PresentedChatMessage[] = [];
+    for (const entry of Object.values(responses || {})) {
+        messages.push(...buildConversationMessagesForEntry(
+            entry,
+            resolveAgentLabel(agents, entry.agentId),
+            t('clusters.broadcast')
+        ));
+    }
+
+    return messages;
+}
+
+function buildCollaborationConversationMessages(
+    result: ClusterCollaborationResult,
+    agents: Agent[]
+): PresentedChatMessage[] {
+    const messages: PresentedChatMessage[] = [];
+    const rounds = Array.isArray(result.rounds) && result.rounds.length > 0
+        ? result.rounds
+        : [{
+            kind: 'revision-2' as const,
+            entries: result.contributions || {}
+        }];
+    const coordinatorLabel = result.coordinatorAgentId
+        ? resolveAgentLabel(agents, result.coordinatorAgentId)
+        : t('clusters.targetSwarm');
+
+    for (const round of rounds) {
+        const roundLabel = getCollaborationRoundLabel(round.kind);
+        for (const [agentId, entry] of Object.entries(round.entries || {})) {
+            messages.push(...buildConversationMessagesForEntry(
+                entry,
+                resolveAgentLabel(agents, agentId),
+                roundLabel
+            ));
+        }
+    }
+
+    messages.push(result.synthesis?.ok && result.synthesis.message
+        ? {
+            ...result.synthesis.message,
+            displayName: t('clusters.finalAnswer'),
+            contextLabel: `${t('clusters.coordinator')}: ${coordinatorLabel}`
+        }
+        : buildErrorTraceMessage(
+            t('clusters.finalAnswer'),
+            `${t('clusters.coordinator')}: ${coordinatorLabel}`,
+            result.synthesis?.error || t('clusters.noSuccessfulAgents')
+        ));
+
+    return messages;
+}
+
+function buildConversationMessagesForProgressEvent(
+    event: ClusterCollaborationProgressEvent,
+    agents: Agent[]
+): PresentedChatMessage[] {
+    if (event.kind === 'synthesis') {
+        const coordinatorLabel = event.coordinatorAgentId
+            ? resolveAgentLabel(agents, event.coordinatorAgentId)
+            : t('clusters.targetSwarm');
+        return event.entry?.ok && event.entry.message
+            ? [{
+                ...event.entry.message,
+                displayName: t('clusters.finalAnswer'),
+                contextLabel: `${t('clusters.coordinator')}: ${coordinatorLabel}`
+            }]
+            : [buildErrorTraceMessage(
+                t('clusters.finalAnswer'),
+                `${t('clusters.coordinator')}: ${coordinatorLabel}`,
+                event.entry?.error || t('clusters.noSuccessfulAgents')
+            )];
+    }
+
+    return buildConversationMessagesForEntry(
+        event.entry,
+        resolveAgentLabel(agents, event.agentId),
+        getCollaborationRoundLabel(event.roundKind)
+    );
+}
+
+function buildConversationMessagesForEntry(
+    entry: ClusterBroadcastResult,
+    displayName: string,
+    contextLabel: string
+): PresentedChatMessage[] {
+    const traceMessages = buildAgentTraceMessages(entry, displayName, contextLabel);
+    if (entry.ok) {
+        return traceMessages;
+    }
+
+    return traceMessages.length > 0
+        ? [...traceMessages, buildErrorTraceMessage(displayName, contextLabel, entry.error)]
+        : [buildErrorTraceMessage(displayName, contextLabel, entry.error)];
+}
+
+function buildAgentTraceMessages(
+    entry: ClusterBroadcastResult,
+    displayName: string,
+    contextLabel: string
+): PresentedChatMessage[] {
+    const trace = Array.isArray(entry.trace) ? entry.trace : [];
+    const source = trace.length > 0
+        ? trace
+        : (entry.message ? [entry.message] : []);
+    const deduped: PresentedChatMessage[] = [];
+    const seen = new Set<string>();
+
+    for (const message of source) {
+        if (!message) {
+            continue;
+        }
+
+        const id = message.id || `${message.role}:${message.timestamp || ''}:${message.content || ''}`;
+        if (seen.has(id)) {
+            continue;
+        }
+        seen.add(id);
+
+        deduped.push({
+            ...message,
+            displayName,
+            contextLabel
+        });
+    }
+
+    return deduped;
+}
+
+function buildSwarmProgressMessageKey(message: PresentedChatMessage): string {
+    return message.id || `${message.role}:${message.timestamp || ''}:${message.content || ''}:${message.displayName || ''}:${message.contextLabel || ''}`;
+}
+
+function buildSwarmUserMessage(content: string, mode: SwarmMode, batchId: string): PresentedChatMessage {
+    return {
+        id: `swarm-user:${Date.now()}:${++swarmMessageCounter}`,
+        role: 'user',
+        content,
+        timestamp: new Date().toISOString(),
+        contextLabel: mode === 'broadcast'
+            ? t('clusters.broadcast')
+            : t('clusters.collaborate'),
+        metadata: {
+            swarmBatchId: batchId
+        }
+    };
+}
+
+function decorateClusterAgentLogMessages(
+    messages: PresentedChatMessage[],
+    mode: SwarmMode
+): PresentedChatMessage[] {
+    const contextLabel = mode === 'broadcast'
+        ? t('clusters.agentViewBroadcast')
+        : t('clusters.agentViewCollaborate');
+    return messages.map(message => ({
+        ...message,
+        contextLabel: message.contextLabel || contextLabel
+    }));
+}
+
+function buildErrorTraceMessage(displayName: string, contextLabel: string, error?: string): PresentedChatMessage {
+    return {
+        id: `swarm-error:${Date.now()}:${++swarmMessageCounter}`,
+        role: 'assistant',
+        content: error || t('clusters.resultUnknownError'),
+        timestamp: new Date().toISOString(),
+        displayName,
+        contextLabel
+    };
+}
+
+function resolveAgentLabel(agents: Agent[], agentId: string): string {
+    const agent = agents.find(item => item.id === agentId);
+    if (!agent) {
+        return agentId;
+    }
+
+    return `${agent.name} (${agent.model})`;
+}
+
+function getCollaborationRoundLabel(kind: ClusterCollaborationResult['rounds'][number]['kind']): string {
+    const keyMap: Record<string, string> = {
+        opening: 'clusters.debateRoundOpening',
+        'critique-1': 'clusters.debateRoundCritique1',
+        'revision-1': 'clusters.debateRoundRevision1',
+        'critique-2': 'clusters.debateRoundCritique2',
+        'revision-2': 'clusters.debateRoundRevision2'
+    };
+
+    if (keyMap[kind]) {
+        return t(keyMap[kind]);
+    }
+
+    if (kind === 'opening') {
+        return t('clusters.debateRoundOpening');
+    }
+
+    if (kind.startsWith('critique-')) {
+        const round = Number(kind.slice('critique-'.length) || '1');
+        return t('clusters.debateRoundCritiqueDynamic', { round });
+    }
+
+    if (kind.startsWith('revision-')) {
+        const round = Number(kind.slice('revision-'.length) || '1');
+        return t('clusters.debateRoundRevisionDynamic', { round });
+    }
+
+    return t('clusters.contributions');
+}
+
+function attachSwarmBatchMetadata(message: PresentedChatMessage, batchId: string): PresentedChatMessage {
+    return {
+        ...message,
+        metadata: {
+            ...(message.metadata || {}),
+            swarmBatchId: batchId
+        }
+    };
+}
+
+function buildSwarmBatchId(mode: SwarmMode): string {
+    return `swarm-batch:${mode}:${Date.now()}:${++swarmBatchCounter}`;
+}
+
+let swarmMessageCounter = 0;
+let swarmBatchCounter = 0;
+
+function createStepProgressReporter(
+    progress: vscode.Progress<{ message?: string; increment?: number }>,
+    totalSteps: number
+): {
+    start(message: string): void;
+    complete(): void;
+} {
+    let completedSteps = 0;
+    let reportedIncrement = 0;
+
+    return {
+        start(message: string) {
+            progress.report({ message });
+        },
+        complete() {
+            completedSteps += 1;
+            const targetIncrement = Math.round((completedSteps / Math.max(1, totalSteps)) * 100);
+            const increment = Math.max(0, targetIncrement - reportedIncrement);
+            reportedIncrement = targetIncrement;
+            progress.report({ increment });
+        }
+    };
 }

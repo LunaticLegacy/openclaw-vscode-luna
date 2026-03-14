@@ -19,10 +19,11 @@ function installVscodeStub(): void {
         _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
     };
     const originalLoad = moduleCtor._load;
+    const vscodeStub = createVscodeStub();
 
     moduleCtor._load = function(request, parent, isMain) {
         if (request === 'vscode') {
-            return createVscodeStub();
+            return vscodeStub;
         }
 
         return originalLoad.call(this, request, parent, isMain);
@@ -60,6 +61,10 @@ function createVscodeStub(): Record<string, unknown> {
             showInformationMessage: async () => undefined,
             showWarningMessage: async () => undefined,
             showErrorMessage: async () => undefined,
+            withProgress: async (
+                _options: unknown,
+                task: (progress: { report(value: { message?: string; increment?: number }): void }) => Promise<unknown>
+            ) => await task({ report: () => undefined }),
             createStatusBarItem: () => ({
                 text: '',
                 tooltip: '',
@@ -71,6 +76,11 @@ function createVscodeStub(): Record<string, unknown> {
         StatusBarAlignment: {
             Left: 1,
             Right: 2
+        },
+        ProgressLocation: {
+            SourceControl: 1,
+            Window: 10,
+            Notification: 15
         },
         ConfigurationTarget: {
             Global: 1,

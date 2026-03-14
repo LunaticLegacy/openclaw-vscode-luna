@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 
 import { t } from '../../i18n';
 import { runWithNotificationProgress } from '../../utils/statusFeedback';
+import type { ClusterContextExportKind } from './contextExport';
 
 type PanelViewMode = 'chat' | 'clusters' | 'usage' | 'channel' | 'tasks';
 
@@ -21,10 +22,22 @@ interface MessageRouterContext {
     handleSendMessage(content: string, agentId?: string, options?: { optimisticEcho?: boolean }): Promise<void>;
     handleStopActiveRun(scope: unknown): void;
     activateAgent(agentId: string): Promise<void>;
+    loadClusterSwarmMessages(clusterId: string, mode: 'broadcast' | 'collaborate'): Promise<void>;
     loadClusterAgentMessages(clusterId: string, agentId: string): Promise<void>;
+    loadClusterAgentSwarmMessages(clusterId: string, agentId: string, mode: 'broadcast' | 'collaborate'): Promise<void>;
+    exportClusterConversation(options: {
+        clusterId: string;
+        targetKind: 'swarm' | 'agent';
+        exportKind: ClusterContextExportKind;
+        mode?: 'broadcast' | 'collaborate';
+        agentId?: string;
+        agentViewMode?: 'chat' | 'broadcast' | 'collaborate';
+    }): Promise<void>;
+    exportRuntimeLogs(): Promise<void>;
     clearChat(): void;
     refreshAgents(force?: boolean): Promise<void>;
     handleCreateAgent(data: any): Promise<void>;
+    handleCreateAgentsBatch(data: any): Promise<void>;
     showClusterEditor(clusterId?: string): void;
     handleSaveCluster(clusterId: string | undefined, data: any): Promise<void>;
     activateChannel(channelId: string | null | undefined): Promise<void>;
@@ -36,6 +49,7 @@ interface MessageRouterContext {
     handleAddAgentsToCluster(clusterId: string): Promise<void>;
     handleRemoveAgentsFromCluster(clusterId: string): Promise<void>;
     handleDeleteAgent(agentId: string): Promise<void>;
+    promptDeleteAgentsBatch(): Promise<void>;
     promptCreateAgentFolder(): Promise<void>;
     promptRenameAgentFolder(folderId: string): Promise<void>;
     promptDeleteAgentFolder(folderId: string): Promise<void>;
@@ -100,6 +114,39 @@ export async function handlePanelMessage(context: MessageRouterContext, message:
             await context.loadClusterAgentMessages(message.clusterId, message.agentId);
             break;
 
+        case 'loadClusterAgentSwarmMessages':
+            if (message.mode === 'broadcast' || message.mode === 'collaborate') {
+                await context.loadClusterAgentSwarmMessages(message.clusterId, message.agentId, message.mode);
+            }
+            break;
+
+        case 'loadClusterSwarmMessages':
+            if (message.mode === 'broadcast' || message.mode === 'collaborate') {
+                await context.loadClusterSwarmMessages(message.clusterId, message.mode);
+            }
+            break;
+
+        case 'exportClusterConversation':
+            await context.exportClusterConversation({
+                clusterId: message.clusterId,
+                targetKind: message.targetKind === 'agent' ? 'agent' : 'swarm',
+                exportKind: message.exportKind === 'raw' ? 'raw' : 'readable',
+                mode: message.mode === 'collaborate' ? 'collaborate' : 'broadcast',
+                agentId: message.agentId,
+                agentViewMode: message.agentViewMode === 'broadcast'
+                    ? 'broadcast'
+                    : message.agentViewMode === 'collaborate'
+                        ? 'collaborate'
+                        : 'chat'
+            });
+            break;
+
+        case 'exportRuntimeLogs':
+            await runWithNotificationProgress(t('progress.exportingRuntimeLogs'), async () => {
+                await context.exportRuntimeLogs();
+            });
+            break;
+
         case 'clearChat':
             context.clearChat();
             break;
@@ -136,6 +183,10 @@ export async function handlePanelMessage(context: MessageRouterContext, message:
 
         case 'createAgent':
             await context.handleCreateAgent(message.data);
+            break;
+
+        case 'createAgentsBatch':
+            await context.handleCreateAgentsBatch(message.data);
             break;
 
         case 'createCluster':
@@ -180,6 +231,10 @@ export async function handlePanelMessage(context: MessageRouterContext, message:
 
         case 'deleteAgent':
             await context.handleDeleteAgent(message.agentId);
+            break;
+
+        case 'promptDeleteAgentsBatch':
+            await context.promptDeleteAgentsBatch();
             break;
 
         case 'promptCreateAgentFolder':

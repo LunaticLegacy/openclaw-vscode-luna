@@ -188,7 +188,8 @@ export function normalizeOpenClawGatewayLifecycleEvent(
             seq,
             stream: 'lifecycle',
             phase: typeof data.phase === 'string' ? data.phase : '',
-            noticeType: 'lifecycle'
+            noticeType: 'lifecycle',
+            noticeKind: resolveLifecycleNoticeKind(notice)
         }
     };
 }
@@ -709,7 +710,8 @@ function normalizeOpenClawLifecycleEntry(
         agentId,
         metadata: {
             noticeType: 'lifecycle',
-            phase: typeof data.phase === 'string' ? data.phase : ''
+            phase: typeof data.phase === 'string' ? data.phase : '',
+            noticeKind: resolveLifecycleNoticeKind(notice)
         }
     };
 }
@@ -744,4 +746,15 @@ function buildOpenClawLifecycleNotice(data: Record<string, unknown>): string {
     }
 
     return '';
+}
+
+function resolveLifecycleNoticeKind(notice: string): 'fallback' | 'compression' | 'notice' {
+    const normalized = notice.trim().toLowerCase();
+    if (/fallback|downgrade/.test(normalized)) {
+        return 'fallback';
+    }
+    if (/compact|compaction|compressed context|context refresh|context compressed/.test(normalized)) {
+        return 'compression';
+    }
+    return 'notice';
 }

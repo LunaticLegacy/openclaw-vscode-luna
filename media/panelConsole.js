@@ -114,6 +114,12 @@
         });
     }
 
+    function exportRuntimeLogs() {
+        vscode.postMessage({
+            type: 'exportRuntimeLogs'
+        });
+    }
+
     function applyDetectedGatewayValues() {
         const diagnostics = getRuntimeDiagnostics();
         if (!hasDetectedGateway(diagnostics)) {
@@ -823,6 +829,8 @@
             `).join('');
         }
 
+        syncAgentOnboardingDraft(selectedAgent);
+        renderAgentOnboarding();
         renderCapabilityMatrix();
         renderConnectionSetup();
         renderOpenClawConfig();
@@ -880,12 +888,27 @@
         }
 
         const hasMessages = hasChatContent();
+        const showOnboarding = shouldShowAgentOnboarding(hasMessages);
         if (!hasMessages) {
             state.chatHomePinned = false;
         }
 
         elements.chatHome.classList.toggle('hidden', hasMessages && !state.chatHomePinned);
+        elements.agentOnboardingPanel?.classList.toggle('hidden', !showOnboarding);
+        elements.chatConsoleHomeContent?.classList.toggle('hidden', showOnboarding);
         updateOpenClawConfigEntryState();
+    }
+
+    function shouldShowAgentOnboarding(hasMessages = hasChatContent()) {
+        if (hasMessages) {
+            return false;
+        }
+
+        if (!state.runtime.connected || state.forceSetupPanel || state.agents.length === 0) {
+            return false;
+        }
+
+        return Boolean(state.agents.find(agent => agent.id === state.currentAgentId));
     }
 
     // Send message

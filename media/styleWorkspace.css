@@ -431,6 +431,32 @@
     word-break: break-all;
 }
 
+.cluster-topology-node-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.cluster-topology-node-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg-secondary) 94%, white 6%);
+    color: var(--text-secondary);
+    font-size: 10px;
+    line-height: 1.2;
+}
+
+.cluster-topology-node-badge.is-coordinator {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    background: color-mix(in srgb, var(--accent) 12%, var(--bg-primary));
+    color: var(--accent-strong);
+    font-weight: 700;
+}
+
 .cluster-topology-hub.active,
 .cluster-topology-node.active {
     border-color: color-mix(in srgb, var(--accent) 60%, var(--border));

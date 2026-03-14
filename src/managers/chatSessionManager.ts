@@ -28,7 +28,7 @@ export class ChatSessionManager extends EventEmitter {
         const requestedSessionId = String(options.sessionId || '').trim();
         if (requestedSessionId) {
             const existingById = this.sessions.get(requestedSessionId);
-            if (existingById) {
+            if (existingById && existingById.agentId === agentId) {
                 if (options.refreshHistory) {
                     existingById.messages = await this.service.getChatHistory(existingById.id);
                     existingById.updatedAt = existingById.messages[existingById.messages.length - 1]?.timestamp || existingById.updatedAt;

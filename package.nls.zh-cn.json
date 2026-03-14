@@ -1,7 +1,7 @@
 {
   "displayName": "OpenClaw Luna",
-  "description": "OpenClaw 的 VS Code 控制台，支持智能体集群。",
-  "command.category": "OpenClaw",
+  "description": "首个面向多 Agent 工作流的 VS Code 可观测控制台",
+  "command.category": "OpenClaw Luna",
   "command.openPanel.title": "打开 OpenClaw Luna",
   "command.quickChat.title": "快速聊天",
   "command.chat.title": "与 Agent 对话",

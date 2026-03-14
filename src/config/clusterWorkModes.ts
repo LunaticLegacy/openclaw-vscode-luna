@@ -1,4 +1,4 @@
-import type { ClusterWorkspaceConfig } from '../services/openclawService';
+import type { ClusterMemberProfile, ClusterWorkspaceConfig } from '../services/openclawService';
 
 export interface ClusterWorkModePreset extends ClusterWorkspaceConfig {
     id: string;
@@ -103,7 +103,9 @@ export function createDefaultClusterWorkspaceConfig(): ClusterWorkspaceConfig {
         deliveryStyle: preset.deliveryStyle,
         critiqueLevel: preset.critiqueLevel,
         rounds: preset.rounds,
-        briefing: preset.briefing
+        briefing: preset.briefing,
+        coordinatorAgentId: undefined,
+        memberProfiles: {}
     };
 }
 
@@ -121,7 +123,77 @@ export function normalizeClusterWorkspaceConfig(
         deliveryStyle: normalizeDeliveryStyle(config?.deliveryStyle, preset.deliveryStyle),
         critiqueLevel: normalizeCritiqueLevel(config?.critiqueLevel, preset.critiqueLevel),
         rounds: normalizeRounds(preset.rounds, config?.rounds),
-        briefing: briefing || preset.briefing || ''
+        briefing: briefing || preset.briefing || '',
+        coordinatorAgentId: normalizeCoordinatorAgentId(config?.coordinatorAgentId),
+        memberProfiles: normalizeMemberProfiles(config?.memberProfiles)
+    };
+}
+
+function normalizeCoordinatorAgentId(value?: string | null): string | undefined {
+    const normalized = String(value || '').trim();
+    return normalized || undefined;
+}
+
+function normalizeMemberProfiles(
+    value?: Record<string, ClusterMemberProfile> | null
+): Record<string, ClusterMemberProfile> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return {};
+    }
+
+    const normalized: Record<string, ClusterMemberProfile> = {};
+    for (const [agentId, profile] of Object.entries(value)) {
+        const normalizedAgentId = String(agentId || '').trim();
+        if (!normalizedAgentId || !profile || typeof profile !== 'object' || Array.isArray(profile)) {
+            continue;
+        }
+
+        const identity = typeof profile.identity === 'string' ? profile.identity.trim() : '';
+        const stance = typeof profile.stance === 'string' ? profile.stance.trim() : '';
+        const activation = normalizeMemberActivation(profile.activation);
+        if (!identity && !stance && !activation) {
+            continue;
+        }
+
+        normalized[normalizedAgentId] = {
+            ...(identity ? { identity } : {}),
+            ...(stance ? { stance } : {}),
+            ...(activation ? { activation } : {})
+        };
+    }
+
+    return normalized;
+}
+
+function normalizeMemberActivation(
+    value?: ClusterMemberProfile['activation'] | null
+): ClusterMemberProfile['activation'] | undefined {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return undefined;
+    }
+
+    const swarmModes = Array.isArray(value.swarmModes)
+        ? Array.from(new Set(
+            value.swarmModes.filter(
+                (mode): mode is 'broadcast' | 'collaborate' => mode === 'broadcast' || mode === 'collaborate'
+            )
+        ))
+        : undefined;
+    const keywords = Array.isArray(value.keywords)
+        ? Array.from(new Set(
+            value.keywords
+                .map(keyword => typeof keyword === 'string' ? keyword.trim() : '')
+                .filter(Boolean)
+        ))
+        : undefined;
+
+    if ((!swarmModes || swarmModes.length === 0) && (!keywords || keywords.length === 0)) {
+        return swarmModes ? { swarmModes: [] } : undefined;
+    }
+
+    return {
+        ...(swarmModes ? { swarmModes } : {}),
+        ...(keywords && keywords.length > 0 ? { keywords } : {})
     };
 }
 

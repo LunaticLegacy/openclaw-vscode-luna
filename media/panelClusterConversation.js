@@ -59,11 +59,8 @@
             state.currentClusterSwarmMode = 'broadcast';
         }
 
-        if (state.currentClusterTargetKind === 'swarm') {
-            ensureClusterConversation(getClusterConversationKey(cluster.id, {
-                targetKind: 'swarm',
-                mode: state.currentClusterSwarmMode
-            })).loaded = true;
+        if (!state.currentClusterAgentViewMode || !['chat', 'broadcast', 'collaborate'].includes(state.currentClusterAgentViewMode)) {
+            state.currentClusterAgentViewMode = 'chat';
         }
     }
 
@@ -84,9 +81,11 @@
             return {
                 kind: 'agent',
                 agentId: state.currentClusterAgentId,
+                agentViewMode: state.currentClusterAgentViewMode || 'chat',
                 key: getClusterConversationKey(cluster.id, {
                     targetKind: 'agent',
-                    agentId: state.currentClusterAgentId
+                    agentId: state.currentClusterAgentId,
+                    agentViewMode: state.currentClusterAgentViewMode || 'chat'
                 })
             };
         }
@@ -105,7 +104,7 @@
     function getClusterConversationKey(clusterId, options = {}) {
         const targetKind = options.targetKind || state.currentClusterTargetKind;
         if (targetKind === 'agent') {
-            return `cluster:${clusterId}:agent:${options.agentId || state.currentClusterAgentId || ''}`;
+            return `cluster:${clusterId}:agent:${options.agentId || state.currentClusterAgentId || ''}:${options.agentViewMode || state.currentClusterAgentViewMode || 'chat'}`;
         }
 
         return `cluster:${clusterId}:swarm:${options.mode || state.currentClusterSwarmMode || 'broadcast'}`;
@@ -127,7 +126,20 @@
     function setClusterConversationLoading(clusterId, agentId, loading) {
         const conversation = ensureClusterConversation(getClusterConversationKey(clusterId, {
             targetKind: 'agent',
-            agentId
+            agentId,
+            agentViewMode: 'chat'
+        }));
+        conversation.loading = Boolean(loading);
+        if (!loading) {
+            conversation.loaded = true;
+        }
+        renderClusterWorkspace();
+    }
+
+    function setSwarmConversationLoading(clusterId, mode, loading) {
+        const conversation = ensureClusterConversation(getClusterConversationKey(clusterId, {
+            targetKind: 'swarm',
+            mode
         }));
         conversation.loading = Boolean(loading);
         if (!loading) {
@@ -139,7 +151,8 @@
     function replaceClusterConversationMessages(clusterId, agentId, messages) {
         const conversation = ensureClusterConversation(getClusterConversationKey(clusterId, {
             targetKind: 'agent',
-            agentId
+            agentId,
+            agentViewMode: 'chat'
         }));
         conversation.messages = Array.isArray(messages) ? messages : [];
         conversation.loading = false;
@@ -151,12 +164,39 @@
     function appendClusterConversationMessage(clusterId, agentId, message, options = {}) {
         const conversation = ensureClusterConversation(getClusterConversationKey(clusterId, {
             targetKind: 'agent',
-            agentId
+            agentId,
+            agentViewMode: 'chat'
         }));
         conversation.messages.push(message);
         conversation.loading = false;
         conversation.loaded = true;
         conversation.pending = options.keepPending === true;
+        renderClusterWorkspace();
+    }
+
+    function setClusterAgentSwarmConversationLoading(clusterId, agentId, mode, loading) {
+        const conversation = ensureClusterConversation(getClusterConversationKey(clusterId, {
+            targetKind: 'agent',
+            agentId,
+            agentViewMode: mode
+        }));
+        conversation.loading = Boolean(loading);
+        if (!loading) {
+            conversation.loaded = true;
+        }
+        renderClusterWorkspace();
+    }
+
+    function replaceClusterAgentSwarmConversationMessages(clusterId, agentId, mode, messages) {
+        const conversation = ensureClusterConversation(getClusterConversationKey(clusterId, {
+            targetKind: 'agent',
+            agentId,
+            agentViewMode: mode
+        }));
+        conversation.messages = Array.isArray(messages) ? messages : [];
+        conversation.loading = false;
+        conversation.loaded = true;
+        conversation.pending = false;
         renderClusterWorkspace();
     }
 
@@ -168,6 +208,18 @@
         conversation.messages.push(...messages);
         conversation.pending = false;
         conversation.loaded = true;
+        renderClusterWorkspace();
+    }
+
+    function replaceSwarmConversationMessages(clusterId, mode, messages, options = {}) {
+        const conversation = ensureClusterConversation(getClusterConversationKey(clusterId, {
+            targetKind: 'swarm',
+            mode
+        }));
+        conversation.messages = Array.isArray(messages) ? messages : [];
+        conversation.loading = false;
+        conversation.loaded = true;
+        conversation.pending = options.keepPending === true;
         renderClusterWorkspace();
     }
 
@@ -302,6 +354,18 @@
     function getClusterEmptyConversationCopy(cluster, target) {
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
         if (target.kind === 'agent') {
+            if (target.agentViewMode === 'broadcast') {
+                return t('clusters.emptyAgentBroadcastConversation', {
+                    agent: resolveClusterAgentLabel(target.agentId)
+                });
+            }
+
+            if (target.agentViewMode === 'collaborate') {
+                return t('clusters.emptyAgentCollaborateConversation', {
+                    agent: resolveClusterAgentLabel(target.agentId)
+                });
+            }
+
             return t('clusters.emptyAgentConversation', {
                 agent: resolveClusterAgentLabel(target.agentId)
             });
@@ -319,6 +383,12 @@
         }
 
         if (target.kind === 'agent') {
+            if (target.agentViewMode === 'broadcast' || target.agentViewMode === 'collaborate') {
+                return t('clusters.chatPlaceholderAgentReadonly', {
+                    agent: resolveClusterAgentLabel(target.agentId)
+                });
+            }
+
             return t('clusters.chatPlaceholderAgent', {
                 agent: resolveClusterAgentLabel(target.agentId)
             });
@@ -336,6 +406,18 @@
         }
 
         if (target.kind === 'agent') {
+            if (target.agentViewMode === 'broadcast') {
+                return t('clusters.hintAgentLogBroadcast', {
+                    agent: resolveClusterAgentLabel(target.agentId)
+                });
+            }
+
+            if (target.agentViewMode === 'collaborate') {
+                return t('clusters.hintAgentLogCollaborate', {
+                    agent: resolveClusterAgentLabel(target.agentId)
+                });
+            }
+
             return t('clusters.hintAgent', {
                 agent: resolveClusterAgentLabel(target.agentId)
             });

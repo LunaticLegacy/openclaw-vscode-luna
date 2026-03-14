@@ -27,6 +27,26 @@ interface RuntimeActionContext {
     loadTasks(): Promise<void>;
 }
 
+const OPENCLAW_STARTUP_TIMEOUT_MS = 30000;
+const OPENCLAW_STARTUP_POLL_INTERVAL_MS = 500;
+
+async function waitForServiceConnection(
+    service: OpenClawService,
+    timeoutMs: number = OPENCLAW_STARTUP_TIMEOUT_MS
+): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+        if (await service.checkConnection()) {
+            return;
+        }
+
+        await delay(OPENCLAW_STARTUP_POLL_INTERVAL_MS);
+    }
+
+    throw new Error(`OpenClaw gateway did not become ready within ${Math.ceil(timeoutMs / 1000)}s.`);
+}
+
 export function postRuntimeState(context: RuntimeActionContext): void {
     const mode = context.service.getMode();
     const capabilities = context.service.getModeCapabilities();
@@ -186,10 +206,10 @@ export async function handleStartOpenClaw(context: RuntimeActionContext): Promis
     try {
         await runWithNotificationProgress(t('progress.startingOpenClaw'), async () => {
             await startOpenClawGateway(context.extensionPath);
-            await delay(800);
 
             const nextConfig = await resolveOpenClawServiceConfig(context.extensionPath);
             context.service.updateConfig(nextConfig);
+            await waitForServiceConnection(context.service);
             await refreshRuntimeState(context);
             await Promise.all([
                 context.loadAgents(),

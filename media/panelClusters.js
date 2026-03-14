@@ -26,7 +26,9 @@
             deliveryStyle: preset.deliveryStyle,
             critiqueLevel: preset.critiqueLevel,
             rounds: preset.rounds,
-            briefing: preset.briefing || ''
+            briefing: preset.briefing || '',
+            coordinatorAgentId: '',
+            memberProfiles: {}
         };
     }
 
@@ -57,7 +59,72 @@
             rounds: normalizeClusterRoundsInput(config.rounds, base.rounds || 1),
             briefing: typeof config.briefing === 'string' && config.briefing.trim()
                 ? config.briefing.trim()
-                : (base.briefing || '')
+                : (base.briefing || ''),
+            coordinatorAgentId: typeof config.coordinatorAgentId === 'string' ? config.coordinatorAgentId.trim() : '',
+            memberProfiles: normalizeClusterMemberProfiles(config.memberProfiles)
+        };
+    }
+
+    function normalizeClusterMemberProfiles(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            return {};
+        }
+
+        const normalized = {};
+        Object.entries(value).forEach(([agentId, profile]) => {
+            if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
+                return;
+            }
+
+            const normalizedAgentId = String(agentId || '').trim();
+            const identity = String(profile.identity || '').trim();
+            const stance = String(profile.stance || '').trim();
+            const activation = normalizeClusterMemberActivation(profile.activation);
+            if (!normalizedAgentId || (!identity && !stance && !activation)) {
+                return;
+            }
+
+            normalized[normalizedAgentId] = {
+                ...(identity ? { identity } : {}),
+                ...(stance ? { stance } : {}),
+                ...(activation ? { activation } : {})
+            };
+        });
+
+        return normalized;
+    }
+
+    function normalizeClusterMemberActivation(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            return undefined;
+        }
+
+        const swarmModes = Array.isArray(value.swarmModes)
+            ? Array.from(new Set(value.swarmModes.filter(mode => mode === 'broadcast' || mode === 'collaborate')))
+            : undefined;
+        const keywords = Array.isArray(value.keywords)
+            ? Array.from(new Set(
+                value.keywords
+                    .map(keyword => String(keyword || '').trim())
+                    .filter(Boolean)
+            ))
+            : undefined;
+
+        if ((!swarmModes || swarmModes.length === 0) && (!keywords || keywords.length === 0)) {
+            return swarmModes ? { swarmModes: [] } : undefined;
+        }
+
+        return {
+            ...(swarmModes ? { swarmModes } : {}),
+            ...(keywords && keywords.length > 0 ? { keywords } : {})
+        };
+    }
+
+    function resolveClusterMemberActivation(profile) {
+        const activation = normalizeClusterMemberActivation(profile?.activation);
+        return {
+            swarmModes: activation?.swarmModes ? [...activation.swarmModes] : ['broadcast', 'collaborate'],
+            keywords: activation?.keywords ? [...activation.keywords] : []
         };
     }
 
@@ -132,6 +199,160 @@
         `).join('');
     }
 
+    function getSelectedClusterEditorAgentIds() {
+        return Array.from(elements.clusterEditorAgentPicker?.querySelectorAll('input[type="checkbox"]:checked') || [])
+            .map(input => String(input.value || '').trim())
+            .filter(Boolean);
+    }
+
+    function renderClusterCoordinatorOptions(selectedAgentIds, coordinatorAgentId) {
+        if (!elements.clusterEditorCoordinatorAgent) {
+            return;
+        }
+
+        const selected = new Set(Array.isArray(selectedAgentIds) ? selectedAgentIds : []);
+        const options = state.agents.filter(agent => selected.has(agent.id));
+        const normalizedCoordinatorId = options.some(agent => agent.id === coordinatorAgentId)
+            ? coordinatorAgentId
+            : '';
+
+        elements.clusterEditorCoordinatorAgent.innerHTML = [
+            `<option value="">${escapeHtml(t('clusters.form.coordinatorAuto'))}</option>`,
+            ...options.map(agent => `
+            <option value="${escapeHtml(agent.id)}">${escapeHtml(agent.name)}${agent.model ? ` (${escapeHtml(agent.model)})` : ''}</option>
+        `)
+        ].join('');
+        elements.clusterEditorCoordinatorAgent.value = normalizedCoordinatorId;
+        elements.clusterEditorCoordinatorAgent.disabled = options.length === 0;
+    }
+
+    function renderClusterMemberProfiles(selectedAgentIds, memberProfiles) {
+        if (!elements.clusterEditorMemberProfiles) {
+            return;
+        }
+
+        const normalizedProfiles = normalizeClusterMemberProfiles(memberProfiles);
+        if (!Array.isArray(selectedAgentIds) || selectedAgentIds.length === 0) {
+            elements.clusterEditorMemberProfiles.innerHTML = `<div class="cluster-agent-picker-empty">${escapeHtml(t('clusters.form.memberProfilesEmpty'))}</div>`;
+            return;
+        }
+
+        elements.clusterEditorMemberProfiles.innerHTML = selectedAgentIds.map(agentId => {
+            const agent = state.agents.find(item => item.id === agentId);
+            const profile = normalizedProfiles[agentId] || {};
+            const activation = resolveClusterMemberActivation(profile);
+            const wakeKeywords = activation.keywords.join(', ');
+            return `
+                <section class="cluster-member-profile-card" data-cluster-member-profile="${escapeHtml(agentId)}">
+                    <div class="cluster-member-profile-header">
+                        <div>
+                            <div class="cluster-member-profile-title">${escapeHtml(agent?.name || agentId)}</div>
+                            <div class="cluster-member-profile-meta">${escapeHtml(agent?.model || agentId)}</div>
+                        </div>
+                        <div class="cluster-member-profile-badges">
+                            <span class="cluster-member-profile-badge">${escapeHtml(t('clusters.form.memberProfiles'))}</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="cluster-member-identity-${escapeHtml(agentId)}">${escapeHtml(t('clusters.form.memberIdentity'))}</label>
+                        <input
+                            type="text"
+                            id="cluster-member-identity-${escapeHtml(agentId)}"
+                            data-cluster-member-identity="${escapeHtml(agentId)}"
+                            value="${escapeHtml(profile.identity || '')}"
+                            placeholder="${escapeHtml(t('clusters.form.memberIdentityPlaceholder'))}"
+                        >
+                    </div>
+                    <div class="form-group">
+                        <label for="cluster-member-stance-${escapeHtml(agentId)}">${escapeHtml(t('clusters.form.memberStance'))}</label>
+                        <textarea
+                            id="cluster-member-stance-${escapeHtml(agentId)}"
+                            rows="3"
+                            data-cluster-member-stance="${escapeHtml(agentId)}"
+                            placeholder="${escapeHtml(t('clusters.form.memberStancePlaceholder'))}"
+                        >${escapeHtml(profile.stance || '')}</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>${escapeHtml(t('clusters.form.memberWakeModes'))}</label>
+                        <div class="cluster-member-mode-grid">
+                            <label class="cluster-member-mode-option">
+                                <input
+                                    type="checkbox"
+                                    data-cluster-member-mode="${escapeHtml(agentId)}"
+                                    value="broadcast"
+                                    ${activation.swarmModes.includes('broadcast') ? 'checked' : ''}
+                                >
+                                <span>${escapeHtml(t('clusters.form.memberWakeBroadcast'))}</span>
+                            </label>
+                            <label class="cluster-member-mode-option">
+                                <input
+                                    type="checkbox"
+                                    data-cluster-member-mode="${escapeHtml(agentId)}"
+                                    value="collaborate"
+                                    ${activation.swarmModes.includes('collaborate') ? 'checked' : ''}
+                                >
+                                <span>${escapeHtml(t('clusters.form.memberWakeCollaborate'))}</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="cluster-member-keywords-${escapeHtml(agentId)}">${escapeHtml(t('clusters.form.memberWakeKeywords'))}</label>
+                        <input
+                            type="text"
+                            id="cluster-member-keywords-${escapeHtml(agentId)}"
+                            data-cluster-member-keywords="${escapeHtml(agentId)}"
+                            value="${escapeHtml(wakeKeywords)}"
+                            placeholder="${escapeHtml(t('clusters.form.memberWakeKeywordPlaceholder'))}"
+                        >
+                        <div class="form-hint">${escapeHtml(t('clusters.form.memberWakeKeywordsHint'))}</div>
+                    </div>
+                </section>
+            `;
+        }).join('');
+    }
+
+    function readClusterMemberProfilesFromEditor() {
+        const profiles = {};
+        const selectedAgentIds = getSelectedClusterEditorAgentIds();
+
+        selectedAgentIds.forEach(agentId => {
+            const identity = String(elements.clusterEditorMemberProfiles?.querySelector(`[data-cluster-member-identity="${agentId}"]`)?.value || '').trim();
+            const stance = String(elements.clusterEditorMemberProfiles?.querySelector(`[data-cluster-member-stance="${agentId}"]`)?.value || '').trim();
+            const selectedModes = Array.from(elements.clusterEditorMemberProfiles?.querySelectorAll(`[data-cluster-member-mode="${agentId}"]:checked`) || [])
+                .map(input => String(input.value || '').trim())
+                .filter(mode => mode === 'broadcast' || mode === 'collaborate');
+            const keywords = String(elements.clusterEditorMemberProfiles?.querySelector(`[data-cluster-member-keywords="${agentId}"]`)?.value || '')
+                .split(',')
+                .map(keyword => keyword.trim())
+                .filter(Boolean);
+            const activation = normalizeClusterMemberActivation({
+                swarmModes: selectedModes,
+                keywords
+            });
+
+            if (!identity && !stance && !activation) {
+                return;
+            }
+
+            profiles[agentId] = {
+                ...(identity ? { identity } : {}),
+                ...(stance ? { stance } : {}),
+                ...(activation ? { activation } : {})
+            };
+        });
+
+        return profiles;
+    }
+
+    function syncClusterMemberCustomizationState(options = {}) {
+        const selectedAgentIds = getSelectedClusterEditorAgentIds();
+        const memberProfiles = options.memberProfiles || readClusterMemberProfilesFromEditor();
+        const coordinatorAgentId = options.coordinatorAgentId || elements.clusterEditorCoordinatorAgent?.value || '';
+        renderClusterCoordinatorOptions(selectedAgentIds, coordinatorAgentId);
+        renderClusterMemberProfiles(selectedAgentIds, memberProfiles);
+        renderClusterPresetSummary();
+    }
+
     function renderClusterPresetSummary() {
         if (!elements.clusterPresetSummary) {
             return;
@@ -143,6 +364,8 @@
         const critiqueValue = elements.clusterEditorCritique?.value || 'standard';
         const roundsValue = normalizeClusterRoundsInput(elements.clusterEditorRounds?.value || 2, 2);
         const briefing = String(elements.clusterEditorBriefing?.value || '').trim();
+        const coordinatorId = String(elements.clusterEditorCoordinatorAgent?.value || '').trim();
+        const coordinatorLabel = coordinatorId ? resolveClusterAgentLabel(coordinatorId) : t('clusters.form.coordinatorAuto');
 
         elements.clusterPresetSummary.innerHTML = `
             <h3>${escapeHtml(preset ? (t(`clusters.preset.${preset.id}.label`) || preset.id) : t('clusters.form.preset'))}</h3>
@@ -163,6 +386,10 @@
                 <div class="cluster-preset-summary-item">
                     <div class="cluster-preset-summary-label">${escapeHtml(t('clusters.form.rounds'))}</div>
                     <div class="cluster-preset-summary-value">${escapeHtml(t('clusters.rounds.value', { count: roundsValue }) || String(roundsValue))}</div>
+                </div>
+                <div class="cluster-preset-summary-item">
+                    <div class="cluster-preset-summary-label">${escapeHtml(t('clusters.form.coordinator'))}</div>
+                    <div class="cluster-preset-summary-value">${escapeHtml(coordinatorLabel)}</div>
                 </div>
             </div>
             ${briefing ? `<p>${escapeHtml(briefing)}</p>` : ''}
@@ -223,6 +450,9 @@
         }
 
         renderClusterAgentPicker(selectedAgentIds);
+        renderClusterCoordinatorOptions(selectedAgentIds, config.coordinatorAgentId || '');
+        renderClusterMemberProfiles(selectedAgentIds, config.memberProfiles || {});
+        resetClusterBatchCreateInputs();
         applyClusterPreset(config.presetId);
 
         if (elements.clusterEditorStyle) {
@@ -240,6 +470,9 @@
         if (elements.clusterEditorBriefing) {
             elements.clusterEditorBriefing.value = config.briefing || '';
         }
+        if (elements.clusterEditorCoordinatorAgent) {
+            elements.clusterEditorCoordinatorAgent.value = config.coordinatorAgentId || '';
+        }
 
         renderClusterPresetSummary();
         openModal(elements.modalClusterEditor);
@@ -251,14 +484,20 @@
         const selectedAgentIds = Array.from(elements.clusterEditorAgentPicker?.querySelectorAll('input[type="checkbox"]:checked') || [])
             .map(input => input.value)
             .filter(Boolean);
+        const createAgents = readClusterBatchAgentDrafts();
 
         if (!name) {
             showError(t('clusters.validationName'));
             return;
         }
 
-        if (selectedAgentIds.length === 0) {
+        if (selectedAgentIds.length === 0 && createAgents.length === 0) {
             showError(t('clusters.validationAgents'));
+            return;
+        }
+
+        if (createAgents.some(agent => !String(agent.model || '').trim())) {
+            showError(t('agentBatch.validationModel'));
             return;
         }
 
@@ -268,13 +507,16 @@
             data: {
                 name,
                 agentIds: selectedAgentIds,
+                createAgents,
                 workspaceConfig: {
                     presetId: elements.clusterEditorPreset?.value || 'implementation-squad',
                     collaborationStyle: elements.clusterEditorStyle?.value || 'leader-draft',
                     deliveryStyle: elements.clusterEditorDelivery?.value || 'balanced',
                     critiqueLevel: elements.clusterEditorCritique?.value || 'standard',
                     rounds: normalizeClusterRoundsInput(elements.clusterEditorRounds?.value || 2, 2),
-                    briefing: String(elements.clusterEditorBriefing?.value || '').trim()
+                    briefing: String(elements.clusterEditorBriefing?.value || '').trim(),
+                    coordinatorAgentId: String(elements.clusterEditorCoordinatorAgent?.value || '').trim(),
+                    memberProfiles: readClusterMemberProfilesFromEditor()
                 }
             }
         });
@@ -287,14 +529,34 @@
         }
 
         const config = getClusterWorkModeConfig(cluster);
+        const coordinatorInfo = resolveClusterCoordinatorInfo(cluster);
         const preset = getClusterWorkModePresetById(config.presetId);
         elements.clusterWorkmodeSummary.innerHTML = [
             preset ? `<span class="cluster-workmode-chip">${escapeHtml(t(`clusters.preset.${preset.id}.label`) || preset.id)}</span>` : '',
             `<span class="cluster-workmode-chip">${escapeHtml(getClusterStyleLabel(config.collaborationStyle))}</span>`,
             `<span class="cluster-workmode-chip">${escapeHtml(getClusterDeliveryLabel(config.deliveryStyle))}</span>`,
             `<span class="cluster-workmode-chip">${escapeHtml(getClusterCritiqueLabel(config.critiqueLevel))}</span>`,
-            `<span class="cluster-workmode-chip">${escapeHtml(t('clusters.rounds.value', { count: config.rounds }) || String(config.rounds))}</span>`
+            `<span class="cluster-workmode-chip">${escapeHtml(t('clusters.rounds.value', { count: config.rounds }) || String(config.rounds))}</span>`,
+            coordinatorInfo.agentId
+                ? `<span class="cluster-workmode-chip">${escapeHtml(`${t('clusters.form.coordinator')}: ${resolveClusterAgentLabel(coordinatorInfo.agentId)}${coordinatorInfo.isAuto ? ` (${t('clusters.topology.coordinatorAuto')})` : ''}`)}</span>`
+                : ''
         ].filter(Boolean).join('');
+    }
+
+    function resolveClusterCoordinatorInfo(cluster) {
+        const config = getClusterWorkModeConfig(cluster);
+        const configuredAgentId = String(config.coordinatorAgentId || '').trim();
+        if (configuredAgentId && cluster?.agentIds?.includes(configuredAgentId)) {
+            return {
+                agentId: configuredAgentId,
+                isAuto: false
+            };
+        }
+
+        return {
+            agentId: Array.isArray(cluster?.agentIds) ? (cluster.agentIds[0] || '') : '',
+            isAuto: true
+        };
     }
 
     function mergeClusterState(existingCluster, nextCluster) {

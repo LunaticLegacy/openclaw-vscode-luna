@@ -23,6 +23,7 @@
 
             case 'agentsLoaded':
                 state.aiSkills = Array.isArray(message.aiSkills) ? message.aiSkills : state.aiSkills;
+                state.availableModels = Array.isArray(message.models) ? message.models : state.availableModels;
                 renderAgents(message.agents, message.folders);
                 populateModelSelect(message.models || []);
                 setAgentPresets(message.presets || state.agentPresets);
@@ -225,6 +226,57 @@
 
             case 'agentSaved':
                 upsertAgentState(message.agent);
+                if (message.agent?.id && message.agent.id === state.currentAgentId) {
+                    state.agentOnboardingSaving = false;
+                    setAgentOnboardingStatus(
+                        'success',
+                        window.OpenClawI18n ? window.OpenClawI18n.t('agentOnboarding.saved') : 'Preset context saved.'
+                    );
+                }
+                if (message.agent?.id && document.getElementById('settings-agent-id')?.value === message.agent.id) {
+                    state.agentSettingsSaving = false;
+                    state.agentSettingsFormDirty = false;
+                    setAgentSettingsStatus(
+                        'success',
+                        window.OpenClawI18n ? window.OpenClawI18n.t('agentSettings.saved') : 'Settings saved'
+                    );
+                }
+                break;
+
+            case 'agentSaveFailed':
+                state.agentSettingsSaving = false;
+                state.agentSettingsFormDirty = true;
+                if (!message.agentId || message.agentId === state.currentAgentId) {
+                    state.agentOnboardingSaving = false;
+                    setAgentOnboardingStatus(
+                        'error',
+                        message.message || (window.OpenClawI18n ? window.OpenClawI18n.t('agentOnboarding.saveFailed', { error: 'unknown error' }) : 'Failed to save preset context.')
+                    );
+                }
+                setAgentSettingsStatus(
+                    'error',
+                    message.message || (window.OpenClawI18n ? window.OpenClawI18n.t('agentSettings.saveFailed', { error: 'unknown error' }) : 'Failed to save settings.')
+                );
+                break;
+
+            case 'agentsBatchCreated':
+                state.batchCreateAgentsSaving = false;
+                setBatchCreateAgentsStatus(
+                    'success',
+                    window.OpenClawI18n
+                        ? window.OpenClawI18n.t('agentBatch.created', { count: message.count || 0 })
+                        : 'Agents created.'
+                );
+                closeAllModals();
+                resetNewAgentForm();
+                break;
+
+            case 'agentsBatchCreateFailed':
+                state.batchCreateAgentsSaving = false;
+                setBatchCreateAgentsStatus(
+                    'error',
+                    message.message || (window.OpenClawI18n ? window.OpenClawI18n.t('agentBatch.createFailed', { error: 'unknown error' }) : 'Failed to create agents.')
+                );
                 break;
 
             case 'clusterSaved':
@@ -251,8 +303,26 @@
                 setClusterConversationLoading(message.clusterId, message.agentId, message.loading);
                 break;
 
+            case 'setClusterSwarmContextLoading':
+                setSwarmConversationLoading(message.clusterId, message.mode, message.loading);
+                break;
+
+            case 'setClusterAgentSwarmContextLoading':
+                setClusterAgentSwarmConversationLoading(message.clusterId, message.agentId, message.mode, message.loading);
+                break;
+
             case 'replaceClusterMessages':
                 replaceClusterConversationMessages(message.clusterId, message.agentId, message.messages || []);
+                break;
+
+            case 'replaceClusterAgentSwarmMessages':
+                replaceClusterAgentSwarmConversationMessages(message.clusterId, message.agentId, message.mode, message.messages || []);
+                break;
+
+            case 'replaceSwarmMessages':
+                replaceSwarmConversationMessages(message.clusterId, message.mode, message.messages || [], {
+                    keepPending: Boolean(message.keepPending)
+                });
                 break;
 
             case 'appendClusterMessage':

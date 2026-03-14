@@ -67,6 +67,77 @@ export async function handleCreateAgent(context: AgentActionContext, data: any):
     );
 }
 
+export async function handleCreateAgentsBatch(
+    context: AgentActionContext,
+    data: { agents?: Array<{ name?: string; model?: string; systemPrompt?: string; presetId?: string; enabledSkills?: string[] }> }
+): Promise<void> {
+    const requestedAgents = Array.isArray(data?.agents) ? data.agents : [];
+    const normalizedAgents = requestedAgents
+        .map(agent => ({
+            name: typeof agent?.name === 'string' ? agent.name.trim() : '',
+            model: typeof agent?.model === 'string' ? agent.model.trim() : '',
+            systemPrompt: typeof agent?.systemPrompt === 'string' ? agent.systemPrompt.trim() : '',
+            presetId: typeof agent?.presetId === 'string' ? agent.presetId.trim() : undefined,
+            enabledSkills: Array.isArray(agent?.enabledSkills) ? agent.enabledSkills.filter(Boolean) : undefined
+        }))
+        .filter(agent => agent.name && agent.model);
+
+    if (normalizedAgents.length === 0) {
+        context.postMessage({
+            type: 'agentsBatchCreateFailed',
+            message: t('agentBatch.validationNames')
+        });
+        return;
+    }
+
+    const failures: string[] = [];
+    let createdCount = 0;
+
+    await vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: t('agentBatch.pending'),
+            cancellable: false
+        },
+        async progress => {
+            for (let index = 0; index < normalizedAgents.length; index += 1) {
+                const agent = normalizedAgents[index];
+                progress.report({
+                    message: `${agent.name} (${index + 1}/${normalizedAgents.length})`,
+                    increment: 100 / normalizedAgents.length
+                });
+
+                try {
+                    await context.agentManager.createAgent(agent);
+                    createdCount += 1;
+                } catch (error) {
+                    failures.push(`${agent.name}: ${isDuplicateAgentNameError(error) ? error.message : String(error)}`);
+                }
+            }
+        }
+    );
+
+    await context.loadAgents();
+
+    if (failures.length > 0) {
+        context.postMessage({
+            type: 'agentsBatchCreateFailed',
+            message: t('agentBatch.partialFailure', {
+                created: String(createdCount),
+                failed: String(failures.length),
+                details: failures.join(' | ')
+            })
+        });
+        return;
+    }
+
+    showSuccessStatus(t('agentBatch.created', { count: String(createdCount) }));
+    context.postMessage({
+        type: 'agentsBatchCreated',
+        count: createdCount
+    });
+}
+
 export async function handleDeleteAgent(context: AgentActionContext, agentId: string): Promise<void> {
     context.postMessage({
         type: 'agentMutationState',
@@ -107,6 +178,80 @@ export async function handleDeleteAgent(context: AgentActionContext, agentId: st
     }
 }
 
+export async function promptDeleteAgentsBatch(context: AgentActionContext): Promise<void> {
+    const agents = await context.agentManager.getAgents(true);
+    if (agents.length === 0) {
+        vscode.window.showInformationMessage(t('clusters.createAgentFirst'));
+        return;
+    }
+
+    const selections = await vscode.window.showQuickPick(
+        agents.map(agent => ({
+            label: agent.name,
+            description: agent.model,
+            agentId: agent.id
+        })),
+        {
+            placeHolder: t('agentBatch.selectDelete'),
+            canPickMany: true
+        }
+    );
+
+    if (!selections || selections.length === 0) {
+        return;
+    }
+
+    const confirmed = await vscode.window.showWarningMessage(
+        t('agentBatch.deleteConfirm', { count: String(selections.length) }),
+        { modal: true },
+        t('common.delete')
+    );
+    if (confirmed !== t('common.delete')) {
+        return;
+    }
+
+    const failures: string[] = [];
+    await vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: t('agentBatch.deleting'),
+            cancellable: false
+        },
+        async progress => {
+            for (let index = 0; index < selections.length; index += 1) {
+                const selection = selections[index];
+                progress.report({
+                    message: `${selection.label} (${index + 1}/${selections.length})`,
+                    increment: 100 / selections.length
+                });
+                try {
+                    await context.agentManager.deleteAgent(selection.agentId);
+                    if (context.getCurrentAgentId() === selection.agentId) {
+                        context.setCurrentAgentId(null);
+                        context.setCurrentSessionId(null);
+                    }
+                } catch (error) {
+                    failures.push(`${selection.label}: ${String(error)}`);
+                }
+            }
+        }
+    );
+
+    if (context.getCurrentAgentId() === null) {
+        context.postMessage({ type: 'clearChat' });
+        context.postMessage({ type: 'setActiveAgent', agentId: null });
+    }
+
+    await context.loadAgents();
+
+    if (failures.length > 0) {
+        vscode.window.showErrorMessage(t('agentBatch.deleteFailed', { error: failures.join(' | ') }));
+        return;
+    }
+
+    showSuccessStatus(t('agentBatch.deleted', { count: String(selections.length) }));
+}
+
 export async function handleSaveAgentSettings(context: AgentActionContext, agentId: string, settings: any): Promise<void> {
     if (!context.ensureCapability('agentEditing')) {
         vscode.window.showErrorMessage(getCapabilityUnavailableMessage('agentEditing'));
@@ -124,6 +269,11 @@ export async function handleSaveAgentSettings(context: AgentActionContext, agent
         });
         showSuccessStatus(t('agentSettings.saved'));
     } catch (error) {
+        context.postMessage({
+            type: 'agentSaveFailed',
+            agentId,
+            message: t('agentSettings.saveFailed', { error: String(error) })
+        });
         vscode.window.showErrorMessage(t('agentSettings.saveFailed', { error: String(error) }));
     }
 }

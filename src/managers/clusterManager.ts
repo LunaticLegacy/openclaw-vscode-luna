@@ -43,8 +43,26 @@ export interface ClusterBroadcastResult {
     error?: string;
 }
 
+export interface BroadcastClusterOptions {
+    onAgentResult?: (agentId: string, result: ClusterBroadcastResult) => Promise<void> | void;
+}
+
+export type ClusterCollaborationProgressEvent =
+    | {
+        kind: 'round-entry';
+        roundKind: ClusterCollaborationRoundKind;
+        agentId: string;
+        entry: ClusterBroadcastResult;
+    }
+    | {
+        kind: 'synthesis';
+        coordinatorAgentId: string | null;
+        entry: ClusterBroadcastResult | null;
+    };
+
 export interface CollaborateClusterOptions {
     coordinatorAgentId?: string;
+    onProgress?: (event: ClusterCollaborationProgressEvent) => Promise<void> | void;
 }
 
 export type ClusterCollaborationRoundKind =
@@ -67,18 +85,31 @@ export interface ClusterCollaborationResult {
     synthesis: ClusterBroadcastResult | null;
 }
 
+export interface ClusterAgentContextSnapshot {
+    directMessages: ChatMessage[];
+    broadcastMessages: ChatMessage[];
+    collaborateMessages: ChatMessage[];
+}
+
 interface PersistedClustersFile {
     version: number;
     clusters: AgentCluster[];
     workspaceConfigs?: Record<string, ClusterWorkspaceConfig>;
     clusterAgentSessions?: Record<string, string>;
+    clusterAgentMessages?: Record<string, ChatMessage[]>;
+    swarmSessions?: Record<string, string>;
+    clusterSwarmMessages?: Record<string, ChatMessage[]>;
 }
+
+const CLUSTER_AGENT_RESPONSE_TIMEOUT_MS = 45000;
 
 export class ClusterManager extends EventEmitter {
     private service: OpenClawService;
     private clusters: Map<string, AgentCluster> = new Map();
     private workspaceConfigs: Map<string, ClusterWorkspaceConfig> = new Map();
     private clusterAgentSessionIds: Map<string, string> = new Map();
+    private clusterAgentMessages: Map<string, ChatMessage[]> = new Map();
+    private clusterSwarmMessages: Map<string, ChatMessage[]> = new Map();
     private storageFilePath: string;
     private persistedStateLoaded = false;
     private persistedStateLoadPromise: Promise<void> | null = null;
@@ -237,6 +268,8 @@ export class ClusterManager extends EventEmitter {
             this.clusters.delete(clusterId);
             this.workspaceConfigs.delete(clusterId);
             this.clearClusterAgentSessionsForCluster(clusterId);
+            this.clearClusterAgentMessagesForCluster(clusterId);
+            this.clearClusterSwarmMessagesForCluster(clusterId);
             this.clearSwarmSessionsForCluster(clusterId);
             await this.persistState();
             return;
@@ -246,12 +279,18 @@ export class ClusterManager extends EventEmitter {
         this.clusters.delete(clusterId);
         this.workspaceConfigs.delete(clusterId);
         this.clearClusterAgentSessionsForCluster(clusterId);
+        this.clearClusterAgentMessagesForCluster(clusterId);
+        this.clearClusterSwarmMessagesForCluster(clusterId);
         this.clearSwarmSessionsForCluster(clusterId);
         await this.persistState();
         this.emit('clusterDeleted', clusterId);
     }
 
-    public async broadcastToCluster(clusterId: string, message: string): Promise<Record<string, ClusterBroadcastResult>> {
+    public async broadcastToCluster(
+        clusterId: string,
+        message: string,
+        options: BroadcastClusterOptions = {}
+    ): Promise<Record<string, ClusterBroadcastResult>> {
         if (this.service.supportsRemoteClusters()) {
             const responses = await this.service.sendToCluster(clusterId, message);
             return Object.fromEntries(
@@ -271,34 +310,24 @@ export class ClusterManager extends EventEmitter {
             throw new Error(t('clusterManager.notFound', { clusterId }));
         }
 
-        const results = await Promise.all(
-            cluster.agentIds.map(async agentId => {
-                try {
-                    const result = await this.sendMessageToAgent(agentId, message, {
-                        clusterId,
-                        mode: 'broadcast'
-                    });
-                    return [
-                        agentId,
-                        {
-                            ...result
-                        } satisfies ClusterBroadcastResult
-                    ] as const;
-                } catch (error) {
-                    return [
-                        agentId,
-                        {
-                            agentId,
-                            ok: false,
-                            error: String(error)
-                        } satisfies ClusterBroadcastResult
-                    ] as const;
-                }
-            })
+        const participantAgentIds = resolveSwarmParticipantAgentIds(
+            cluster.agentIds,
+            workspaceConfigOrDefault(cluster.workspaceConfig),
+            'broadcast',
+            message
         );
+        if (participantAgentIds.length === 0) {
+            throw new Error(t('clusterManager.noEligibleAgents'));
+        }
+
+        const results = await this.sendMessageToAgents(participantAgentIds, message, {
+            clusterId,
+            mode: 'broadcast',
+            onAgentResult: options.onAgentResult
+        });
 
         await this.updateCluster(clusterId, { status: 'active' });
-        return Object.fromEntries(results);
+        return results;
     }
 
     public async collaborateOnCluster(
@@ -311,15 +340,34 @@ export class ClusterManager extends EventEmitter {
             throw new Error(t('clusterManager.notFound', { clusterId }));
         }
         const workspaceConfig = normalizeClusterWorkspaceConfig(cluster.workspaceConfig);
+        const initialParticipantAgentIds = resolveSwarmParticipantAgentIds(
+            cluster.agentIds,
+            workspaceConfig,
+            'collaborate',
+            message
+        );
+        if (initialParticipantAgentIds.length === 0) {
+            throw new Error(t('clusterManager.noEligibleAgents'));
+        }
 
         const debateSessionIds = new Map<string, string>();
         const rounds: ClusterCollaborationRound[] = [];
 
-        const openingPrompt = buildOpeningContributionPrompt(cluster.name, message, workspaceConfig);
-        const openingEntries = await this.sendMessageToAgents(cluster.agentIds, openingPrompt, {
+        const openingEntries = await this.sendMessageToAgents(initialParticipantAgentIds, agentId => buildOpeningContributionPrompt(
+            cluster.name,
+            message,
+            workspaceConfig,
+            agentId
+        ), {
             clusterId: cluster.id,
             mode: 'collaborate',
-            debateSessionIds
+            debateSessionIds,
+            onAgentResult: (agentId, entry) => options.onProgress?.({
+                kind: 'round-entry',
+                roundKind: 'opening',
+                agentId,
+                entry
+            })
         });
         rounds.push({
             kind: 'opening',
@@ -327,44 +375,56 @@ export class ClusterManager extends EventEmitter {
         });
 
         let latestUsableContributions = openingEntries;
-        let successfulAgentIds = getSuccessfulAgentIds(cluster.agentIds, latestUsableContributions);
+        let successfulAgentIds = getSuccessfulAgentIds(initialParticipantAgentIds, latestUsableContributions);
 
         for (const debateRound of buildCollaborationDebateRounds(workspaceConfig.rounds)) {
             if (successfulAgentIds.length === 0) {
                 break;
             }
 
-            const critiquePrompt = buildPeerReviewPrompt(
+            const critiqueEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildPeerReviewPrompt(
                 cluster.name,
                 message,
                 workspaceConfig,
+                agentId,
                 successfulAgentIds,
                 latestUsableContributions,
                 debateRound.reviewRound
-            );
-            const critiqueEntries = await this.sendMessageToAgents(successfulAgentIds, critiquePrompt, {
+            ), {
                 clusterId: cluster.id,
                 mode: 'collaborate',
-                debateSessionIds
+                debateSessionIds,
+                onAgentResult: (agentId, entry) => options.onProgress?.({
+                    kind: 'round-entry',
+                    roundKind: debateRound.critiqueKind,
+                    agentId,
+                    entry
+                })
             });
             rounds.push({
                 kind: debateRound.critiqueKind,
                 entries: critiqueEntries
             });
 
-            const revisionPrompt = buildRevisionPrompt(
+            const revisionEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildRevisionPrompt(
                 cluster.name,
                 message,
                 workspaceConfig,
+                agentId,
                 successfulAgentIds,
                 latestUsableContributions,
                 critiqueEntries,
                 debateRound.reviewRound
-            );
-            const revisionEntries = await this.sendMessageToAgents(successfulAgentIds, revisionPrompt, {
+            ), {
                 clusterId: cluster.id,
                 mode: 'collaborate',
-                debateSessionIds
+                debateSessionIds,
+                onAgentResult: (agentId, entry) => options.onProgress?.({
+                    kind: 'round-entry',
+                    roundKind: debateRound.revisionKind,
+                    agentId,
+                    entry
+                })
             });
             rounds.push({
                 kind: debateRound.revisionKind,
@@ -372,14 +432,19 @@ export class ClusterManager extends EventEmitter {
             });
 
             latestUsableContributions = mergeLatestSuccessfulEntries(
-                cluster.agentIds,
+                initialParticipantAgentIds,
                 revisionEntries,
                 latestUsableContributions
             );
-            successfulAgentIds = getSuccessfulAgentIds(cluster.agentIds, latestUsableContributions);
+            successfulAgentIds = getSuccessfulAgentIds(initialParticipantAgentIds, latestUsableContributions);
         }
 
-        const coordinatorAgentId = resolveCoordinatorAgentId(cluster.agentIds, successfulAgentIds, options.coordinatorAgentId);
+        const coordinatorAgentId = resolveCoordinatorAgentId(
+            cluster.agentIds,
+            successfulAgentIds,
+            workspaceConfig.coordinatorAgentId,
+            options.coordinatorAgentId
+        );
 
         let synthesis: ClusterBroadcastResult | null = null;
         if (coordinatorAgentId && successfulAgentIds.length > 0) {
@@ -387,6 +452,7 @@ export class ClusterManager extends EventEmitter {
                 cluster,
                 message,
                 workspaceConfig,
+                coordinatorAgentId,
                 successfulAgentIds,
                 latestUsableContributions,
                 rounds
@@ -395,6 +461,11 @@ export class ClusterManager extends EventEmitter {
                 clusterId: cluster.id,
                 mode: 'collaborate',
                 debateSessionIds
+            });
+            await options.onProgress?.({
+                kind: 'synthesis',
+                coordinatorAgentId,
+                entry: synthesis
             });
         }
 
@@ -476,6 +547,97 @@ export class ClusterManager extends EventEmitter {
         return sessionId;
     }
 
+    public async getClusterAgentMessages(clusterId: string, agentId: string): Promise<ChatMessage[]> {
+        await this.ensurePersistedStateLoaded();
+        return cloneChatMessages(
+            this.clusterAgentMessages.get(this.buildClusterAgentSessionStorageKey(clusterId, agentId)) || []
+        );
+    }
+
+    public async replaceClusterAgentMessages(clusterId: string, agentId: string, messages: ChatMessage[]): Promise<void> {
+        await this.ensurePersistedStateLoaded();
+        const key = this.buildClusterAgentSessionStorageKey(clusterId, agentId);
+        const normalizedMessages = normalizePersistedChatMessages(messages);
+
+        if (normalizedMessages.length > 0) {
+            this.clusterAgentMessages.set(key, normalizedMessages);
+        } else {
+            this.clusterAgentMessages.delete(key);
+        }
+
+        await this.persistState();
+    }
+
+    public async clearClusterAgentMessages(clusterId: string, agentId: string): Promise<void> {
+        await this.ensurePersistedStateLoaded();
+        const key = this.buildClusterAgentSessionStorageKey(clusterId, agentId);
+        if (!this.clusterAgentMessages.delete(key)) {
+            return;
+        }
+
+        await this.persistState();
+    }
+
+    public async getClusterAgentSwarmMessages(
+        clusterId: string,
+        agentId: string,
+        mode: 'broadcast' | 'collaborate'
+    ): Promise<ChatMessage[]> {
+        await this.ensurePersistedStateLoaded();
+        const sessionId = this.swarmSessionIds.get(this.buildSwarmSessionKey(clusterId, mode, agentId));
+        if (!sessionId) {
+            return [];
+        }
+
+        const messages = await this.service.getChatHistory(sessionId).catch(() => []);
+        return cloneChatMessages(messages);
+    }
+
+    public async getClusterAgentContextSnapshot(
+        clusterId: string,
+        agentId: string
+    ): Promise<ClusterAgentContextSnapshot> {
+        const [directMessages, broadcastMessages, collaborateMessages] = await Promise.all([
+            this.getClusterAgentMessages(clusterId, agentId),
+            this.getClusterAgentSwarmMessages(clusterId, agentId, 'broadcast'),
+            this.getClusterAgentSwarmMessages(clusterId, agentId, 'collaborate')
+        ]);
+
+        return {
+            directMessages,
+            broadcastMessages,
+            collaborateMessages
+        };
+    }
+
+    public async getClusterSwarmMessages(
+        clusterId: string,
+        mode: 'broadcast' | 'collaborate'
+    ): Promise<ChatMessage[]> {
+        await this.ensurePersistedStateLoaded();
+        return cloneChatMessages(
+            this.clusterSwarmMessages.get(this.buildClusterSwarmStorageKey(clusterId, mode)) || []
+        );
+    }
+
+    public async replaceClusterSwarmMessages(
+        clusterId: string,
+        mode: 'broadcast' | 'collaborate',
+        messages: ChatMessage[]
+    ): Promise<void> {
+        await this.ensurePersistedStateLoaded();
+        const key = this.buildClusterSwarmStorageKey(clusterId, mode);
+        const normalizedMessages = normalizePersistedChatMessages(messages);
+
+        if (normalizedMessages.length > 0) {
+            this.clusterSwarmMessages.set(key, normalizedMessages);
+        } else {
+            this.clusterSwarmMessages.delete(key);
+        }
+
+        await this.persistState();
+    }
+
     public async refresh(): Promise<AgentCluster[]> {
         return this.getClusters(true);
     }
@@ -485,6 +647,8 @@ export class ClusterManager extends EventEmitter {
         this.clusters.clear();
         this.workspaceConfigs.clear();
         this.clusterAgentSessionIds.clear();
+        this.clusterAgentMessages.clear();
+        this.clusterSwarmMessages.clear();
         this.persistedStateLoaded = false;
         this.persistedStateLoadPromise = null;
         this.swarmSessionIds.clear();
@@ -510,6 +674,9 @@ export class ClusterManager extends EventEmitter {
             }
             this.workspaceConfigs.clear();
             this.clusterAgentSessionIds.clear();
+            this.clusterAgentMessages.clear();
+            this.clusterSwarmMessages.clear();
+            this.swarmSessionIds.clear();
 
             try {
                 const content = await fs.readFile(this.storageFilePath, 'utf8');
@@ -551,6 +718,44 @@ export class ClusterManager extends EventEmitter {
 
                     this.clusterAgentSessionIds.set(normalizedSessionKey, normalizedSessionId);
                 }
+
+                for (const [messageKey, messages] of Object.entries(data.clusterAgentMessages || {})) {
+                    const normalizedMessageKey = String(messageKey || '').trim();
+                    if (!normalizedMessageKey) {
+                        continue;
+                    }
+
+                    const normalizedMessages = normalizePersistedChatMessages(messages);
+                    if (normalizedMessages.length === 0) {
+                        continue;
+                    }
+
+                    this.clusterAgentMessages.set(normalizedMessageKey, normalizedMessages);
+                }
+
+                for (const [sessionKey, sessionId] of Object.entries(data.swarmSessions || {})) {
+                    const normalizedSessionKey = String(sessionKey || '').trim();
+                    const normalizedSessionId = String(sessionId || '').trim();
+                    if (!normalizedSessionKey || !normalizedSessionId) {
+                        continue;
+                    }
+
+                    this.swarmSessionIds.set(normalizedSessionKey, normalizedSessionId);
+                }
+
+                for (const [messageKey, messages] of Object.entries(data.clusterSwarmMessages || {})) {
+                    const normalizedMessageKey = String(messageKey || '').trim();
+                    if (!normalizedMessageKey) {
+                        continue;
+                    }
+
+                    const normalizedMessages = normalizePersistedChatMessages(messages);
+                    if (normalizedMessages.length === 0) {
+                        continue;
+                    }
+
+                    this.clusterSwarmMessages.set(normalizedMessageKey, normalizedMessages);
+                }
             } catch (error) {
                 const maybeNodeError = error as NodeJS.ErrnoException;
                 if (maybeNodeError.code !== 'ENOENT') {
@@ -570,10 +775,23 @@ export class ClusterManager extends EventEmitter {
 
     private async persistState(): Promise<void> {
         const payload: PersistedClustersFile = {
-            version: 3,
+            version: 5,
             clusters: Array.from(this.clusters.values()).map(cluster => this.applyWorkspaceConfig(cluster)),
             workspaceConfigs: Object.fromEntries(this.workspaceConfigs.entries()),
-            clusterAgentSessions: Object.fromEntries(this.clusterAgentSessionIds.entries())
+            clusterAgentSessions: Object.fromEntries(this.clusterAgentSessionIds.entries()),
+            clusterAgentMessages: Object.fromEntries(
+                Array.from(this.clusterAgentMessages.entries()).map(([key, messages]) => [
+                    key,
+                    cloneChatMessages(messages)
+                ])
+            ),
+            swarmSessions: Object.fromEntries(this.swarmSessionIds.entries()),
+            clusterSwarmMessages: Object.fromEntries(
+                Array.from(this.clusterSwarmMessages.entries()).map(([key, messages]) => [
+                    key,
+                    cloneChatMessages(messages)
+                ])
+            )
         };
 
         await fs.mkdir(path.dirname(this.storageFilePath), { recursive: true });
@@ -582,21 +800,26 @@ export class ClusterManager extends EventEmitter {
 
     private async sendMessageToAgents(
         agentIds: string[],
-        message: string,
+        message: string | ((agentId: string) => string | Promise<string>),
         options: {
             clusterId: string;
             mode: 'broadcast' | 'collaborate';
             debateSessionIds?: Map<string, string>;
+            onAgentResult?: (agentId: string, result: ClusterBroadcastResult) => Promise<void> | void;
         }
     ): Promise<Record<string, ClusterBroadcastResult>> {
-        const results = await Promise.all(
-            agentIds.map(async agentId => [
-                agentId,
-                await this.sendMessageToAgent(agentId, message, options)
-            ] as const)
+        const entries: Array<readonly [string, ClusterBroadcastResult]> = await Promise.all(
+            agentIds.map(async agentId => {
+                const resolvedMessage = typeof message === 'function'
+                    ? await message(agentId)
+                    : message;
+                const result = await this.sendMessageToAgent(agentId, resolvedMessage, options);
+                await options.onAgentResult?.(agentId, result);
+                return [agentId, result] as const;
+            })
         );
 
-        return Object.fromEntries(results);
+        return Object.fromEntries(entries);
     }
 
     private async sendMessageToAgent(
@@ -612,11 +835,21 @@ export class ClusterManager extends EventEmitter {
             const sessionId = options.debateSessionIds
                 ? await this.ensureDebateSession(agentId, options.debateSessionIds, options.clusterId, options.mode)
                 : await this.ensureSwarmSession(agentId, options.clusterId, options.mode);
-            const traceResult = await this.sendMessageWithTrace(sessionId, message);
+            const traceResult = await this.sendMessageWithTrace(sessionId, message, CLUSTER_AGENT_RESPONSE_TIMEOUT_MS);
+            if (traceResult.timedOut) {
+                return {
+                    agentId,
+                    ok: false,
+                    message: traceResult.message || undefined,
+                    trace: traceResult.trace,
+                    error: `Timed out after ${Math.round(CLUSTER_AGENT_RESPONSE_TIMEOUT_MS / 1000)}s`
+                };
+            }
+
             return {
                 agentId,
                 ok: true,
-                message: traceResult.message,
+                message: traceResult.message || undefined,
                 trace: traceResult.trace
             };
         } catch (error) {
@@ -657,6 +890,7 @@ export class ClusterManager extends EventEmitter {
 
         const session = await this.service.createChatSession(agentId);
         this.swarmSessionIds.set(key, session.id);
+        await this.persistState();
         return session.id;
     }
 
@@ -673,6 +907,10 @@ export class ClusterManager extends EventEmitter {
         }
     }
 
+    private buildClusterSwarmStorageKey(clusterId: string, mode: 'broadcast' | 'collaborate'): string {
+        return `${clusterId.trim()}::swarm::${mode}`;
+    }
+
     private buildClusterAgentSessionStorageKey(clusterId: string, agentId: string): string {
         return `${clusterId.trim()}::${agentId.trim()}`;
     }
@@ -686,6 +924,24 @@ export class ClusterManager extends EventEmitter {
         }
     }
 
+    private clearClusterAgentMessagesForCluster(clusterId: string): void {
+        const prefix = `${clusterId.trim()}::`;
+        for (const key of this.clusterAgentMessages.keys()) {
+            if (key.startsWith(prefix)) {
+                this.clusterAgentMessages.delete(key);
+            }
+        }
+    }
+
+    private clearClusterSwarmMessagesForCluster(clusterId: string): void {
+        const prefix = `${clusterId.trim()}::swarm::`;
+        for (const key of this.clusterSwarmMessages.keys()) {
+            if (key.startsWith(prefix)) {
+                this.clusterSwarmMessages.delete(key);
+            }
+        }
+    }
+
     private reconcileClusterAgentSessions(clusterId: string, agentIds: string[]): void {
         const allowed = new Set(agentIds.map(agentId => this.buildClusterAgentSessionStorageKey(clusterId, agentId)));
         const prefix = `${clusterId.trim()}::`;
@@ -694,38 +950,65 @@ export class ClusterManager extends EventEmitter {
                 this.clusterAgentSessionIds.delete(key);
             }
         }
+
+        for (const key of this.clusterAgentMessages.keys()) {
+            if (key.startsWith(prefix) && !allowed.has(key)) {
+                this.clusterAgentMessages.delete(key);
+            }
+        }
+
+        const swarmSessionPrefix = `cluster:${clusterId}:`;
+        const allowedSwarmSessionSuffixes = new Set(
+            agentIds.flatMap(agentId => [
+                this.buildSwarmSessionKey(clusterId, 'broadcast', agentId),
+                this.buildSwarmSessionKey(clusterId, 'collaborate', agentId)
+            ])
+        );
+        for (const key of this.swarmSessionIds.keys()) {
+            if (key.startsWith(swarmSessionPrefix) && !allowedSwarmSessionSuffixes.has(key)) {
+                this.swarmSessionIds.delete(key);
+            }
+        }
     }
 
     private async sendMessageWithTrace(
         sessionId: string,
-        message: string
-    ): Promise<{ message: ChatMessage; trace: ChatMessage[] }> {
+        message: string,
+        timeoutMs: number
+    ): Promise<{ message: ChatMessage | null; trace: ChatMessage[]; timedOut: boolean }> {
         const before = await this.service.getChatHistory(sessionId).catch(() => []);
         const knownIds = new Set(before.map(item => item.id));
-        const response = await this.service.sendMessage(sessionId, message);
+        const responseResult = await raceWithTimeout(this.service.sendMessage(sessionId, message), timeoutMs);
         const after = await this.service.getChatHistory(sessionId).catch(() => []);
 
         const trace = this.normalizeTraceMessages(
             after.filter(item => !knownIds.has(item.id))
         );
 
-        if (trace.length === 0) {
+        const finalTraceMessage = findLastAssistantMessage(trace);
+
+        if (responseResult.timedOut) {
             return {
-                message: response,
-                trace: response ? [response] : []
+                message: finalTraceMessage,
+                trace,
+                timedOut: true
             };
         }
 
-        let finalMessage = response;
-        for (let i = trace.length - 1; i >= 0; i--) {
-            if (trace[i].role === 'assistant') {
-                finalMessage = trace[i];
-                break;
-            }
+        const response = responseResult.value;
+
+        if (trace.length === 0) {
+            return {
+                message: response,
+                trace: response ? [response] : [],
+                timedOut: false
+            };
         }
+
         return {
-            message: finalMessage,
-            trace
+            message: finalTraceMessage || response,
+            trace,
+            timedOut: false
         };
     }
 
@@ -752,6 +1035,7 @@ export class ClusterManager extends EventEmitter {
         cluster: AgentCluster,
         userMessage: string,
         workspaceConfig: ClusterWorkspaceConfig,
+        coordinatorAgentId: string,
         successfulAgentIds: string[],
         contributions: Record<string, ClusterBroadcastResult>,
         rounds: ClusterCollaborationRound[]
@@ -784,6 +1068,7 @@ export class ClusterManager extends EventEmitter {
 
         return [
             `You are coordinating the agent swarm "${cluster.name}".`,
+            ...buildCoordinatorProfilePromptLines(workspaceConfig, coordinatorAgentId),
             buildCoordinatorStyleInstruction(workspaceConfig.collaborationStyle),
             'You are receiving the full transcript of a multi-round swarm debate with peer review.',
             'Synthesize the strongest parts of the debate into one final answer for the user.',
@@ -819,13 +1104,114 @@ export class ClusterManager extends EventEmitter {
 }
 
 function buildClusterAgentSessionId(clusterId: string, agentId: string): string {
-    return `cluster:${clusterId.trim()}:agent:${agentId.trim()}:session:${Date.now()}`;
+    return `cluster:${clusterId.trim()}:agent:${agentId.trim()}:session:${buildUniqueTimestampSuffix()}`;
+}
+
+function normalizePersistedChatMessages(messages: ChatMessage[] | undefined | null): ChatMessage[] {
+    if (!Array.isArray(messages)) {
+        return [];
+    }
+
+    const normalized: ChatMessage[] = [];
+    for (const message of messages) {
+        if (!message || typeof message !== 'object') {
+            continue;
+        }
+
+        const id = typeof message.id === 'string' ? message.id.trim() : '';
+        const role = isChatMessageRole(message.role) ? message.role : null;
+        const content = typeof message.content === 'string' ? message.content : '';
+        const timestamp = typeof message.timestamp === 'string' ? message.timestamp : '';
+
+        if (!id || !role || !timestamp) {
+            continue;
+        }
+
+        normalized.push({
+            ...message,
+            id,
+            role,
+            content,
+            timestamp,
+            agentId: typeof message.agentId === 'string' ? message.agentId : undefined,
+            tokenCount: typeof message.tokenCount === 'number' ? message.tokenCount : undefined,
+            parts: Array.isArray(message.parts) ? [...message.parts] : undefined,
+            metadata: isRecord(message.metadata) ? { ...message.metadata } : undefined
+        });
+    }
+
+    return normalized;
+}
+
+function cloneChatMessages(messages: ChatMessage[]): ChatMessage[] {
+    return normalizePersistedChatMessages(messages);
+}
+
+function findLastAssistantMessage(messages: ChatMessage[]): ChatMessage | null {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        if (messages[index]?.role === 'assistant') {
+            return messages[index];
+        }
+    }
+
+    return null;
+}
+
+async function raceWithTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number
+): Promise<{ timedOut: true } | { timedOut: false; value: T }> {
+    if (timeoutMs <= 0) {
+        return {
+            timedOut: false,
+            value: await promise
+        };
+    }
+
+    let timer: NodeJS.Timeout | null = null;
+    try {
+        return await Promise.race([
+            promise.then(value => ({ timedOut: false, value } as const)),
+            new Promise<{ timedOut: true }>(resolve => {
+                timer = setTimeout(() => resolve({ timedOut: true } as const), timeoutMs);
+            })
+        ]);
+    } finally {
+        if (timer) {
+            clearTimeout(timer);
+        }
+    }
+}
+
+function isChatMessageRole(value: unknown): value is ChatMessage['role'] {
+    return value === 'user' || value === 'assistant' || value === 'system' || value === 'tool';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function buildClusterId(name: string): string {
     const normalized = name.trim().toLowerCase().replace(/[^a-z0-9-_]+/g, '-').replace(/-+/g, '-');
     const safeName = normalized.replace(/^-|-$/g, '') || 'cluster';
-    return `cluster:${safeName}:${Date.now()}`;
+    return `cluster:${safeName}:${buildUniqueTimestampSuffix()}`;
+}
+
+let lastGeneratedTimestamp = 0;
+let generatedTimestampCounter = 0;
+
+function buildUniqueTimestampSuffix(): string {
+    const now = Date.now();
+    if (now === lastGeneratedTimestamp) {
+        generatedTimestampCounter += 1;
+    } else {
+        lastGeneratedTimestamp = now;
+        generatedTimestampCounter = 0;
+    }
+
+    return generatedTimestampCounter > 0
+        ? `${now}-${generatedTimestampCounter}`
+        : String(now);
 }
 
 function uniqueAgentIds(agentIds: string[]): string[] {
@@ -848,8 +1234,14 @@ function uniqueAgentIds(agentIds: string[]): string[] {
 function resolveCoordinatorAgentId(
     clusterAgentIds: string[],
     successfulAgentIds: string[],
+    configuredAgentId?: string,
     preferredAgentId?: string
 ): string | null {
+    const normalizedConfigured = configuredAgentId?.trim();
+    if (normalizedConfigured && clusterAgentIds.includes(normalizedConfigured)) {
+        return normalizedConfigured;
+    }
+
     const normalizedPreferred = preferredAgentId?.trim();
     if (normalizedPreferred && successfulAgentIds.includes(normalizedPreferred)) {
         return normalizedPreferred;
@@ -864,6 +1256,46 @@ function resolveCoordinatorAgentId(
     }
 
     return clusterAgentIds[0] || null;
+}
+
+function workspaceConfigOrDefault(config?: ClusterWorkspaceConfig): ClusterWorkspaceConfig {
+    return normalizeClusterWorkspaceConfig(config || createDefaultClusterWorkspaceConfig());
+}
+
+function resolveSwarmParticipantAgentIds(
+    agentIds: string[],
+    workspaceConfig: ClusterWorkspaceConfig,
+    mode: 'broadcast' | 'collaborate',
+    userMessage: string
+): string[] {
+    return agentIds.filter(agentId => isClusterAgentEligibleForSwarm(workspaceConfig, agentId, mode, userMessage));
+}
+
+function isClusterAgentEligibleForSwarm(
+    workspaceConfig: ClusterWorkspaceConfig,
+    agentId: string,
+    mode: 'broadcast' | 'collaborate',
+    userMessage: string
+): boolean {
+    const activation = workspaceConfig.memberProfiles?.[agentId]?.activation;
+    if (!activation) {
+        return true;
+    }
+
+    if (Array.isArray(activation.swarmModes) && !activation.swarmModes.includes(mode)) {
+        return false;
+    }
+
+    if (Array.isArray(activation.keywords) && activation.keywords.length > 0) {
+        const normalizedMessage = userMessage.trim().toLowerCase();
+        if (!normalizedMessage) {
+            return false;
+        }
+
+        return activation.keywords.some(keyword => normalizedMessage.includes(keyword.trim().toLowerCase()));
+    }
+
+    return true;
 }
 
 function buildCollaborationDebateRounds(maxRounds: number): Array<{
@@ -885,12 +1317,15 @@ function buildCollaborationDebateRounds(maxRounds: number): Array<{
 function buildOpeningContributionPrompt(
     clusterName: string,
     userMessage: string,
-    workspaceConfig: ClusterWorkspaceConfig
+    workspaceConfig: ClusterWorkspaceConfig,
+    agentId: string
 ): string {
+    const memberProfileLines = buildMemberProfilePromptLines(workspaceConfig, agentId);
     return [
         `You are part of the agent swarm "${clusterName}".`,
         `Debate stage: opening using ${workspaceConfig.collaborationStyle}.`,
         'This is round 1 of a multi-round swarm debate.',
+        ...memberProfileLines,
         buildOpeningStyleInstruction(workspaceConfig.collaborationStyle),
         buildDeliveryInstruction(workspaceConfig.deliveryStyle),
         buildRiskInstruction(workspaceConfig.critiqueLevel),
@@ -907,6 +1342,7 @@ function buildPeerReviewPrompt(
     clusterName: string,
     userMessage: string,
     workspaceConfig: ClusterWorkspaceConfig,
+    agentId: string,
     activeAgentIds: string[],
     contributions: Record<string, ClusterBroadcastResult>,
     reviewRound: number
@@ -916,11 +1352,13 @@ function buildPeerReviewPrompt(
         workspaceConfig.critiqueLevel,
         activeAgentIds.length
     );
+    const memberProfileLines = buildMemberProfilePromptLines(workspaceConfig, agentId);
 
     return [
         `You are part of the agent swarm "${clusterName}".`,
         `Debate stage: critique round ${reviewRound} using ${workspaceConfig.collaborationStyle}.`,
         'This is a peer-review round in a multi-round swarm debate.',
+        ...memberProfileLines,
         peerReviewInstruction,
         buildRiskInstruction(workspaceConfig.critiqueLevel),
         clusterBriefingLine(workspaceConfig),
@@ -940,15 +1378,18 @@ function buildRevisionPrompt(
     clusterName: string,
     userMessage: string,
     workspaceConfig: ClusterWorkspaceConfig,
+    agentId: string,
     activeAgentIds: string[],
     contributions: Record<string, ClusterBroadcastResult>,
     critiques: Record<string, ClusterBroadcastResult>,
     reviewRound: number
 ): string {
+    const memberProfileLines = buildMemberProfilePromptLines(workspaceConfig, agentId);
     return [
         `You are part of the agent swarm "${clusterName}".`,
         `Debate stage: revision round ${reviewRound} using ${workspaceConfig.collaborationStyle}.`,
         'Revise your position after reading the peer reviews from this round.',
+        ...memberProfileLines,
         buildRevisionInstruction(workspaceConfig.collaborationStyle),
         buildDeliveryInstruction(workspaceConfig.deliveryStyle),
         clusterBriefingLine(workspaceConfig),
@@ -1143,4 +1584,38 @@ function buildCoordinatorStyleInstruction(style: ClusterWorkspaceConfig['collabo
 function clusterBriefingLine(workspaceConfig: ClusterWorkspaceConfig): string {
     const briefing = workspaceConfig.briefing?.trim();
     return briefing ? `Cluster briefing: ${briefing}` : 'Cluster briefing: keep the result coherent and user-facing.';
+}
+
+function buildMemberProfilePromptLines(
+    workspaceConfig: ClusterWorkspaceConfig,
+    agentId: string
+): string[] {
+    const profile = workspaceConfig.memberProfiles?.[agentId];
+    const lines: string[] = [];
+
+    if (profile?.identity?.trim()) {
+        lines.push(`Assigned identity: ${profile.identity.trim()}`);
+    }
+
+    if (profile?.stance?.trim()) {
+        lines.push(`Assigned stance: ${profile.stance.trim()}`);
+        lines.push('Preserve this stance consistently unless the evidence in the debate forces a revision.');
+    }
+
+    return lines;
+}
+
+function buildCoordinatorProfilePromptLines(
+    workspaceConfig: ClusterWorkspaceConfig,
+    agentId: string
+): string[] {
+    const profileLines = buildMemberProfilePromptLines(workspaceConfig, agentId);
+    if (profileLines.length === 0) {
+        return [];
+    }
+
+    return [
+        ...profileLines,
+        'As coordinator, keep your assigned identity and stance while still producing one coherent final answer.'
+    ];
 }

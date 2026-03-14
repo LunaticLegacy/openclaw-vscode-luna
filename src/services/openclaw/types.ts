@@ -26,6 +26,15 @@ export interface AgentCluster {
     workspaceConfig?: ClusterWorkspaceConfig;
 }
 
+export interface ClusterMemberProfile {
+    identity?: string;
+    stance?: string;
+    activation?: {
+        swarmModes?: Array<'broadcast' | 'collaborate'>;
+        keywords?: string[];
+    };
+}
+
 export interface ClusterWorkspaceConfig {
     presetId: string;
     collaborationStyle: 'debate' | 'round-robin' | 'review-board' | 'leader-draft';
@@ -33,6 +42,8 @@ export interface ClusterWorkspaceConfig {
     critiqueLevel: 'minimal' | 'standard' | 'aggressive';
     rounds: number;
     briefing?: string;
+    coordinatorAgentId?: string;
+    memberProfiles?: Record<string, ClusterMemberProfile>;
 }
 
 export interface ChatMessage {
@@ -40,6 +51,8 @@ export interface ChatMessage {
     role: 'user' | 'assistant' | 'system' | 'tool';
     content: string;
     timestamp: string;
+    displayName?: string;
+    contextLabel?: string;
     agentId?: string;
     tokenCount?: number;
     parts?: ChatMessagePart[];

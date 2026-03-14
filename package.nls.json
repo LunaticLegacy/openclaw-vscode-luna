@@ -1,7 +1,7 @@
 {
   "displayName": "OpenClaw Luna",
-  "description": "The OpenClaw console for VS Code. Swarm supported.",
-  "command.category": "OpenClaw",
+  "description": "The first visualized console for Agent Swarm workflow for VS Code",
+  "command.category": "OpenClaw Luna",
   "command.openPanel.title": "Open OpenClaw Luna",
   "command.quickChat.title": "Quick Chat",
   "command.chat.title": "Chat with Agent",

@@ -58,17 +58,20 @@
                     <div class="sidebar-section-header">
                         <h3 data-i18n="sidebar.agents">Agents</h3>
                         <div class="agent-section-actions">
-                            <button id="btn-new-agent-folder" class="btn btn-secondary btn-small" type="button" data-i18n="sidebar.newFolder">New Folder</button>
+                            <button id="btn-batch-delete-agents" class="btn btn-secondary btn-small" type="button" data-i18n="sidebar.batchDeleteAgents">Batch Delete</button>
                             <button id="btn-refresh-agents" class="btn btn-secondary btn-small" data-i18n="common.refresh">Refresh</button>
                         </div>
                     </div>
                     <div id="agent-list" class="agent-list">
                         <div class="loading" data-i18n="common.loading">Loading...</div>
                     </div>
-                    <button id="btn-new-agent" class="btn btn-secondary">
-                        <span class="icon">+</span>
-                        <span data-i18n="sidebar.newAgent">New Agent</span>
-                    </button>
+                    <div class="agent-primary-actions">
+                        <button id="btn-new-agent-folder" class="btn btn-secondary" type="button" data-i18n="sidebar.newFolder">New Folder</button>
+                        <button id="btn-new-agent" class="btn btn-secondary">
+                            <span class="icon">+</span>
+                            <span data-i18n="sidebar.newAgent">New Agent</span>
+                        </button>
+                    </div>
                 </section>
 
                 <section class="sidebar-section">
@@ -88,6 +91,38 @@
             <div id="view-chat" class="view active">
                 <div class="chat-container">
                     <div id="chat-home" class="chat-home">
+                        <section id="agent-onboarding-panel" class="agent-onboarding-panel hidden">
+                            <div class="agent-onboarding-header">
+                                <div>
+                                    <div class="console-eyebrow" data-i18n="agentOnboarding.eyebrow">Agent Bootstrap</div>
+                                    <h3 id="agent-onboarding-title" data-i18n="agentOnboarding.title">Set the preset context for this agent</h3>
+                                    <p id="agent-onboarding-subtitle" data-i18n="agentOnboarding.body">A newly created agent or an empty chat session should start from a dedicated preset input screen, not the generic console home.</p>
+                                </div>
+                                <div class="agent-onboarding-meta">
+                                    <div class="agent-onboarding-meta-label" data-i18n="agentOnboarding.currentAgent">Current Agent</div>
+                                    <div id="agent-onboarding-agent-name" class="agent-onboarding-meta-value">-</div>
+                                    <div id="agent-onboarding-agent-model" class="agent-onboarding-meta-hint">-</div>
+                                </div>
+                            </div>
+                            <div class="agent-onboarding-body">
+                                <div class="form-group">
+                                    <label data-i18n="agentOnboarding.selectPreset">Preset</label>
+                                    <div id="agent-onboarding-preset-grid" class="new-agent-preset-grid"></div>
+                                </div>
+                                <div id="agent-onboarding-preset-summary" class="new-agent-preset-summary"></div>
+                                <div class="form-group">
+                                    <label for="agent-onboarding-prompt" data-i18n="agentOnboarding.prompt">Preset Prompt</label>
+                                    <textarea id="agent-onboarding-prompt" rows="8" data-i18n-placeholder="agentOnboarding.promptPlaceholder" placeholder="Describe the role, output standard, and non-negotiable constraints for this agent."></textarea>
+                                    <div class="form-hint" data-i18n="agentOnboarding.promptHint">Only keep the preset-facing context here. The actual chat thread starts after this has been saved.</div>
+                                </div>
+                                <div id="agent-onboarding-status" class="console-setup-status hidden"></div>
+                                <div class="form-actions">
+                                    <button id="btn-open-agent-onboarding-settings" type="button" class="btn btn-secondary" data-i18n="agentOnboarding.openSettings">Open Full Settings</button>
+                                    <button id="btn-save-agent-onboarding" type="button" class="btn btn-primary" data-i18n="agentOnboarding.save">Save Preset Context</button>
+                                </div>
+                            </div>
+                        </section>
+                        <div id="chat-console-home-content">
                         <section class="console-hero">
                             <div class="console-hero-copy">
                                 <div class="console-eyebrow" data-i18n="welcome.eyebrow">Luna Console</div>
@@ -158,6 +193,7 @@
                                         <div id="connection-settings-status" class="console-setup-status hidden"></div>
                                         <div class="form-actions">
                                             <button id="btn-use-detected-gateway" type="button" class="btn btn-secondary" data-i18n="setup.useDetected">Use Detected Values</button>
+                                            <button type="button" class="btn btn-secondary" data-export-runtime-logs="true" data-i18n="setup.exportRuntimeLogs">Export Runtime Logs</button>
                                             <button type="button" class="btn btn-secondary" data-console-action="settings" data-i18n="common.settings">Settings</button>
                                             <button type="submit" class="btn btn-primary" data-i18n="setup.saveAndRetry">Save & Retry</button>
                                         </div>
@@ -235,7 +271,17 @@
                                     </div>
                                     <div class="form-group">
                                         <label for="openclaw-gateway-token" data-i18n="setup.openclawConfig.gatewayTokenLabel">Gateway Token</label>
-                                        <input type="password" id="openclaw-gateway-token" autocomplete="off" data-i18n-placeholder="setup.openclawConfig.gatewayTokenPlaceholder" placeholder="Optional token for the local OpenClaw gateway">
+                                        <div class="secure-input-group">
+                                            <input type="password" id="openclaw-gateway-token" autocomplete="off" data-i18n-placeholder="setup.openclawConfig.gatewayTokenPlaceholder" placeholder="Optional token for the local OpenClaw gateway">
+                                            <button
+                                                type="button"
+                                                class="secure-toggle-btn"
+                                                data-press-reveal="openclaw-gateway-token"
+                                                data-i18n-title="common.holdToReveal"
+                                                title="Hold to reveal"
+                                                aria-label="Hold to reveal"
+                                            >&#128065;</button>
+                                        </div>
                                     </div>
                                     <div class="form-group">
                                         <label for="openclaw-default-workspace" data-i18n="setup.openclawConfig.defaultWorkspaceLabel">Default Workspace</label>
@@ -251,12 +297,23 @@
                                         </div>
                                         <div class="form-group">
                                             <label for="openclaw-auth-api-key" data-i18n="setup.openclawConfig.authApiKeyLabel">API Key</label>
-                                            <input type="password" id="openclaw-auth-api-key" autocomplete="off" data-i18n-placeholder="setup.openclawConfig.authApiKeyPlaceholder" placeholder="API key or local provider token">
+                                            <div class="secure-input-group">
+                                                <input type="password" id="openclaw-auth-api-key" autocomplete="off" data-i18n-placeholder="setup.openclawConfig.authApiKeyPlaceholder" placeholder="API key or local provider token">
+                                                <button
+                                                    type="button"
+                                                    class="secure-toggle-btn"
+                                                    data-press-reveal="openclaw-auth-api-key"
+                                                    data-i18n-title="common.holdToReveal"
+                                                    title="Hold to reveal"
+                                                    aria-label="Hold to reveal"
+                                                >&#128065;</button>
+                                            </div>
                                         </div>
                                     </div>
                                     <div id="openclaw-config-hint" class="form-hint"></div>
                                     <div id="openclaw-config-status" class="console-setup-status hidden"></div>
                                     <div class="form-actions">
+                                        <button type="button" class="btn btn-secondary" data-export-runtime-logs="true" data-i18n="setup.exportRuntimeLogs">Export Runtime Logs</button>
                                         <button type="submit" class="btn btn-primary" data-i18n="setup.openclawConfig.save">Save OpenClaw Config</button>
                                     </div>
                                 </form>
@@ -294,6 +351,7 @@
                             </div>
                             <div id="console-next-steps" class="console-next-steps"></div>
                         </section>
+                        </div>
                     </div>
 
                     <div id="chat-messages" class="chat-messages">
@@ -336,6 +394,8 @@
                             <div id="cluster-workmode-summary" class="cluster-workmode-summary"></div>
                         </div>
                         <div class="cluster-header-actions">
+                            <button id="btn-export-cluster-readable-context" class="btn btn-secondary" data-i18n="clusters.exportReadableContext">Export Readable Context</button>
+                            <button id="btn-export-cluster-raw-context" class="btn btn-secondary" data-i18n="clusters.exportRawContext">Export Raw Context</button>
                             <button id="btn-edit-cluster" class="btn btn-secondary" data-i18n="common.edit">Edit</button>
                             <button id="btn-delete-current-cluster" class="btn btn-secondary" data-i18n="clusters.delete">Delete</button>
                             <button id="btn-create-cluster-toolbar" class="btn btn-primary" data-i18n="clusters.create">Create Cluster</button>
@@ -531,6 +591,7 @@
                     <div class="new-agent-mode-toggle" role="tablist">
                         <button id="btn-new-agent-mode-custom" type="button" class="new-agent-mode-btn active" data-new-agent-mode="custom" data-i18n="newAgent.mode.custom">New Agent</button>
                         <button id="btn-new-agent-mode-preset" type="button" class="new-agent-mode-btn" data-new-agent-mode="preset" data-i18n="newAgent.mode.preset">Use Preset Agent</button>
+                        <button id="btn-new-agent-mode-batch" type="button" class="new-agent-mode-btn" data-new-agent-mode="batch" data-i18n="newAgent.mode.batch">Batch Create</button>
                     </div>
                     <div id="new-agent-preset-panel" class="new-agent-preset-panel hidden">
                         <div class="new-agent-preset-header">
@@ -543,17 +604,57 @@
                         <div id="new-agent-preset-grid" class="new-agent-preset-grid"></div>
                         <div id="new-agent-preset-description" class="new-agent-preset-summary"></div>
                     </div>
+                    <div id="new-agent-single-fields">
                     <div class="form-group">
                         <label for="new-agent-name" data-i18n="agentSettings.name">Name</label>
                         <input type="text" id="new-agent-name" required data-i18n-placeholder="newAgent.placeholderName" placeholder="My Agent">
                     </div>
                     <div class="form-group">
+                        <label for="new-agent-model-provider" data-i18n="agentSettings.modelProvider">Model Provider</label>
+                        <div class="auth-provider-inputs">
+                            <select id="new-agent-model-provider"></select>
+                            <input type="text" id="new-agent-model-provider-custom" class="hidden" data-i18n-placeholder="agentSettings.modelProviderPlaceholder" placeholder="Custom provider">
+                        </div>
+                    </div>
+                    <div class="form-group">
                         <label for="new-agent-model" data-i18n="agentSettings.model">Model</label>
-                        <select id="new-agent-model" required></select>
+                        <div class="auth-provider-inputs">
+                            <select id="new-agent-model" required></select>
+                            <input type="text" id="new-agent-model-custom" class="hidden" data-i18n-placeholder="agentSettings.modelCustomPlaceholder" placeholder="Custom model">
+                        </div>
                     </div>
                     <div class="form-group">
                         <label for="new-agent-prompt" data-i18n="common.systemPrompt">System Prompt</label>
                         <textarea id="new-agent-prompt" rows="3" data-i18n-placeholder="newAgent.placeholderPrompt" placeholder="Optional system prompt..."></textarea>
+                    </div>
+                    </div>
+                    <div id="new-agent-batch-panel" class="hidden">
+                        <div class="form-group">
+                            <label for="batch-agent-names" data-i18n="agentBatch.names">Agent Names</label>
+                            <textarea id="batch-agent-names" rows="8" data-i18n-placeholder="agentBatch.namesPlaceholder" placeholder="One agent name per line"></textarea>
+                            <div class="form-hint" data-i18n="agentBatch.namesHint">One name per line. Empty lines are ignored.</div>
+                        </div>
+                        <div class="cluster-form-grid">
+                            <div class="form-group">
+                                <label for="batch-agent-model-provider" data-i18n="agentSettings.modelProvider">Model Provider</label>
+                                <div class="auth-provider-inputs">
+                                    <select id="batch-agent-model-provider"></select>
+                                    <input type="text" id="batch-agent-model-provider-custom" class="hidden" data-i18n-placeholder="agentSettings.modelProviderPlaceholder" placeholder="Custom provider">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="batch-agent-model" data-i18n="agentSettings.model">Model</label>
+                                <div class="auth-provider-inputs">
+                                    <select id="batch-agent-model"></select>
+                                    <input type="text" id="batch-agent-model-custom" class="hidden" data-i18n-placeholder="agentSettings.modelCustomPlaceholder" placeholder="Custom model">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="batch-agent-prompt" data-i18n="common.systemPrompt">System Prompt</label>
+                            <textarea id="batch-agent-prompt" rows="4" data-i18n-placeholder="agentBatch.promptPlaceholder" placeholder="Optional shared system prompt..."></textarea>
+                        </div>
+                        <div id="batch-agent-form-status" class="form-status hidden"></div>
                     </div>
                     <div class="form-actions">
                         <button type="button" class="btn modal-cancel" data-i18n="common.cancel">Cancel</button>
@@ -574,9 +675,24 @@
                         <input type="text" id="settings-agent-name" required>
                     </div>
                     <div class="form-group">
+                        <label for="settings-agent-model-provider" data-i18n="agentSettings.modelProvider">Model Provider</label>
+                        <div class="auth-provider-inputs">
+                            <select id="settings-agent-model-provider"></select>
+                            <input type="text" id="settings-agent-model-provider-custom" class="hidden" data-i18n-placeholder="agentSettings.modelProviderPlaceholder" placeholder="Custom provider">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="settings-agent-model" data-i18n="agentSettings.model">Model</label>
+                        <div class="auth-provider-inputs">
+                            <select id="settings-agent-model"></select>
+                            <input type="text" id="settings-agent-model-custom" class="hidden" data-i18n-placeholder="agentSettings.modelCustomPlaceholder" placeholder="Custom model">
+                        </div>
+                    </div>
+                    <div class="form-group">
                         <label for="settings-agent-prompt" data-i18n="common.systemPrompt">System Prompt</label>
                         <textarea id="settings-agent-prompt" rows="4"></textarea>
                     </div>
+                    <div id="settings-agent-form-status" class="form-status hidden"></div>
                     <div class="form-group">
                         <label for="settings-agent-temperature" data-i18n="common.temperature">Temperature</label>
                         <div class="range-input">
@@ -663,6 +779,10 @@
                                 <label for="cluster-editor-briefing" data-i18n="clusters.form.briefing">Cluster Briefing</label>
                                 <textarea id="cluster-editor-briefing" rows="4" data-i18n-placeholder="clusters.form.briefingPlaceholder" placeholder="Tell the swarm how this cluster should work."></textarea>
                             </div>
+                            <div class="form-group">
+                                <label for="cluster-editor-coordinator-agent" data-i18n="clusters.form.coordinator">Final Summary Agent</label>
+                                <select id="cluster-editor-coordinator-agent"></select>
+                            </div>
                             <div id="cluster-preset-summary" class="cluster-preset-summary"></div>
                         </section>
                         <aside class="cluster-editor-side">
@@ -671,8 +791,44 @@
                                 <p data-i18n="clusters.form.membersHint">Pick the agents that belong to this cluster.</p>
                             </div>
                             <div id="cluster-editor-agent-picker" class="cluster-agent-picker"></div>
+                            <section class="cluster-editor-create">
+                                <div class="cluster-editor-side-header">
+                                    <h3 data-i18n="clusters.form.quickCreate">Quick Create Members</h3>
+                                    <p data-i18n="clusters.form.quickCreateHint">Create new agents during cluster save, then add them into this cluster automatically.</p>
+                                </div>
+                                <div class="form-group">
+                                    <label for="cluster-batch-agent-names" data-i18n="agentBatch.names">Agent Names</label>
+                                    <textarea id="cluster-batch-agent-names" rows="5" data-i18n-placeholder="agentBatch.namesPlaceholder" placeholder="One agent name per line"></textarea>
+                                </div>
+                                <div class="form-group">
+                                    <label for="cluster-batch-agent-model-provider" data-i18n="agentSettings.modelProvider">Model Provider</label>
+                                    <div class="auth-provider-inputs">
+                                        <select id="cluster-batch-agent-model-provider"></select>
+                                        <input type="text" id="cluster-batch-agent-model-provider-custom" class="hidden" data-i18n-placeholder="agentSettings.modelProviderPlaceholder" placeholder="Custom provider">
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="cluster-batch-agent-model" data-i18n="agentSettings.model">Model</label>
+                                    <div class="auth-provider-inputs">
+                                        <select id="cluster-batch-agent-model"></select>
+                                        <input type="text" id="cluster-batch-agent-model-custom" class="hidden" data-i18n-placeholder="agentSettings.modelCustomPlaceholder" placeholder="Custom model">
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="cluster-batch-agent-prompt" data-i18n="common.systemPrompt">System Prompt</label>
+                                    <textarea id="cluster-batch-agent-prompt" rows="4" data-i18n-placeholder="agentBatch.promptPlaceholder" placeholder="Optional shared system prompt..."></textarea>
+                                    <div class="form-hint" data-i18n="clusters.form.quickCreateSaveHint">These new agents are only created when you save the cluster.</div>
+                                </div>
+                            </section>
                         </aside>
                     </div>
+                    <section class="cluster-editor-bottom">
+                        <div class="cluster-editor-side-header">
+                            <h3 data-i18n="clusters.form.memberProfiles">Member Profiles</h3>
+                            <p data-i18n="clusters.form.memberProfilesHint">Customize each member's identity and stance inside the swarm.</p>
+                        </div>
+                        <div id="cluster-editor-member-profiles" class="cluster-member-profiles"></div>
+                    </section>
                     <div class="form-actions">
                         <button type="button" class="btn modal-cancel" data-i18n="common.cancel">Cancel</button>
                         <button type="submit" class="btn btn-primary" data-i18n="common.save">Save</button>
