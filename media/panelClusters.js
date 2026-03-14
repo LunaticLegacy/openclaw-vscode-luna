@@ -18,7 +18,8 @@
             deliveryStyle: 'balanced',
             critiqueLevel: 'standard',
             rounds: 2,
-            briefing: ''
+            briefing: '',
+            memberBlueprints: []
         };
         return {
             presetId: preset.id,
@@ -26,10 +27,31 @@
             deliveryStyle: preset.deliveryStyle,
             critiqueLevel: preset.critiqueLevel,
             rounds: preset.rounds,
+            runUntilConditionMet: false,
+            stopCondition: '',
             briefing: preset.briefing || '',
             coordinatorAgentId: '',
             memberProfiles: {}
         };
+    }
+
+    function getClusterWorkModePresetMemberBlueprints(preset) {
+        if (!Array.isArray(preset?.memberBlueprints)) {
+            return [];
+        }
+
+        return preset.memberBlueprints
+            .filter(blueprint => blueprint && typeof blueprint === 'object')
+            .map(blueprint => ({
+                id: String(blueprint.id || '').trim(),
+                title: String(blueprint.title || '').trim(),
+                identity: String(blueprint.identity || '').trim(),
+                stance: String(blueprint.stance || '').trim(),
+                parentId: String(blueprint.parentId || '').trim(),
+                isCoordinator: Boolean(blueprint.isCoordinator),
+                activation: normalizeClusterMemberActivation(blueprint.activation)
+            }))
+            .filter(blueprint => blueprint.id && blueprint.title);
     }
 
     function getClusterWorkModeConfig(cluster) {
@@ -57,6 +79,8 @@
                 ? config.critiqueLevel
                 : base.critiqueLevel,
             rounds: normalizeClusterRoundsInput(config.rounds, base.rounds || 1),
+            runUntilConditionMet: Boolean(config.runUntilConditionMet && String(config.stopCondition || '').trim()),
+            stopCondition: typeof config.stopCondition === 'string' ? config.stopCondition.trim() : '',
             briefing: typeof config.briefing === 'string' && config.briefing.trim()
                 ? config.briefing.trim()
                 : (base.briefing || ''),
@@ -79,14 +103,16 @@
             const normalizedAgentId = String(agentId || '').trim();
             const identity = String(profile.identity || '').trim();
             const stance = String(profile.stance || '').trim();
+            const parentAgentId = String(profile.parentAgentId || '').trim();
             const activation = normalizeClusterMemberActivation(profile.activation);
-            if (!normalizedAgentId || (!identity && !stance && !activation)) {
+            if (!normalizedAgentId || (!identity && !stance && !parentAgentId && !activation)) {
                 return;
             }
 
             normalized[normalizedAgentId] = {
                 ...(identity ? { identity } : {}),
                 ...(stance ? { stance } : {}),
+                ...(parentAgentId ? { parentAgentId } : {}),
                 ...(activation ? { activation } : {})
             };
         });
@@ -128,6 +154,74 @@
         };
     }
 
+    function resolveClusterMemberParentAgentId(profile, agentId, selectedAgentIds) {
+        const normalizedParentId = String(profile?.parentAgentId || '').trim();
+        if (!normalizedParentId || normalizedParentId === agentId) {
+            return '';
+        }
+
+        return Array.isArray(selectedAgentIds) && selectedAgentIds.includes(normalizedParentId)
+            ? normalizedParentId
+            : '';
+    }
+
+    function buildClusterPresetMemberProfiles(selectedAgentIds, preset, options = {}) {
+        const normalizedSelectedAgentIds = Array.isArray(selectedAgentIds) ? selectedAgentIds.map(agentId => String(agentId || '').trim()).filter(Boolean) : [];
+        const existingProfiles = normalizeClusterMemberProfiles(options.existingProfiles);
+        const blueprints = getClusterWorkModePresetMemberBlueprints(preset);
+        const slotAgentIdByBlueprintId = new Map();
+
+        blueprints.forEach((blueprint, index) => {
+            const agentId = normalizedSelectedAgentIds[index];
+            if (agentId) {
+                slotAgentIdByBlueprintId.set(blueprint.id, agentId);
+            }
+        });
+
+        const profiles = {};
+        normalizedSelectedAgentIds.forEach((agentId, index) => {
+            const blueprint = blueprints[index] || null;
+            const existingProfile = existingProfiles[agentId];
+            if (!blueprint) {
+                if (existingProfile && options.preserveExisting !== false) {
+                    profiles[agentId] = existingProfile;
+                }
+                return;
+            }
+
+            const generatedProfile = {
+                ...(blueprint.identity ? { identity: blueprint.identity } : {}),
+                ...(blueprint.stance ? { stance: blueprint.stance } : {}),
+                ...(blueprint.parentId && slotAgentIdByBlueprintId.get(blueprint.parentId)
+                    ? { parentAgentId: slotAgentIdByBlueprintId.get(blueprint.parentId) }
+                    : {}),
+                ...(blueprint.activation ? { activation: blueprint.activation } : {})
+            };
+
+            profiles[agentId] = options.preserveExisting !== false && existingProfile
+                ? existingProfile
+                : generatedProfile;
+        });
+
+        return normalizeClusterMemberProfiles(profiles);
+    }
+
+    function resolveClusterPresetCoordinatorAgentId(selectedAgentIds, preset, fallbackCoordinatorAgentId, options = {}) {
+        const normalizedSelectedAgentIds = Array.isArray(selectedAgentIds) ? selectedAgentIds.map(agentId => String(agentId || '').trim()).filter(Boolean) : [];
+        const normalizedFallbackId = String(fallbackCoordinatorAgentId || '').trim();
+        if (options.preserveExisting !== false && normalizedFallbackId && normalizedSelectedAgentIds.includes(normalizedFallbackId)) {
+            return normalizedFallbackId;
+        }
+
+        const blueprints = getClusterWorkModePresetMemberBlueprints(preset);
+        const coordinatorIndex = blueprints.findIndex(blueprint => blueprint.isCoordinator);
+        if (coordinatorIndex >= 0 && normalizedSelectedAgentIds[coordinatorIndex]) {
+            return normalizedSelectedAgentIds[coordinatorIndex];
+        }
+
+        return normalizedSelectedAgentIds[0] || '';
+    }
+
     function normalizeClusterRoundsInput(value, fallback = 1) {
         const parsedValue = Number(value);
         if (!Number.isFinite(parsedValue)) {
@@ -135,6 +229,30 @@
         }
 
         return Math.max(1, Math.min(MAX_CLUSTER_ROUNDS, Math.round(parsedValue)));
+    }
+
+    function syncClusterRoundModeState() {
+        const isUnlimited = Boolean(elements.clusterEditorRoundsUnlimited?.checked);
+        if (elements.clusterEditorRounds) {
+            elements.clusterEditorRounds.disabled = isUnlimited;
+        }
+        if (elements.clusterEditorStopConditionGroup) {
+            elements.clusterEditorStopConditionGroup.classList.toggle('hidden', !isUnlimited);
+        }
+    }
+
+    function getClusterRoundsSummaryLabel(roundsValue, runUntilConditionMet, stopCondition) {
+        if (!runUntilConditionMet) {
+            return t('clusters.rounds.value', { count: roundsValue }) || String(roundsValue);
+        }
+
+        const condition = String(stopCondition || '').trim();
+        if (!condition) {
+            return t('clusters.rounds.unlimited') || 'Unlimited rounds';
+        }
+
+        return t('clusters.rounds.untilCondition', { condition })
+            || `Until: ${condition}`;
     }
 
     function populateClusterEditorOptions() {
@@ -175,6 +293,7 @@
             elements.clusterEditorRounds.step = '1';
             elements.clusterEditorRounds.value = String(normalizeClusterRoundsInput(elements.clusterEditorRounds.value || 2, 2));
         }
+        syncClusterRoundModeState();
     }
 
     function renderClusterAgentPicker(selectedAgentIds) {
@@ -241,7 +360,18 @@
             const agent = state.agents.find(item => item.id === agentId);
             const profile = normalizedProfiles[agentId] || {};
             const activation = resolveClusterMemberActivation(profile);
+            const parentAgentId = resolveClusterMemberParentAgentId(profile, agentId, selectedAgentIds);
             const wakeKeywords = activation.keywords.join(', ');
+            const parentOptions = [
+                `<option value="">${escapeHtml(t('clusters.form.memberParentRoot'))}</option>`,
+                ...selectedAgentIds
+                    .filter(candidateId => candidateId !== agentId)
+                    .map(candidateId => `
+                        <option value="${escapeHtml(candidateId)}"${candidateId === parentAgentId ? ' selected' : ''}>
+                            ${escapeHtml(resolveClusterAgentLabel(candidateId))}
+                        </option>
+                    `)
+            ].join('');
             return `
                 <section class="cluster-member-profile-card" data-cluster-member-profile="${escapeHtml(agentId)}">
                     <div class="cluster-member-profile-header">
@@ -271,6 +401,16 @@
                             data-cluster-member-stance="${escapeHtml(agentId)}"
                             placeholder="${escapeHtml(t('clusters.form.memberStancePlaceholder'))}"
                         >${escapeHtml(profile.stance || '')}</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="cluster-member-parent-${escapeHtml(agentId)}">${escapeHtml(t('clusters.form.memberParent'))}</label>
+                        <select
+                            id="cluster-member-parent-${escapeHtml(agentId)}"
+                            data-cluster-member-parent="${escapeHtml(agentId)}"
+                        >
+                            ${parentOptions}
+                        </select>
+                        <div class="form-hint">${escapeHtml(t('clusters.form.memberParentHint'))}</div>
                     </div>
                     <div class="form-group">
                         <label>${escapeHtml(t('clusters.form.memberWakeModes'))}</label>
@@ -318,6 +458,7 @@
         selectedAgentIds.forEach(agentId => {
             const identity = String(elements.clusterEditorMemberProfiles?.querySelector(`[data-cluster-member-identity="${agentId}"]`)?.value || '').trim();
             const stance = String(elements.clusterEditorMemberProfiles?.querySelector(`[data-cluster-member-stance="${agentId}"]`)?.value || '').trim();
+            const parentAgentId = String(elements.clusterEditorMemberProfiles?.querySelector(`[data-cluster-member-parent="${agentId}"]`)?.value || '').trim();
             const selectedModes = Array.from(elements.clusterEditorMemberProfiles?.querySelectorAll(`[data-cluster-member-mode="${agentId}"]:checked`) || [])
                 .map(input => String(input.value || '').trim())
                 .filter(mode => mode === 'broadcast' || mode === 'collaborate');
@@ -330,13 +471,14 @@
                 keywords
             });
 
-            if (!identity && !stance && !activation) {
+            if (!identity && !stance && !parentAgentId && !activation) {
                 return;
             }
 
             profiles[agentId] = {
                 ...(identity ? { identity } : {}),
                 ...(stance ? { stance } : {}),
+                ...(parentAgentId ? { parentAgentId } : {}),
                 ...(activation ? { activation } : {})
             };
         });
@@ -346,9 +488,26 @@
 
     function syncClusterMemberCustomizationState(options = {}) {
         const selectedAgentIds = getSelectedClusterEditorAgentIds();
-        const memberProfiles = options.memberProfiles || readClusterMemberProfilesFromEditor();
-        const coordinatorAgentId = options.coordinatorAgentId || elements.clusterEditorCoordinatorAgent?.value || '';
+        const preset = getClusterWorkModePresetById(elements.clusterEditorPreset?.value);
+        const sourceProfiles = options.memberProfiles || readClusterMemberProfilesFromEditor();
+        const memberProfiles = options.applyPresetProfiles !== false
+            ? buildClusterPresetMemberProfiles(selectedAgentIds, preset, {
+                existingProfiles: sourceProfiles,
+                preserveExisting: options.preserveExistingProfiles !== false
+            })
+            : sourceProfiles;
+        const coordinatorAgentId = options.coordinatorAgentId !== undefined
+            ? options.coordinatorAgentId
+            : resolveClusterPresetCoordinatorAgentId(
+                selectedAgentIds,
+                preset,
+                elements.clusterEditorCoordinatorAgent?.value || '',
+                { preserveExisting: options.preserveExistingCoordinator !== false }
+            );
         renderClusterCoordinatorOptions(selectedAgentIds, coordinatorAgentId);
+        if (elements.clusterEditorCoordinatorAgent) {
+            elements.clusterEditorCoordinatorAgent.value = coordinatorAgentId;
+        }
         renderClusterMemberProfiles(selectedAgentIds, memberProfiles);
         renderClusterPresetSummary();
     }
@@ -363,9 +522,57 @@
         const deliveryValue = elements.clusterEditorDelivery?.value || 'balanced';
         const critiqueValue = elements.clusterEditorCritique?.value || 'standard';
         const roundsValue = normalizeClusterRoundsInput(elements.clusterEditorRounds?.value || 2, 2);
+        const runUntilConditionMet = Boolean(elements.clusterEditorRoundsUnlimited?.checked);
+        const stopCondition = String(elements.clusterEditorStopCondition?.value || '').trim();
         const briefing = String(elements.clusterEditorBriefing?.value || '').trim();
         const coordinatorId = String(elements.clusterEditorCoordinatorAgent?.value || '').trim();
         const coordinatorLabel = coordinatorId ? resolveClusterAgentLabel(coordinatorId) : t('clusters.form.coordinatorAuto');
+        const presetBlueprints = getClusterWorkModePresetMemberBlueprints(preset);
+        const selectedAgentIds = getSelectedClusterEditorAgentIds();
+        const presetBlueprintsHtml = presetBlueprints.length > 0
+            ? `
+                <div class="cluster-preset-blueprints">
+                    <div class="cluster-preset-blueprints-label">${escapeHtml(t('clusters.preset.memberBlueprints'))}</div>
+                    <div class="cluster-preset-blueprints-grid">
+                        ${presetBlueprints.map((blueprint, index) => {
+                            const assignedAgentId = selectedAgentIds[index] || '';
+                            const assignedAgentLabel = assignedAgentId ? resolveClusterAgentLabel(assignedAgentId) : '';
+                            const activation = normalizeClusterMemberActivation(blueprint.activation);
+                            const resolvedActivation = {
+                                swarmModes: activation?.swarmModes ? [...activation.swarmModes] : ['broadcast', 'collaborate'],
+                                keywords: activation?.keywords ? [...activation.keywords] : []
+                            };
+                            const routeLabel = blueprint.parentId
+                                ? `${t('clusters.preset.slotReportsTo')}: ${((presetBlueprints.find(item => item.id === blueprint.parentId) || {}).title || blueprint.parentId)}`
+                                : t('clusters.preset.slotDirect');
+                            const modeLabels = resolvedActivation.swarmModes.length > 0
+                                ? resolvedActivation.swarmModes.map(mode => mode === 'broadcast' ? t('clusters.form.memberWakeBroadcast') : t('clusters.form.memberWakeCollaborate')).join(' / ')
+                                : t('clusters.topology.sleeping');
+                            return `
+                                <div class="cluster-preset-blueprint-card">
+                                    <div class="cluster-preset-blueprint-head">
+                                        <div>
+                                            <div class="cluster-preset-blueprint-title">${escapeHtml(blueprint.title)}</div>
+                                            <div class="cluster-preset-blueprint-meta">${escapeHtml(routeLabel)}</div>
+                                        </div>
+                                        ${blueprint.isCoordinator ? `<span class="cluster-member-profile-badge">${escapeHtml(t('clusters.preset.slotCoordinator'))}</span>` : ''}
+                                    </div>
+                                    <div class="cluster-preset-blueprint-identity">${escapeHtml(blueprint.identity)}</div>
+                                    <div class="cluster-preset-blueprint-stance">${escapeHtml(blueprint.stance)}</div>
+                                    <div class="cluster-preset-blueprint-meta-row">${escapeHtml(`${t('clusters.preset.slotWakeModes')}: ${modeLabels}`)}</div>
+                                    ${resolvedActivation.keywords.length > 0
+                                        ? `<div class="cluster-preset-blueprint-meta-row">${escapeHtml(`${t('clusters.topology.keywordRule')}: ${resolvedActivation.keywords.join(', ')}`)}</div>`
+                                        : ''}
+                                    ${assignedAgentLabel
+                                        ? `<div class="cluster-preset-blueprint-assigned">${escapeHtml(`${t('clusters.preset.slotAssigned')}: ${assignedAgentLabel}`)}</div>`
+                                        : ''}
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+            `
+            : '';
 
         elements.clusterPresetSummary.innerHTML = `
             <h3>${escapeHtml(preset ? (t(`clusters.preset.${preset.id}.label`) || preset.id) : t('clusters.form.preset'))}</h3>
@@ -385,22 +592,37 @@
                 </div>
                 <div class="cluster-preset-summary-item">
                     <div class="cluster-preset-summary-label">${escapeHtml(t('clusters.form.rounds'))}</div>
-                    <div class="cluster-preset-summary-value">${escapeHtml(t('clusters.rounds.value', { count: roundsValue }) || String(roundsValue))}</div>
+                    <div class="cluster-preset-summary-value">${escapeHtml(getClusterRoundsSummaryLabel(roundsValue, runUntilConditionMet, stopCondition))}</div>
                 </div>
                 <div class="cluster-preset-summary-item">
                     <div class="cluster-preset-summary-label">${escapeHtml(t('clusters.form.coordinator'))}</div>
                     <div class="cluster-preset-summary-value">${escapeHtml(coordinatorLabel)}</div>
                 </div>
             </div>
+            ${runUntilConditionMet && stopCondition
+                ? `<p>${escapeHtml(`${t('clusters.form.stopCondition')}: ${stopCondition}`)}</p>`
+                : ''}
             ${briefing ? `<p>${escapeHtml(briefing)}</p>` : ''}
+            ${presetBlueprintsHtml}
         `;
     }
 
-    function applyClusterPreset(presetId) {
+    function applyClusterPreset(presetId, options = {}) {
         const preset = getClusterWorkModePresetById(presetId);
         if (!preset) {
             return;
         }
+        const selectedAgentIds = options.selectedAgentIds || getSelectedClusterEditorAgentIds();
+        const memberProfiles = buildClusterPresetMemberProfiles(selectedAgentIds, preset, {
+            existingProfiles: options.memberProfiles,
+            preserveExisting: options.preserveExistingProfiles
+        });
+        const coordinatorAgentId = resolveClusterPresetCoordinatorAgentId(
+            selectedAgentIds,
+            preset,
+            options.coordinatorAgentId,
+            { preserveExisting: options.preserveExistingCoordinator }
+        );
 
         if (elements.clusterEditorPreset) {
             elements.clusterEditorPreset.value = preset.id;
@@ -417,9 +639,21 @@
         if (elements.clusterEditorRounds) {
             elements.clusterEditorRounds.value = String(normalizeClusterRoundsInput(preset.rounds, 2));
         }
-        if (elements.clusterEditorBriefing && !String(elements.clusterEditorBriefing.value || '').trim()) {
+        if (elements.clusterEditorRoundsUnlimited) {
+            elements.clusterEditorRoundsUnlimited.checked = false;
+        }
+        if (elements.clusterEditorStopCondition) {
+            elements.clusterEditorStopCondition.value = '';
+        }
+        syncClusterRoundModeState();
+        if (elements.clusterEditorBriefing) {
             elements.clusterEditorBriefing.value = preset.briefing || '';
         }
+        renderClusterCoordinatorOptions(selectedAgentIds, coordinatorAgentId);
+        if (elements.clusterEditorCoordinatorAgent) {
+            elements.clusterEditorCoordinatorAgent.value = coordinatorAgentId;
+        }
+        renderClusterMemberProfiles(selectedAgentIds, memberProfiles);
 
         renderClusterPresetSummary();
     }
@@ -450,10 +684,14 @@
         }
 
         renderClusterAgentPicker(selectedAgentIds);
-        renderClusterCoordinatorOptions(selectedAgentIds, config.coordinatorAgentId || '');
-        renderClusterMemberProfiles(selectedAgentIds, config.memberProfiles || {});
         resetClusterBatchCreateInputs();
-        applyClusterPreset(config.presetId);
+        applyClusterPreset(config.presetId, {
+            selectedAgentIds,
+            memberProfiles: config.memberProfiles || {},
+            coordinatorAgentId: config.coordinatorAgentId || '',
+            preserveExistingProfiles: true,
+            preserveExistingCoordinator: true
+        });
 
         if (elements.clusterEditorStyle) {
             elements.clusterEditorStyle.value = config.collaborationStyle;
@@ -467,12 +705,21 @@
         if (elements.clusterEditorRounds) {
             elements.clusterEditorRounds.value = String(normalizeClusterRoundsInput(config.rounds, 2));
         }
+        if (elements.clusterEditorRoundsUnlimited) {
+            elements.clusterEditorRoundsUnlimited.checked = Boolean(config.runUntilConditionMet);
+        }
+        if (elements.clusterEditorStopCondition) {
+            elements.clusterEditorStopCondition.value = config.stopCondition || '';
+        }
+        syncClusterRoundModeState();
         if (elements.clusterEditorBriefing) {
             elements.clusterEditorBriefing.value = config.briefing || '';
         }
+        renderClusterCoordinatorOptions(selectedAgentIds, config.coordinatorAgentId || '');
         if (elements.clusterEditorCoordinatorAgent) {
             elements.clusterEditorCoordinatorAgent.value = config.coordinatorAgentId || '';
         }
+        renderClusterMemberProfiles(selectedAgentIds, config.memberProfiles || {});
 
         renderClusterPresetSummary();
         openModal(elements.modalClusterEditor);
@@ -501,6 +748,11 @@
             return;
         }
 
+        if (elements.clusterEditorRoundsUnlimited?.checked && !String(elements.clusterEditorStopCondition?.value || '').trim()) {
+            showError(t('clusters.validationStopCondition'));
+            return;
+        }
+
         vscode.postMessage({
             type: 'saveCluster',
             clusterId: clusterId || undefined,
@@ -514,6 +766,8 @@
                     deliveryStyle: elements.clusterEditorDelivery?.value || 'balanced',
                     critiqueLevel: elements.clusterEditorCritique?.value || 'standard',
                     rounds: normalizeClusterRoundsInput(elements.clusterEditorRounds?.value || 2, 2),
+                    runUntilConditionMet: Boolean(elements.clusterEditorRoundsUnlimited?.checked),
+                    stopCondition: String(elements.clusterEditorStopCondition?.value || '').trim(),
                     briefing: String(elements.clusterEditorBriefing?.value || '').trim(),
                     coordinatorAgentId: String(elements.clusterEditorCoordinatorAgent?.value || '').trim(),
                     memberProfiles: readClusterMemberProfilesFromEditor()
@@ -536,7 +790,7 @@
             `<span class="cluster-workmode-chip">${escapeHtml(getClusterStyleLabel(config.collaborationStyle))}</span>`,
             `<span class="cluster-workmode-chip">${escapeHtml(getClusterDeliveryLabel(config.deliveryStyle))}</span>`,
             `<span class="cluster-workmode-chip">${escapeHtml(getClusterCritiqueLabel(config.critiqueLevel))}</span>`,
-            `<span class="cluster-workmode-chip">${escapeHtml(t('clusters.rounds.value', { count: config.rounds }) || String(config.rounds))}</span>`,
+            `<span class="cluster-workmode-chip">${escapeHtml(getClusterRoundsSummaryLabel(config.rounds, config.runUntilConditionMet, config.stopCondition))}</span>`,
             coordinatorInfo.agentId
                 ? `<span class="cluster-workmode-chip">${escapeHtml(`${t('clusters.form.coordinator')}: ${resolveClusterAgentLabel(coordinatorInfo.agentId)}${coordinatorInfo.isAuto ? ` (${t('clusters.topology.coordinatorAuto')})` : ''}`)}</span>`
                 : ''
@@ -622,6 +876,15 @@
     function upsertClusterState(cluster, options = {}) {
         if (!cluster || !cluster.id) {
             return;
+        }
+
+        const serverIndex = Array.isArray(state.serverClusters)
+            ? state.serverClusters.findIndex(item => item.id === cluster.id)
+            : -1;
+        if (serverIndex >= 0) {
+            state.serverClusters[serverIndex] = mergeClusterState(state.serverClusters[serverIndex], cluster);
+        } else {
+            state.serverClusters = [...(state.serverClusters || []), cluster];
         }
 
         const index = state.clusters.findIndex(item => item.id === cluster.id);

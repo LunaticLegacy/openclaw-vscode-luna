@@ -10,7 +10,7 @@ import type { ResolvedServiceConfig } from './types';
 
 export async function resolveOpenClawServiceConfigInternal(extensionPath: string): Promise<ResolvedServiceConfig> {
     const config = vscode.workspace.getConfiguration('openclaw');
-    const configMode = config.get<'auto' | 'gateway' | 'local' | 'openclaw'>('configMode', 'auto');
+    const configMode = config.get<'auto' | 'gateway' | 'local' | 'openclaw'>('configMode', 'openclaw');
     const explicitModeHints = getExplicitModeHints(config);
 
     const openClawCli = await resolveOpenClawCliConfig(config, extensionPath);

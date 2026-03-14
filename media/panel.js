@@ -110,6 +110,10 @@
                 renderClusters(message.clusters);
                 break;
 
+            case 'clusterReplayLoaded':
+                loadClusterReplay(message.replay || null);
+                break;
+
             case 'tasksLoaded':
                 renderTasks(message.tasks, message.available, message.message, message.sourcePath);
                 break;

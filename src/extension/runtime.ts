@@ -13,7 +13,10 @@ import { TaskTreeProvider } from '../providers/taskTreeProvider';
 import { UsageTreeProvider } from '../providers/usageTreeProvider';
 import { AgentPresetScaffolder } from '../services/agentPresetScaffolder';
 import { resolveOpenClawServiceConfig } from '../services/openclawConfig';
-import { OpenClawService } from '../services/openclawService';
+import { OpenClawService, RuntimeNotice } from '../services/openclawService';
+import { showWarningNotification, showWarningStatus } from '../utils/statusFeedback';
+
+const RUNTIME_NOTICE_DISPLAY_MS = 10000;
 
 export class OpenClawExtensionRuntime {
     public readonly service: OpenClawService;
@@ -31,6 +34,8 @@ export class OpenClawExtensionRuntime {
     private sidebarView: vscode.TreeView<vscode.TreeItem> | undefined;
     private sidebarWasVisible = false;
     private statusBarRefreshToken = 0;
+    private activeRuntimeNotice: (RuntimeNotice & { expiresAt: number }) | null = null;
+    private runtimeNoticeTimer: NodeJS.Timeout | null = null;
 
     private constructor(
         public readonly context: vscode.ExtensionContext,
@@ -56,6 +61,9 @@ export class OpenClawExtensionRuntime {
         this.service.on('connectionChange', () => {
             this.refreshAllViews();
             void this.refreshStatusBarIndicator();
+        });
+        this.service.on('runtimeNotice', (notice: RuntimeNotice) => {
+            this.handleRuntimeNotice(notice);
         });
 
         this.agentManager.on('agentCreated', () => {
@@ -205,6 +213,10 @@ export class OpenClawExtensionRuntime {
         this.usageManager.dispose();
         this.taskManager.dispose();
         this.service.dispose();
+        if (this.runtimeNoticeTimer) {
+            clearTimeout(this.runtimeNoticeTimer);
+            this.runtimeNoticeTimer = null;
+        }
         this.statusBarItem.dispose();
     }
 
@@ -235,8 +247,87 @@ export class OpenClawExtensionRuntime {
     }
 
     private applyStatusBarIndicatorState(state: 'active' | 'idle' | 'offline'): void {
-        void state;
-        this.statusBarItem.text = '$(rocket) OpenClaw';
+        const notice = this.getActiveRuntimeNotice();
+        const noticeText = notice ? truncateStatusBarNotice(notice.message) : '';
+
+        if (notice) {
+            this.statusBarItem.text = `${notice.kind === 'compression' ? '$(sync~spin)' : '$(warning)'} OpenClaw${noticeText ? `: ${noticeText}` : ''}`;
+            this.statusBarItem.tooltip = `${t('statusBar.tooltip')}\n${notice.message}`;
+            this.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+            this.statusBarItem.color = new vscode.ThemeColor('statusBarItem.warningForeground');
+            return;
+        }
+
+        this.statusBarItem.backgroundColor = undefined;
+        this.statusBarItem.tooltip = t('statusBar.tooltip');
         this.statusBarItem.color = undefined;
+        if (state === 'active') {
+            this.statusBarItem.text = '$(sync~spin) OpenClaw';
+            return;
+        }
+        if (state === 'offline') {
+            this.statusBarItem.text = '$(circle-slash) OpenClaw';
+            return;
+        }
+        this.statusBarItem.text = '$(rocket) OpenClaw';
     }
+
+    private handleRuntimeNotice(notice: RuntimeNotice): void {
+        const normalizedMessage = String(notice.message || '').trim();
+        if (!normalizedMessage) {
+            return;
+        }
+
+        this.activeRuntimeNotice = {
+            ...notice,
+            message: normalizedMessage,
+            expiresAt: Date.now() + RUNTIME_NOTICE_DISPLAY_MS
+        };
+        if (!this.getPanel()?.isVisible()) {
+            void showWarningNotification(normalizedMessage);
+        }
+        showWarningStatus(normalizedMessage, Math.min(RUNTIME_NOTICE_DISPLAY_MS, 8000));
+        this.scheduleRuntimeNoticeExpiry();
+        void this.refreshStatusBarIndicator();
+    }
+
+    private getActiveRuntimeNotice(): (RuntimeNotice & { expiresAt: number }) | null {
+        if (!this.activeRuntimeNotice) {
+            return null;
+        }
+
+        if (this.activeRuntimeNotice.expiresAt <= Date.now()) {
+            this.activeRuntimeNotice = null;
+            return null;
+        }
+
+        return this.activeRuntimeNotice;
+    }
+
+    private scheduleRuntimeNoticeExpiry(): void {
+        if (this.runtimeNoticeTimer) {
+            clearTimeout(this.runtimeNoticeTimer);
+            this.runtimeNoticeTimer = null;
+        }
+
+        const notice = this.getActiveRuntimeNotice();
+        if (!notice) {
+            return;
+        }
+
+        this.runtimeNoticeTimer = setTimeout(() => {
+            this.runtimeNoticeTimer = null;
+            if (!this.getActiveRuntimeNotice()) {
+                void this.refreshStatusBarIndicator();
+            }
+        }, Math.max(0, notice.expiresAt - Date.now()));
+    }
+}
+
+function truncateStatusBarNotice(message: string, maxLength: number = 42): string {
+    const normalized = message.replace(/\s+/g, ' ').trim();
+    if (normalized.length <= maxLength) {
+        return normalized;
+    }
+    return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }

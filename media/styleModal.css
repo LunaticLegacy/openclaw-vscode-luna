@@ -137,6 +137,33 @@ form {
     width: auto;
 }
 
+.cluster-rounds-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-secondary);
+    cursor: pointer;
+}
+
+.cluster-rounds-toggle input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+}
+
+.cluster-rounds-toggle span {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.cluster-rounds-group {
+    align-self: start;
+    margin-top: -6px;
+}
+
 .form-actions {
     display: flex;
     justify-content: flex-end;
@@ -546,6 +573,85 @@ form {
 .cluster-preset-summary-value {
     margin-top: 6px;
     font-size: 13px;
+}
+
+.cluster-preset-blueprints {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+}
+
+.cluster-preset-blueprints-label {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.cluster-preset-blueprints-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.cluster-preset-blueprint-card {
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg-secondary);
+}
+
+.cluster-stop-condition-group {
+    margin-top: 6px;
+    padding: 14px;
+    border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--bg-secondary) 88%, var(--accent) 12%);
+}
+
+.cluster-stop-condition-group label {
+    margin-bottom: 8px;
+}
+
+.cluster-stop-condition-input {
+    min-height: 92px;
+    line-height: 1.6;
+    resize: vertical;
+}
+
+.cluster-preset-blueprint-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.cluster-preset-blueprint-title {
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.cluster-preset-blueprint-meta,
+.cluster-preset-blueprint-meta-row,
+.cluster-preset-blueprint-assigned {
+    margin-top: 6px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.cluster-preset-blueprint-identity {
+    margin-top: 10px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.cluster-preset-blueprint-stance {
+    margin-top: 6px;
+    font-size: 12px;
+    line-height: 1.55;
 }
 
 .new-agent-mode-toggle {
@@ -1163,7 +1269,8 @@ form {
 
     .cluster-editor-layout,
     .cluster-form-grid,
-    .cluster-preset-summary-grid {
+    .cluster-preset-summary-grid,
+    .cluster-preset-blueprints-grid {
         grid-template-columns: 1fr;
     }
 

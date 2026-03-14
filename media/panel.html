@@ -380,7 +380,10 @@
                     <div class="empty-state-card">
                         <h2 data-i18n="sidebar.clusters">Clusters</h2>
                         <p data-i18n="clusters.emptyWorkspace">Select or create a cluster to start a swarm conversation.</p>
-                        <button id="btn-create-cluster" class="btn btn-primary" data-i18n="clusters.create">Create Cluster</button>
+                        <div class="empty-state-actions">
+                            <button id="btn-import-cluster-replay-empty" class="btn btn-secondary" data-i18n="clusters.importReplay">Import Replay JSON</button>
+                            <button id="btn-create-cluster" class="btn btn-primary" data-i18n="clusters.create">Create Cluster</button>
+                        </div>
                     </div>
                 </div>
 
@@ -394,8 +397,10 @@
                             <div id="cluster-workmode-summary" class="cluster-workmode-summary"></div>
                         </div>
                         <div class="cluster-header-actions">
+                            <button id="btn-import-cluster-replay" class="btn btn-secondary" data-i18n="clusters.importReplay">Import Replay JSON</button>
                             <button id="btn-export-cluster-readable-context" class="btn btn-secondary" data-i18n="clusters.exportReadableContext">Export Readable Context</button>
                             <button id="btn-export-cluster-raw-context" class="btn btn-secondary" data-i18n="clusters.exportRawContext">Export Raw Context</button>
+                            <button id="btn-clear-cluster-replay" class="btn btn-secondary hidden" data-i18n="clusters.exitReplay">Exit Replay</button>
                             <button id="btn-edit-cluster" class="btn btn-secondary" data-i18n="common.edit">Edit</button>
                             <button id="btn-delete-current-cluster" class="btn btn-secondary" data-i18n="clusters.delete">Delete</button>
                             <button id="btn-create-cluster-toolbar" class="btn btn-primary" data-i18n="clusters.create">Create Cluster</button>
@@ -407,6 +412,8 @@
                         <div id="cluster-mode-tabs" class="cluster-mode-tabs"></div>
                         <div id="cluster-topology" class="cluster-topology"></div>
                     </div>
+
+                    <div id="cluster-replay-banner" class="cluster-replay-banner hidden"></div>
 
                     <div id="cluster-messages" class="chat-messages cluster-messages">
                         <div class="loading" data-i18n="common.loading">Loading...</div>
@@ -770,10 +777,19 @@
                                     <label for="cluster-editor-critique" data-i18n="clusters.form.critiqueLevel">Critique Level</label>
                                     <select id="cluster-editor-critique"></select>
                                 </div>
-                                <div class="form-group">
+                                <div class="form-group cluster-rounds-group">
+                                    <label for="cluster-editor-rounds-unlimited" class="cluster-rounds-toggle">
+                                        <input type="checkbox" id="cluster-editor-rounds-unlimited">
+                                        <span data-i18n="clusters.form.roundsUnlimited">Unlimited rounds</span>
+                                    </label>
                                     <label for="cluster-editor-rounds" data-i18n="clusters.form.rounds">Debate Rounds</label>
                                     <input type="number" id="cluster-editor-rounds" min="1" step="1" value="2">
                                 </div>
+                            </div>
+                            <div id="cluster-editor-stop-condition-group" class="form-group cluster-stop-condition-group hidden">
+                                <label for="cluster-editor-stop-condition" data-i18n="clusters.form.stopCondition">Stop Condition</label>
+                                <textarea id="cluster-editor-stop-condition" class="cluster-stop-condition-input" rows="4" data-i18n-placeholder="clusters.form.stopConditionPlaceholder" placeholder="Stop when the swarm converges on an implementation plan with explicit verification steps."></textarea>
+                                <div class="form-hint" data-i18n="clusters.form.stopConditionHint">Required when unlimited rounds is enabled. Describe the condition that should stop the debate.</div>
                             </div>
                             <div class="form-group">
                                 <label for="cluster-editor-briefing" data-i18n="clusters.form.briefing">Cluster Briefing</label>

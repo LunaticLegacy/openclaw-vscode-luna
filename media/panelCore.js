@@ -29,6 +29,8 @@
         newAgentMode: 'custom',
         newAgentPresetId: CUSTOM_AGENT_PRESET_ID,
         clusters: [],
+        serverClusters: [],
+        clusterReplays: {},
         clusterWorkModePresets: [],
         clusterConversations: {},
         tasks: [],
@@ -210,6 +212,95 @@
         });
     }
 
+    function buildReplayClusterId(clusterId, mode, importedAt) {
+        return `replay:${clusterId || 'cluster'}:${mode || 'broadcast'}:${importedAt || Date.now()}`;
+    }
+
+    function getClusterReplay(clusterOrId) {
+        const clusterId = typeof clusterOrId === 'string'
+            ? clusterOrId
+            : clusterOrId?.id;
+        return clusterId ? (state.clusterReplays?.[clusterId] || null) : null;
+    }
+
+    function isReplayCluster(clusterOrId) {
+        return Boolean(getClusterReplay(clusterOrId));
+    }
+
+    function getMergedClusterList(serverClusters = state.serverClusters) {
+        const liveClusters = Array.isArray(serverClusters) ? serverClusters : [];
+        const replayClusters = Object.values(state.clusterReplays || {}).map(item => item.cluster).filter(Boolean);
+        return [...liveClusters, ...replayClusters];
+    }
+
+    function clearReplayCluster(clusterId) {
+        if (!clusterId || !state.clusterReplays?.[clusterId]) {
+            return;
+        }
+
+        delete state.clusterReplays[clusterId];
+        Object.keys(state.clusterConversations || {}).forEach(key => {
+            if (key.startsWith(`cluster:${clusterId}:`)) {
+                delete state.clusterConversations[key];
+            }
+        });
+
+        if (state.currentClusterId === clusterId) {
+            state.currentClusterId = null;
+            state.currentClusterTargetKind = 'swarm';
+            state.currentClusterAgentId = null;
+        }
+
+        renderClusters(state.serverClusters || []);
+    }
+
+    function loadClusterReplay(replay) {
+        if (!replay?.cluster?.id) {
+            return;
+        }
+
+        const importedAt = typeof replay.importedAt === 'string' && replay.importedAt.trim()
+            ? replay.importedAt
+            : new Date().toISOString();
+        const mode = replay.mode === 'collaborate' ? 'collaborate' : 'broadcast';
+        const replayClusterId = buildReplayClusterId(replay.cluster.id, mode, importedAt);
+        const replayCluster = {
+            ...replay.cluster,
+            id: replayClusterId,
+            name: `${replay.cluster.name} · Replay`,
+            replayMeta: {
+                sourcePath: replay.sourcePath || '',
+                importedAt,
+                exportedAt: replay.exportedAt || '',
+                mode,
+                messageCount: Number(replay.messageCount) || (Array.isArray(replay.messages) ? replay.messages.length : 0),
+                originalClusterId: replay.cluster.id
+            }
+        };
+
+        state.clusterReplays[replayClusterId] = {
+            cluster: replayCluster,
+            mode,
+            messages: Array.isArray(replay.messages) ? replay.messages : []
+        };
+
+        const conversation = ensureClusterConversation(getClusterConversationKey(replayClusterId, {
+            targetKind: 'swarm',
+            mode
+        }));
+        conversation.messages = Array.isArray(replay.messages) ? replay.messages : [];
+        conversation.loading = false;
+        conversation.loaded = true;
+        conversation.pending = false;
+
+        state.currentClusterId = replayClusterId;
+        state.currentClusterTargetKind = 'swarm';
+        state.currentClusterAgentId = null;
+        state.currentClusterSwarmMode = mode;
+
+        renderClusters(state.serverClusters || []);
+    }
+
     function toggleMainSidebar() {
         state.mainSidebarCollapsed = !state.mainSidebarCollapsed;
         applySidebarState();
@@ -335,6 +426,7 @@
         elements.clusterTitle = document.getElementById('cluster-title');
         elements.clusterBriefing = document.getElementById('cluster-briefing');
         elements.clusterSubtitle = document.getElementById('cluster-subtitle');
+        elements.clusterReplayBanner = document.getElementById('cluster-replay-banner');
         elements.clusterWorkmodeSummary = document.getElementById('cluster-workmode-summary');
         elements.clusterTargetTabs = document.getElementById('cluster-target-tabs');
         elements.clusterModeTabs = document.getElementById('cluster-mode-tabs');
@@ -346,6 +438,9 @@
         elements.btnStopCluster = document.getElementById('btn-stop-cluster');
         elements.btnExportClusterReadableContext = document.getElementById('btn-export-cluster-readable-context');
         elements.btnExportClusterRawContext = document.getElementById('btn-export-cluster-raw-context');
+        elements.btnImportClusterReplay = document.getElementById('btn-import-cluster-replay');
+        elements.btnImportClusterReplayEmpty = document.getElementById('btn-import-cluster-replay-empty');
+        elements.btnClearClusterReplay = document.getElementById('btn-clear-cluster-replay');
         elements.btnEditCluster = document.getElementById('btn-edit-cluster');
         elements.btnNewAgent = document.getElementById('btn-new-agent');
         elements.btnRefreshAgents = document.getElementById('btn-refresh-agents');
@@ -391,6 +486,9 @@
         elements.clusterEditorDelivery = document.getElementById('cluster-editor-delivery');
         elements.clusterEditorCritique = document.getElementById('cluster-editor-critique');
         elements.clusterEditorRounds = document.getElementById('cluster-editor-rounds');
+        elements.clusterEditorRoundsUnlimited = document.getElementById('cluster-editor-rounds-unlimited');
+        elements.clusterEditorStopConditionGroup = document.getElementById('cluster-editor-stop-condition-group');
+        elements.clusterEditorStopCondition = document.getElementById('cluster-editor-stop-condition');
         elements.clusterEditorBriefing = document.getElementById('cluster-editor-briefing');
         elements.clusterEditorCoordinatorAgent = document.getElementById('cluster-editor-coordinator-agent');
         elements.clusterPresetSummary = document.getElementById('cluster-preset-summary');
@@ -653,6 +751,18 @@
             exportCurrentClusterConversation('raw');
         });
 
+        [elements.btnImportClusterReplay, elements.btnImportClusterReplayEmpty].forEach(button => {
+            button?.addEventListener('click', () => {
+                vscode.postMessage({ type: 'importClusterReplay' });
+            });
+        });
+
+        elements.btnClearClusterReplay?.addEventListener('click', () => {
+            if (state.currentClusterId) {
+                clearReplayCluster(state.currentClusterId);
+            }
+        });
+
         elements.btnAddClusterAgent?.addEventListener('click', () => {
             if (state.currentClusterId) {
                 vscode.postMessage({ type: 'addAgentsToCluster', clusterId: state.currentClusterId });
@@ -838,15 +948,23 @@
             elements.clusterEditorDelivery,
             elements.clusterEditorCritique,
             elements.clusterEditorRounds,
+            elements.clusterEditorRoundsUnlimited,
+            elements.clusterEditorStopCondition,
             elements.clusterEditorCoordinatorAgent
         ].forEach(input => {
             input?.addEventListener('change', () => {
                 if (input === elements.clusterEditorPreset) {
                     applyClusterPreset(elements.clusterEditorPreset?.value || '');
                 } else {
+                    if (input === elements.clusterEditorRoundsUnlimited && typeof syncClusterRoundModeState === 'function') {
+                        syncClusterRoundModeState();
+                    }
                     renderClusterPresetSummary();
                 }
             });
+        });
+        elements.clusterEditorStopCondition?.addEventListener('input', () => {
+            renderClusterPresetSummary();
         });
         elements.clusterEditorBriefing?.addEventListener('input', () => {
             renderClusterPresetSummary();

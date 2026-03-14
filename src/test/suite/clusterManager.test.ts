@@ -115,11 +115,75 @@ suite('clusterManager', () => {
                 assert.equal(reloadedCluster?.workspaceConfig?.deliveryStyle, 'deep');
                 assert.equal(reloadedCluster?.workspaceConfig?.critiqueLevel, 'aggressive');
                 assert.equal(reloadedCluster?.workspaceConfig?.rounds, 3);
+                assert.equal(reloadedCluster?.workspaceConfig?.runUntilConditionMet, false);
                 assert.equal(reloadedCluster?.workspaceConfig?.briefing, 'Stress test the design before release.');
                 assert.equal(reloadedCluster?.workspaceConfig?.coordinatorAgentId, undefined);
             } finally {
                 reloadedManager.dispose();
             }
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
+
+    test('keeps collaborating in unlimited mode until the stop condition is met', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-unlimited-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService([], {
+            stopAfterReviewRound: 3
+        });
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Unlimited Swarm',
+                agentIds: ['alpha', 'beta'],
+                workspaceConfig: {
+                    presetId: 'implementation-squad',
+                    collaborationStyle: 'debate',
+                    deliveryStyle: 'balanced',
+                    critiqueLevel: 'standard',
+                    rounds: 2,
+                    runUntilConditionMet: true,
+                    stopCondition: 'Stop when the swarm has converged on one implementation-ready answer.'
+                }
+            });
+            const result = await manager.collaborateOnCluster(cluster.id, 'Plan the rollout.');
+
+            assert.deepEqual(
+                result.rounds.map(round => round.kind),
+                ['opening', 'critique-1', 'revision-1', 'critique-2', 'revision-2', 'critique-3', 'revision-3']
+            );
+            assert.equal(service.sentMessages.filter(entry => entry.stage === 'stop-check-1').length, 1);
+            assert.equal(service.sentMessages.filter(entry => entry.stage === 'stop-check-2').length, 1);
+            assert.equal(service.sentMessages.filter(entry => entry.stage === 'stop-check-3').length, 1);
+            assert.equal(service.sentMessages.some(entry => entry.stage === 'critique-4'), false);
+            assert.match(result.synthesis?.message?.content || '', /final synthesis by alpha/i);
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
+
+    test('prefers the last non-empty assistant message when trace ends with an empty placeholder', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-final-trace-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService([], {
+            appendTrailingEmptyAssistant: true
+        });
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Trace Swarm',
+                agentIds: ['alpha', 'beta']
+            });
+            const result = await manager.collaborateOnCluster(cluster.id, 'Synthesize a release recommendation.');
+
+            assert.match(result.contributions.alpha.message?.content || '', /revision-2/i);
+            assert.match(result.contributions.beta.message?.content || '', /revision-2/i);
+            assert.match(result.synthesis?.message?.content || '', /final synthesis by alpha/i);
         } finally {
             manager.dispose();
             await fs.rm(root, { recursive: true, force: true });
@@ -391,14 +455,161 @@ suite('clusterManager', () => {
             await fs.rm(root, { recursive: true, force: true });
         }
     });
+
+    test('delegates broadcast prompts through the configured parent-child chain', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-broadcast-topology-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Hierarchical Broadcast',
+                agentIds: ['alpha', 'beta'],
+                workspaceConfig: {
+                    presetId: 'implementation-squad',
+                    collaborationStyle: 'leader-draft',
+                    deliveryStyle: 'balanced',
+                    critiqueLevel: 'standard',
+                    rounds: 1,
+                    memberProfiles: {
+                        beta: {
+                            parentAgentId: 'alpha',
+                            activation: {
+                                swarmModes: ['broadcast']
+                            }
+                        }
+                    }
+                }
+            });
+
+            const result = await manager.broadcastToCluster(cluster.id, 'Review deployment blast radius.');
+
+            assert.deepEqual(Object.keys(result), ['alpha', 'beta']);
+            assert.deepEqual(
+                service.sentMessages
+                    .filter(entry => entry.stage === 'broadcast')
+                    .map(entry => entry.agentId),
+                ['alpha', 'beta']
+            );
+            assert.equal(service.findPrompt('alpha', 'broadcast'), 'Review deployment blast radius.');
+            assert.match(service.findPrompt('beta', 'broadcast'), /awakened by parent agent "alpha"/i);
+            assert.match(service.findPrompt('beta', 'broadcast'), /Broadcast from alpha/i);
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
+
+    test('only wakes descendants when their parent branch is covered', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-topology-coverage-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Hierarchical Collaborate',
+                agentIds: ['alpha', 'beta', 'gamma'],
+                workspaceConfig: {
+                    presetId: 'implementation-squad',
+                    collaborationStyle: 'debate',
+                    deliveryStyle: 'balanced',
+                    critiqueLevel: 'standard',
+                    rounds: 1,
+                    memberProfiles: {
+                        alpha: {
+                            activation: {
+                                swarmModes: []
+                            }
+                        },
+                        beta: {
+                            parentAgentId: 'alpha',
+                            activation: {
+                                swarmModes: ['collaborate']
+                            }
+                        },
+                        gamma: {
+                            activation: {
+                                swarmModes: ['collaborate']
+                            }
+                        }
+                    }
+                }
+            });
+
+            await manager.collaborateOnCluster(cluster.id, 'Review the rollout risk.');
+
+            assert.deepEqual(
+                service.sentMessages
+                    .filter(entry => entry.stage === 'opening')
+                    .map(entry => entry.agentId),
+                ['gamma']
+            );
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
+
+    test('passes parent context down nested collaborate branches', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-topology-context-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Nested Collaborate',
+                agentIds: ['alpha', 'beta', 'gamma'],
+                workspaceConfig: {
+                    presetId: 'implementation-squad',
+                    collaborationStyle: 'debate',
+                    deliveryStyle: 'balanced',
+                    critiqueLevel: 'standard',
+                    rounds: 1,
+                    memberProfiles: {
+                        beta: {
+                            parentAgentId: 'alpha',
+                            activation: {
+                                swarmModes: ['collaborate']
+                            }
+                        },
+                        gamma: {
+                            parentAgentId: 'beta',
+                            activation: {
+                                swarmModes: ['collaborate']
+                            }
+                        }
+                    }
+                }
+            });
+
+            await manager.collaborateOnCluster(cluster.id, 'Design the release topology.');
+
+            assert.deepEqual(
+                service.sentMessages
+                    .filter(entry => entry.stage === 'opening')
+                    .map(entry => entry.agentId),
+                ['alpha', 'beta', 'gamma']
+            );
+            assert.match(service.findPrompt('beta', 'opening'), /Wake route: swarm -> alpha/i);
+            assert.match(service.findPrompt('beta', 'opening'), /Opening from alpha/i);
+            assert.match(service.findPrompt('gamma', 'opening'), /Wake route: swarm -> alpha -> beta/i);
+            assert.match(service.findPrompt('gamma', 'opening'), /Opening from beta/i);
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
 });
 
 type DebateStage =
+    | 'broadcast'
     | 'opening'
-    | 'critique-1'
-    | 'revision-1'
-    | 'critique-2'
-    | 'revision-2'
+    | `critique-${number}`
+    | `revision-${number}`
+    | `stop-check-${number}`
     | 'synthesis';
 
 class FakeCollaborationService extends EventEmitter {
@@ -418,11 +629,15 @@ class FakeCollaborationService extends EventEmitter {
         private readonly failures: Array<{
             agentId: string;
             stage: DebateStage;
-        }> = []
+        }> = [],
+        private readonly options: {
+            appendTrailingEmptyAssistant?: boolean;
+            stopAfterReviewRound?: number;
+        } = {}
     ) {
         super();
 
-        for (const agentId of ['alpha', 'beta']) {
+        for (const agentId of ['alpha', 'beta', 'gamma', 'delta']) {
             this.agents.set(agentId, {
                 id: agentId,
                 name: agentId.toUpperCase(),
@@ -473,7 +688,7 @@ class FakeCollaborationService extends EventEmitter {
         const response: ChatMessage = {
             id: `message-${this.sentMessages.length}`,
             role: 'assistant',
-            content: buildFakeResponse(agentId, stage),
+            content: buildFakeResponse(agentId, stage, this.options),
             timestamp: new Date().toISOString()
         };
         const history = this.sessionMessages.get(sessionId) || [];
@@ -484,6 +699,14 @@ class FakeCollaborationService extends EventEmitter {
             timestamp: new Date().toISOString()
         } satisfies ChatMessage);
         history.push(response);
+        if (this.options.appendTrailingEmptyAssistant) {
+            history.push({
+                id: `placeholder-${this.sentMessages.length}`,
+                role: 'assistant',
+                content: '',
+                timestamp: new Date().toISOString()
+            });
+        }
         this.sessionMessages.set(sessionId, history);
         return response;
     }
@@ -504,44 +727,67 @@ class FakeCollaborationService extends EventEmitter {
 }
 
 function detectDebateStage(prompt: string): DebateStage {
+    if (!prompt.includes('Debate stage:') && !prompt.includes('You are coordinating the agent swarm')) {
+        const stopMatch = prompt.match(/Current review round:\s*(\d+)/i);
+        if (stopMatch) {
+            return `stop-check-${Number(stopMatch[1] || '1')}`;
+        }
+        return 'broadcast';
+    }
+
     if (prompt.includes('Debate stage: opening')) {
         return 'opening';
     }
 
-    if (prompt.includes('Debate stage: critique round 1')) {
-        return 'critique-1';
+    const critiqueMatch = prompt.match(/Debate stage:\s*critique round\s+(\d+)/i);
+    if (critiqueMatch) {
+        return `critique-${Number(critiqueMatch[1] || '1')}`;
     }
 
-    if (prompt.includes('Debate stage: revision round 1')) {
-        return 'revision-1';
-    }
-
-    if (prompt.includes('Debate stage: critique round 2')) {
-        return 'critique-2';
-    }
-
-    if (prompt.includes('Debate stage: revision round 2')) {
-        return 'revision-2';
+    const revisionMatch = prompt.match(/Debate stage:\s*revision round\s+(\d+)/i);
+    if (revisionMatch) {
+        return `revision-${Number(revisionMatch[1] || '1')}`;
     }
 
     return 'synthesis';
 }
 
-function buildFakeResponse(agentId: string, stage: DebateStage): string {
+function buildFakeResponse(
+    agentId: string,
+    stage: DebateStage,
+    options: {
+        stopAfterReviewRound?: number;
+    } = {}
+): string {
     switch (stage) {
+        case 'broadcast':
+            return `Broadcast from ${agentId}`;
         case 'opening':
             return `Opening from ${agentId}\nPosition: ${agentId} opening.`;
-        case 'critique-1':
-            return `Critique 1 from ${agentId}\nReview verdict: ${agentId} critique round 1.`;
-        case 'revision-1':
-            return `Revision 1 from ${agentId}\nRevised position: ${agentId} revision-1.`;
-        case 'critique-2':
-            return `Critique 2 from ${agentId}\nReview verdict: ${agentId} critique round 2.`;
-        case 'revision-2':
-            return `Final revision 2 from ${agentId}\nRevised position: ${agentId} revision-2.`;
         case 'synthesis':
             return `Final synthesis by ${agentId}`;
         default:
+            if (stage.startsWith('critique-')) {
+                const round = Number(stage.slice('critique-'.length) || '1');
+                return `Critique ${round} from ${agentId}\nReview verdict: ${agentId} critique round ${round}.`;
+            }
+
+            if (stage.startsWith('revision-')) {
+                const round = Number(stage.slice('revision-'.length) || '1');
+                const prefix = round >= 2 ? 'Final revision' : 'Revision';
+                return `${prefix} ${round} from ${agentId}\nRevised position: ${agentId} revision-${round}.`;
+            }
+
+            if (stage.startsWith('stop-check-')) {
+                const round = Number(stage.slice('stop-check-'.length) || '1');
+                const shouldStop = Number.isFinite(options.stopAfterReviewRound)
+                    ? round >= Number(options.stopAfterReviewRound)
+                    : false;
+                return shouldStop
+                    ? `Decision: STOP\nReason: Review round ${round} meets the stop condition.`
+                    : `Decision: CONTINUE\nReason: Review round ${round} has not met the stop condition yet.`;
+            }
+
             return `${agentId} response`;
     }
 }

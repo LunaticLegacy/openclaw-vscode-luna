@@ -34,6 +34,7 @@ import {
 } from './openclawPanel/helpers';
 import {
     buildClusterContextExportBundle,
+    parseClusterSwarmReplayImport,
     resolveContextExportPath,
     type ClusterContextExportBundle,
     type ClusterContextExportKind
@@ -176,6 +177,10 @@ export class OpenClawPanel {
 
     public static getPanel(): OpenClawPanel | undefined {
         return OpenClawPanel.currentPanel;
+    }
+
+    public isVisible(): boolean {
+        return this._panel.visible;
     }
 
     public static disposePanel() {
@@ -965,6 +970,49 @@ export class OpenClawPanel {
         }
     }
 
+    private async _importClusterReplay() {
+        try {
+            const [targetUri] = await vscode.window.showOpenDialog({
+                canSelectMany: false,
+                openLabel: t('clusters.importReplay'),
+                filters: {
+                    JSON: ['json']
+                }
+            }) || [];
+
+            if (!targetUri) {
+                return;
+            }
+
+            const rawContent = Buffer.from(await vscode.workspace.fs.readFile(targetUri)).toString('utf8');
+            const replay = parseClusterSwarmReplayImport(targetUri.fsPath, rawContent);
+
+            this._viewMode = 'clusters';
+            this._postMessage({
+                type: 'switchView',
+                view: 'clusters'
+            });
+            this._postMessage({
+                type: 'clusterReplayLoaded',
+                replay: {
+                    sourcePath: replay.sourcePath,
+                    importedAt: replay.importedAt,
+                    exportedAt: replay.body.exportedAt,
+                    mode: replay.body.mode,
+                    messageCount: replay.body.messageCount,
+                    cluster: {
+                        ...replay.body.cluster,
+                        status: 'inactive'
+                    },
+                    messages: replay.body.messages
+                }
+            });
+            showSuccessStatus(t('clusters.importedReplay', { name: path.basename(targetUri.fsPath) }));
+        } catch (error) {
+            vscode.window.showErrorMessage(t('clusters.importReplayFailed', { error: String(error) }));
+        }
+    }
+
     private async _buildClusterContextExportBundle(options: {
         clusterId: string;
         targetKind: 'swarm' | 'agent';
@@ -1142,10 +1190,10 @@ export class OpenClawPanel {
 
     private _resolveRuntimeNoticeKind(content: string): 'fallback' | 'compression' | 'notice' {
         const normalized = String(content || '').trim().toLowerCase();
-        if (/fallback|downgrade/.test(normalized)) {
+        if (/fallback|downgrade|rollback|roll back|rolling back|rolling-back|rolled back|rewind|revert/.test(normalized)) {
             return 'fallback';
         }
-        if (/compact|compaction|compressed context|context refresh|context compressed/.test(normalized)) {
+        if (/compact|compaction|compacting|compress|compression|compressing|compressed context|context refresh|context compressed/.test(normalized)) {
             return 'compression';
         }
         return 'notice';
@@ -1410,6 +1458,7 @@ export class OpenClawPanel {
             loadClusterAgentMessages: this._loadClusterAgentMessages.bind(this),
             loadClusterAgentSwarmMessages: this._loadClusterAgentSwarmMessages.bind(this),
             exportClusterConversation: this._exportClusterConversation.bind(this),
+            importClusterReplay: this._importClusterReplay.bind(this),
             exportRuntimeLogs: this._exportRuntimeLogs.bind(this),
             clearChat: this._clearChat.bind(this),
             refreshAgents: this.refreshAgents.bind(this),

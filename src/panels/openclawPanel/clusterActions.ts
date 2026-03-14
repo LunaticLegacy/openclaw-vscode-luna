@@ -523,6 +523,12 @@ export async function handleSaveCluster(
         return;
     }
 
+    const workspaceConfig = data.workspaceConfig as Record<string, unknown> | undefined;
+    if (workspaceConfig?.runUntilConditionMet === true && !String(workspaceConfig.stopCondition || '').trim()) {
+        vscode.window.showErrorMessage(t('clusters.validationStopCondition'));
+        return;
+    }
+
     const createdAgentIds: string[] = [];
     const totalSteps = createAgents.length
         + 1
@@ -561,12 +567,12 @@ export async function handleSaveCluster(
                     ? await context.clusterManager.updateCluster(clusterId, {
                         name,
                         agentIds,
-                        workspaceConfig: data.workspaceConfig as any
+                        workspaceConfig: workspaceConfig as any
                     })
                     : await context.clusterManager.createCluster({
                         name,
                         agentIds,
-                        workspaceConfig: data.workspaceConfig as any
+                        workspaceConfig: workspaceConfig as any
                     });
                 reporter.complete();
 
@@ -837,14 +843,16 @@ function buildCollaborationConversationMessages(
 
     messages.push(result.synthesis?.ok && result.synthesis.message
         ? {
-            ...result.synthesis.message,
+            ...decorateSwarmResultMessage(result.synthesis.message, result.synthesis),
             displayName: t('clusters.finalAnswer'),
             contextLabel: `${t('clusters.coordinator')}: ${coordinatorLabel}`
         }
         : buildErrorTraceMessage(
             t('clusters.finalAnswer'),
             `${t('clusters.coordinator')}: ${coordinatorLabel}`,
-            result.synthesis?.error || t('clusters.noSuccessfulAgents')
+            result.synthesis?.error || t('clusters.noSuccessfulAgents'),
+            result.coordinatorAgentId || undefined,
+            result.synthesis || undefined
         ));
 
     return messages;
@@ -860,14 +868,16 @@ function buildConversationMessagesForProgressEvent(
             : t('clusters.targetSwarm');
         return event.entry?.ok && event.entry.message
             ? [{
-                ...event.entry.message,
+                ...decorateSwarmResultMessage(event.entry.message, event.entry),
                 displayName: t('clusters.finalAnswer'),
                 contextLabel: `${t('clusters.coordinator')}: ${coordinatorLabel}`
             }]
             : [buildErrorTraceMessage(
                 t('clusters.finalAnswer'),
                 `${t('clusters.coordinator')}: ${coordinatorLabel}`,
-                event.entry?.error || t('clusters.noSuccessfulAgents')
+                event.entry?.error || t('clusters.noSuccessfulAgents'),
+                event.coordinatorAgentId || undefined,
+                event.entry || undefined
             )];
     }
 
@@ -889,8 +899,8 @@ function buildConversationMessagesForEntry(
     }
 
     return traceMessages.length > 0
-        ? [...traceMessages, buildErrorTraceMessage(displayName, contextLabel, entry.error)]
-        : [buildErrorTraceMessage(displayName, contextLabel, entry.error)];
+        ? [...traceMessages, buildErrorTraceMessage(displayName, contextLabel, entry.error, entry.agentId, entry)]
+        : [buildErrorTraceMessage(displayName, contextLabel, entry.error, entry.agentId, entry)];
 }
 
 function buildAgentTraceMessages(
@@ -917,7 +927,7 @@ function buildAgentTraceMessages(
         seen.add(id);
 
         deduped.push({
-            ...message,
+            ...decorateSwarmResultMessage(message, entry),
             displayName,
             contextLabel
         });
@@ -958,14 +968,45 @@ function decorateClusterAgentLogMessages(
     }));
 }
 
-function buildErrorTraceMessage(displayName: string, contextLabel: string, error?: string): PresentedChatMessage {
+function buildErrorTraceMessage(
+    displayName: string,
+    contextLabel: string,
+    error?: string,
+    agentId?: string,
+    entry?: ClusterBroadcastResult
+): PresentedChatMessage {
     return {
         id: `swarm-error:${Date.now()}:${++swarmMessageCounter}`,
         role: 'assistant',
         content: error || t('clusters.resultUnknownError'),
         timestamp: new Date().toISOString(),
+        agentId,
         displayName,
-        contextLabel
+        contextLabel,
+        metadata: buildSwarmResultMetadata(entry)
+    };
+}
+
+function decorateSwarmResultMessage(message: PresentedChatMessage, entry: ClusterBroadcastResult): PresentedChatMessage {
+    return {
+        ...message,
+        metadata: {
+            ...(message.metadata || {}),
+            ...buildSwarmResultMetadata(entry)
+        }
+    };
+}
+
+function buildSwarmResultMetadata(entry?: ClusterBroadcastResult): Record<string, unknown> | undefined {
+    const elapsedMs = Number(entry?.timing?.elapsedMs);
+    if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
+        return undefined;
+    }
+
+    return {
+        swarmLatencyMs: elapsedMs,
+        swarmStartedAt: entry?.timing?.startedAt,
+        swarmCompletedAt: entry?.timing?.completedAt
     };
 }
 

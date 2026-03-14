@@ -737,11 +737,11 @@ function buildOpenClawLifecycleNotice(data: Record<string, unknown>): string {
         return `Model fallback: ${fromModel} -> ${toModel}`;
     }
 
-    if (/fallback|downgrade/.test(combined)) {
+    if (/fallback|downgrade|rollback|roll back|rolling back|rolling-back|rolled back|rewind|revert/.test(combined)) {
         return textFields[0] || 'Model fallback occurred during this run.';
     }
 
-    if (/compact|compaction|compressed context|context refresh|context compressed/.test(combined)) {
+    if (/compact|compaction|compacting|compress|compression|compressing|compressed context|context refresh|context compressed/.test(combined)) {
         return textFields[0] || 'Context was compacted during this run.';
     }
 
@@ -750,10 +750,10 @@ function buildOpenClawLifecycleNotice(data: Record<string, unknown>): string {
 
 function resolveLifecycleNoticeKind(notice: string): 'fallback' | 'compression' | 'notice' {
     const normalized = notice.trim().toLowerCase();
-    if (/fallback|downgrade/.test(normalized)) {
+    if (/fallback|downgrade|rollback|roll back|rolling back|rolling-back|rolled back|rewind|revert/.test(normalized)) {
         return 'fallback';
     }
-    if (/compact|compaction|compressed context|context refresh|context compressed/.test(normalized)) {
+    if (/compact|compaction|compacting|compress|compression|compressing|compressed context|context refresh|context compressed/.test(normalized)) {
         return 'compression';
     }
     return 'notice';

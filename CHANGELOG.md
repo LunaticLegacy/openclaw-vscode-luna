@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project follows Semantic Versioning.
 
+## [0.7.1] - 2026-03-14
+
+### Added
+- Support custom Swarm workflows.
+- Added `Replay` and time tracking for swarm conversation.
+
+### Fixed
+- Fixed the issue of chat record lost when using Swarm.
+
+### Unfixed
+- Unfixed the issue that there's NO ISSUE in the GitHub Repo.
+
 ## [0.7.0] - 2026-03-14
 
 ### Added

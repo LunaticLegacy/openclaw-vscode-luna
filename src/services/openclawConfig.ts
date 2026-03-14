@@ -82,7 +82,7 @@ export async function resolveOpenClawServiceConfig(extensionPath: string): Promi
 
 export async function inspectOpenClawEnvironment(extensionPath: string): Promise<OpenClawRuntimeDiagnostics> {
     const config = vscode.workspace.getConfiguration('openclaw');
-    const configMode = config.get<'auto' | 'gateway' | 'local' | 'openclaw'>('configMode', 'auto');
+    const configMode = config.get<'auto' | 'gateway' | 'local' | 'openclaw'>('configMode', 'openclaw');
     const configuredGatewayUrl = trimConfigPath(config.get<string>('gatewayUrl', '')) || '';
     const configuredGatewayToken = config.get<string>('gatewayToken', '').trim();
     const configuredStateDir = trimConfigPath(config.get<string>('stateDir', ''));

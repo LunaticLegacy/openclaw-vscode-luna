@@ -29,6 +29,7 @@ export interface AgentCluster {
 export interface ClusterMemberProfile {
     identity?: string;
     stance?: string;
+    parentAgentId?: string;
     activation?: {
         swarmModes?: Array<'broadcast' | 'collaborate'>;
         keywords?: string[];
@@ -41,6 +42,8 @@ export interface ClusterWorkspaceConfig {
     deliveryStyle: 'fast' | 'balanced' | 'deep';
     critiqueLevel: 'minimal' | 'standard' | 'aggressive';
     rounds: number;
+    runUntilConditionMet?: boolean;
+    stopCondition?: string;
     briefing?: string;
     coordinatorAgentId?: string;
     memberProfiles?: Record<string, ClusterMemberProfile>;
@@ -62,6 +65,14 @@ export interface ChatMessage {
     toolDetails?: unknown;
     isError?: boolean;
     metadata?: Record<string, unknown>;
+}
+
+export interface RuntimeNotice {
+    kind: 'fallback' | 'compression';
+    message: string;
+    agentId?: string;
+    sessionId?: string;
+    phase?: string;
 }
 
 export type ChatMessagePart =

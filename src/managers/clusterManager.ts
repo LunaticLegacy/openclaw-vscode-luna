@@ -41,6 +41,11 @@ export interface ClusterBroadcastResult {
     message?: ChatMessage;
     trace?: ChatMessage[];
     error?: string;
+    timing?: {
+        startedAt: string;
+        completedAt: string;
+        elapsedMs: number;
+    };
 }
 
 export interface BroadcastClusterOptions {
@@ -101,7 +106,34 @@ interface PersistedClustersFile {
     clusterSwarmMessages?: Record<string, ChatMessage[]>;
 }
 
+interface SwarmActivationNode {
+    agentId: string;
+    parentAgentId: string | null;
+    depth: number;
+    children: SwarmActivationNode[];
+}
+
+interface SwarmActivationPlan {
+    rootNodes: SwarmActivationNode[];
+    orderedAgentIds: string[];
+}
+
+interface SwarmRoutingContext {
+    ancestorAgentIds: string[];
+    parentNode: SwarmActivationNode | null;
+    parentResult: ClusterBroadcastResult | null;
+}
+
+interface ClusterStopConditionEvaluation {
+    shouldStop: boolean;
+    judgeAgentId: string | null;
+    reviewRound: number;
+    reason: string;
+    safetyCapReached?: boolean;
+}
+
 const CLUSTER_AGENT_RESPONSE_TIMEOUT_MS = 45000;
+const MAX_UNLIMITED_CLUSTER_REVIEW_ROUNDS = 48;
 
 export class ClusterManager extends EventEmitter {
     private service: OpenClawService;
@@ -310,21 +342,31 @@ export class ClusterManager extends EventEmitter {
             throw new Error(t('clusterManager.notFound', { clusterId }));
         }
 
-        const participantAgentIds = resolveSwarmParticipantAgentIds(
+        const activationPlan = resolveSwarmActivationPlan(
             cluster.agentIds,
             workspaceConfigOrDefault(cluster.workspaceConfig),
             'broadcast',
             message
         );
-        if (participantAgentIds.length === 0) {
+        if (activationPlan.orderedAgentIds.length === 0) {
             throw new Error(t('clusterManager.noEligibleAgents'));
         }
 
-        const results = await this.sendMessageToAgents(participantAgentIds, message, {
+        const results = await this.sendHierarchicalMessages(
+            activationPlan,
+            async (node, routing) => routing.parentNode
+                ? buildDelegatedBroadcastPrompt(cluster.name, message, {
+                    delegatedByAgentId: routing.parentNode.agentId,
+                    routeAgentIds: [...routing.ancestorAgentIds, routing.parentNode.agentId],
+                    parentContext: extractSwarmResultContext(routing.parentResult)
+                })
+                : message,
+            {
             clusterId,
             mode: 'broadcast',
             onAgentResult: options.onAgentResult
-        });
+            }
+        );
 
         await this.updateCluster(clusterId, { status: 'active' });
         return results;
@@ -340,25 +382,36 @@ export class ClusterManager extends EventEmitter {
             throw new Error(t('clusterManager.notFound', { clusterId }));
         }
         const workspaceConfig = normalizeClusterWorkspaceConfig(cluster.workspaceConfig);
-        const initialParticipantAgentIds = resolveSwarmParticipantAgentIds(
+        const activationPlan = resolveSwarmActivationPlan(
             cluster.agentIds,
             workspaceConfig,
             'collaborate',
             message
         );
-        if (initialParticipantAgentIds.length === 0) {
+        if (activationPlan.orderedAgentIds.length === 0) {
             throw new Error(t('clusterManager.noEligibleAgents'));
         }
+        const initialParticipantAgentIds = [...activationPlan.orderedAgentIds];
 
         const debateSessionIds = new Map<string, string>();
         const rounds: ClusterCollaborationRound[] = [];
 
-        const openingEntries = await this.sendMessageToAgents(initialParticipantAgentIds, agentId => buildOpeningContributionPrompt(
-            cluster.name,
-            message,
-            workspaceConfig,
-            agentId
-        ), {
+        const openingEntries = await this.sendHierarchicalMessages(
+            activationPlan,
+            async (node, routing) => buildOpeningContributionPrompt(
+                cluster.name,
+                message,
+                workspaceConfig,
+                node.agentId,
+                routing.parentNode
+                    ? {
+                        delegatedByAgentId: routing.parentNode.agentId,
+                        routeAgentIds: [...routing.ancestorAgentIds, routing.parentNode.agentId],
+                        parentContext: extractSwarmResultContext(routing.parentResult)
+                    }
+                    : undefined
+            ),
+            {
             clusterId: cluster.id,
             mode: 'collaborate',
             debateSessionIds,
@@ -368,7 +421,8 @@ export class ClusterManager extends EventEmitter {
                 agentId,
                 entry
             })
-        });
+            }
+        );
         rounds.push({
             kind: 'opening',
             entries: openingEntries
@@ -376,67 +430,174 @@ export class ClusterManager extends EventEmitter {
 
         let latestUsableContributions = openingEntries;
         let successfulAgentIds = getSuccessfulAgentIds(initialParticipantAgentIds, latestUsableContributions);
+        const runUntilConditionMet = Boolean(workspaceConfig.runUntilConditionMet && workspaceConfig.stopCondition?.trim());
+        let lastStopConditionEvaluation: ClusterStopConditionEvaluation | null = null;
 
-        for (const debateRound of buildCollaborationDebateRounds(workspaceConfig.rounds)) {
-            if (successfulAgentIds.length === 0) {
-                break;
+        if (runUntilConditionMet) {
+            const stopConditionSessionIds = new Map<string, string>();
+            for (let reviewRound = 1; reviewRound <= MAX_UNLIMITED_CLUSTER_REVIEW_ROUNDS; reviewRound += 1) {
+                if (successfulAgentIds.length === 0) {
+                    break;
+                }
+
+                const debateRound = buildCollaborationDebateRound(reviewRound);
+                const critiqueEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildPeerReviewPrompt(
+                    cluster.name,
+                    message,
+                    workspaceConfig,
+                    agentId,
+                    successfulAgentIds,
+                    latestUsableContributions,
+                    debateRound.reviewRound
+                ), {
+                    clusterId: cluster.id,
+                    mode: 'collaborate',
+                    debateSessionIds,
+                    onAgentResult: (agentId, entry) => options.onProgress?.({
+                        kind: 'round-entry',
+                        roundKind: debateRound.critiqueKind,
+                        agentId,
+                        entry
+                    })
+                });
+                rounds.push({
+                    kind: debateRound.critiqueKind,
+                    entries: critiqueEntries
+                });
+
+                const revisionEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildRevisionPrompt(
+                    cluster.name,
+                    message,
+                    workspaceConfig,
+                    agentId,
+                    successfulAgentIds,
+                    latestUsableContributions,
+                    critiqueEntries,
+                    debateRound.reviewRound
+                ), {
+                    clusterId: cluster.id,
+                    mode: 'collaborate',
+                    debateSessionIds,
+                    onAgentResult: (agentId, entry) => options.onProgress?.({
+                        kind: 'round-entry',
+                        roundKind: debateRound.revisionKind,
+                        agentId,
+                        entry
+                    })
+                });
+                rounds.push({
+                    kind: debateRound.revisionKind,
+                    entries: revisionEntries
+                });
+
+                latestUsableContributions = mergeLatestSuccessfulEntries(
+                    initialParticipantAgentIds,
+                    revisionEntries,
+                    latestUsableContributions
+                );
+                successfulAgentIds = getSuccessfulAgentIds(initialParticipantAgentIds, latestUsableContributions);
+
+                if (successfulAgentIds.length === 0) {
+                    break;
+                }
+
+                const stopJudgeAgentId = resolveCoordinatorAgentId(
+                    cluster.agentIds,
+                    successfulAgentIds,
+                    workspaceConfig.coordinatorAgentId,
+                    options.coordinatorAgentId
+                );
+                if (!stopJudgeAgentId) {
+                    continue;
+                }
+
+                lastStopConditionEvaluation = await this.evaluateStopCondition(
+                    cluster,
+                    message,
+                    workspaceConfig,
+                    stopJudgeAgentId,
+                    successfulAgentIds,
+                    latestUsableContributions,
+                    rounds,
+                    reviewRound,
+                    stopConditionSessionIds
+                );
+                if (lastStopConditionEvaluation.shouldStop) {
+                    break;
+                }
+
+                if (reviewRound === MAX_UNLIMITED_CLUSTER_REVIEW_ROUNDS) {
+                    lastStopConditionEvaluation = {
+                        shouldStop: false,
+                        judgeAgentId: stopJudgeAgentId,
+                        reviewRound,
+                        reason: `Safety cap reached after ${reviewRound} review rounds.`,
+                        safetyCapReached: true
+                    };
+                }
             }
+        } else {
+            for (const debateRound of buildCollaborationDebateRounds(workspaceConfig.rounds)) {
+                if (successfulAgentIds.length === 0) {
+                    break;
+                }
 
-            const critiqueEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildPeerReviewPrompt(
-                cluster.name,
-                message,
-                workspaceConfig,
-                agentId,
-                successfulAgentIds,
-                latestUsableContributions,
-                debateRound.reviewRound
-            ), {
-                clusterId: cluster.id,
-                mode: 'collaborate',
-                debateSessionIds,
-                onAgentResult: (agentId, entry) => options.onProgress?.({
-                    kind: 'round-entry',
-                    roundKind: debateRound.critiqueKind,
+                const critiqueEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildPeerReviewPrompt(
+                    cluster.name,
+                    message,
+                    workspaceConfig,
                     agentId,
-                    entry
-                })
-            });
-            rounds.push({
-                kind: debateRound.critiqueKind,
-                entries: critiqueEntries
-            });
+                    successfulAgentIds,
+                    latestUsableContributions,
+                    debateRound.reviewRound
+                ), {
+                    clusterId: cluster.id,
+                    mode: 'collaborate',
+                    debateSessionIds,
+                    onAgentResult: (agentId, entry) => options.onProgress?.({
+                        kind: 'round-entry',
+                        roundKind: debateRound.critiqueKind,
+                        agentId,
+                        entry
+                    })
+                });
+                rounds.push({
+                    kind: debateRound.critiqueKind,
+                    entries: critiqueEntries
+                });
 
-            const revisionEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildRevisionPrompt(
-                cluster.name,
-                message,
-                workspaceConfig,
-                agentId,
-                successfulAgentIds,
-                latestUsableContributions,
-                critiqueEntries,
-                debateRound.reviewRound
-            ), {
-                clusterId: cluster.id,
-                mode: 'collaborate',
-                debateSessionIds,
-                onAgentResult: (agentId, entry) => options.onProgress?.({
-                    kind: 'round-entry',
-                    roundKind: debateRound.revisionKind,
+                const revisionEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildRevisionPrompt(
+                    cluster.name,
+                    message,
+                    workspaceConfig,
                     agentId,
-                    entry
-                })
-            });
-            rounds.push({
-                kind: debateRound.revisionKind,
-                entries: revisionEntries
-            });
+                    successfulAgentIds,
+                    latestUsableContributions,
+                    critiqueEntries,
+                    debateRound.reviewRound
+                ), {
+                    clusterId: cluster.id,
+                    mode: 'collaborate',
+                    debateSessionIds,
+                    onAgentResult: (agentId, entry) => options.onProgress?.({
+                        kind: 'round-entry',
+                        roundKind: debateRound.revisionKind,
+                        agentId,
+                        entry
+                    })
+                });
+                rounds.push({
+                    kind: debateRound.revisionKind,
+                    entries: revisionEntries
+                });
 
-            latestUsableContributions = mergeLatestSuccessfulEntries(
-                initialParticipantAgentIds,
-                revisionEntries,
-                latestUsableContributions
-            );
-            successfulAgentIds = getSuccessfulAgentIds(initialParticipantAgentIds, latestUsableContributions);
+                latestUsableContributions = mergeLatestSuccessfulEntries(
+                    initialParticipantAgentIds,
+                    revisionEntries,
+                    latestUsableContributions
+                );
+                successfulAgentIds = getSuccessfulAgentIds(initialParticipantAgentIds, latestUsableContributions);
+            }
         }
 
         const coordinatorAgentId = resolveCoordinatorAgentId(
@@ -455,7 +616,8 @@ export class ClusterManager extends EventEmitter {
                 coordinatorAgentId,
                 successfulAgentIds,
                 latestUsableContributions,
-                rounds
+                rounds,
+                buildStopConditionSummary(workspaceConfig, lastStopConditionEvaluation)
             );
             synthesis = await this.sendMessageToAgent(coordinatorAgentId, synthesisPrompt, {
                 clusterId: cluster.id,
@@ -822,6 +984,54 @@ export class ClusterManager extends EventEmitter {
         return Object.fromEntries(entries);
     }
 
+    private async sendHierarchicalMessages(
+        plan: SwarmActivationPlan,
+        message: (
+            node: SwarmActivationNode,
+            routing: SwarmRoutingContext
+        ) => string | Promise<string>,
+        options: {
+            clusterId: string;
+            mode: 'broadcast' | 'collaborate';
+            debateSessionIds?: Map<string, string>;
+            onAgentResult?: (agentId: string, result: ClusterBroadcastResult) => Promise<void> | void;
+        }
+    ): Promise<Record<string, ClusterBroadcastResult>> {
+        const results: Record<string, ClusterBroadcastResult> = {};
+
+        const visitNode = async (
+            node: SwarmActivationNode,
+            routing: SwarmRoutingContext
+        ): Promise<void> => {
+            const resolvedMessage = await message(node, routing);
+            const result = await this.sendMessageToAgent(node.agentId, resolvedMessage, options);
+            results[node.agentId] = result;
+            await options.onAgentResult?.(node.agentId, result);
+
+            if (!result.ok) {
+                return;
+            }
+
+            for (const child of node.children) {
+                await visitNode(child, {
+                    ancestorAgentIds: [...routing.ancestorAgentIds, node.agentId],
+                    parentNode: node,
+                    parentResult: result
+                });
+            }
+        };
+
+        for (const rootNode of plan.rootNodes) {
+            await visitNode(rootNode, {
+                ancestorAgentIds: [],
+                parentNode: null,
+                parentResult: null
+            });
+        }
+
+        return results;
+    }
+
     private async sendMessageToAgent(
         agentId: string,
         message: string,
@@ -831,18 +1041,22 @@ export class ClusterManager extends EventEmitter {
             debateSessionIds?: Map<string, string>;
         }
     ): Promise<ClusterBroadcastResult> {
+        const startedAtMs = Date.now();
+        const startedAt = new Date(startedAtMs).toISOString();
         try {
             const sessionId = options.debateSessionIds
                 ? await this.ensureDebateSession(agentId, options.debateSessionIds, options.clusterId, options.mode)
                 : await this.ensureSwarmSession(agentId, options.clusterId, options.mode);
             const traceResult = await this.sendMessageWithTrace(sessionId, message, CLUSTER_AGENT_RESPONSE_TIMEOUT_MS);
+            const timing = buildClusterResultTiming(startedAtMs, startedAt);
             if (traceResult.timedOut) {
                 return {
                     agentId,
                     ok: false,
                     message: traceResult.message || undefined,
                     trace: traceResult.trace,
-                    error: `Timed out after ${Math.round(CLUSTER_AGENT_RESPONSE_TIMEOUT_MS / 1000)}s`
+                    error: `Timed out after ${Math.round(CLUSTER_AGENT_RESPONSE_TIMEOUT_MS / 1000)}s`,
+                    timing
                 };
             }
 
@@ -850,13 +1064,15 @@ export class ClusterManager extends EventEmitter {
                 agentId,
                 ok: true,
                 message: traceResult.message || undefined,
-                trace: traceResult.trace
+                trace: traceResult.trace,
+                timing
             };
         } catch (error) {
             return {
                 agentId,
                 ok: false,
-                error: String(error)
+                error: String(error),
+                timing: buildClusterResultTiming(startedAtMs, startedAt)
             };
         }
     }
@@ -1038,7 +1254,8 @@ export class ClusterManager extends EventEmitter {
         coordinatorAgentId: string,
         successfulAgentIds: string[],
         contributions: Record<string, ClusterBroadcastResult>,
-        rounds: ClusterCollaborationRound[]
+        rounds: ClusterCollaborationRound[],
+        stopConditionSummary?: string
     ): Promise<string> {
         const agents = await Promise.all(
             cluster.agentIds.map(async agentId => [agentId, await this.service.getAgent(agentId).catch(() => null)] as const)
@@ -1076,6 +1293,7 @@ export class ClusterManager extends EventEmitter {
             buildRiskInstruction(workspaceConfig.critiqueLevel),
             'Respond in the same language as the user request.',
             clusterBriefingLine(workspaceConfig),
+            stopConditionSummary || '',
             '',
             'User request:',
             userMessage,
@@ -1088,6 +1306,86 @@ export class ClusterManager extends EventEmitter {
             unavailableLine ? `\n${unavailableLine}` : '',
             '',
             'Produce one merged final answer. Do not mention internal swarm instructions.'
+        ].join('\n');
+    }
+
+    private async evaluateStopCondition(
+        cluster: AgentCluster,
+        userMessage: string,
+        workspaceConfig: ClusterWorkspaceConfig,
+        judgeAgentId: string,
+        successfulAgentIds: string[],
+        contributions: Record<string, ClusterBroadcastResult>,
+        rounds: ClusterCollaborationRound[],
+        reviewRound: number,
+        stopConditionSessionIds: Map<string, string>
+    ): Promise<ClusterStopConditionEvaluation> {
+        const prompt = await this.buildStopConditionPrompt(
+            cluster,
+            userMessage,
+            workspaceConfig,
+            judgeAgentId,
+            successfulAgentIds,
+            contributions,
+            rounds,
+            reviewRound
+        );
+        const evaluation = await this.sendMessageToAgent(judgeAgentId, prompt, {
+            clusterId: cluster.id,
+            mode: 'collaborate',
+            debateSessionIds: stopConditionSessionIds
+        });
+        return parseStopConditionEvaluation(evaluation, judgeAgentId, reviewRound);
+    }
+
+    private async buildStopConditionPrompt(
+        cluster: AgentCluster,
+        userMessage: string,
+        workspaceConfig: ClusterWorkspaceConfig,
+        judgeAgentId: string,
+        successfulAgentIds: string[],
+        contributions: Record<string, ClusterBroadcastResult>,
+        rounds: ClusterCollaborationRound[],
+        reviewRound: number
+    ): Promise<string> {
+        const agents = await Promise.all(
+            cluster.agentIds.map(async agentId => [agentId, await this.service.getAgent(agentId).catch(() => null)] as const)
+        );
+        const agentMap = new Map<string, Agent | null>(agents);
+        const recentRounds = rounds.slice(-2)
+            .map(round => {
+                const activeAgentIds = cluster.agentIds.filter(agentId => round.entries[agentId]);
+                if (activeAgentIds.length === 0) {
+                    return '';
+                }
+
+                return [
+                    `## ${getCollaborationRoundPromptTitle(round.kind)}`,
+                    formatRoundEntries(activeAgentIds, round.entries, agentMap)
+                ].join('\n');
+            })
+            .filter(Boolean);
+
+        return [
+            `You are evaluating whether the agent swarm "${cluster.name}" should continue debating.`,
+            ...buildCoordinatorProfilePromptLines(workspaceConfig, judgeAgentId),
+            'You are not producing the final user answer.',
+            `Current review round: ${reviewRound}.`,
+            'Decide whether the stop condition is already satisfied.',
+            'Respond using exactly this format:',
+            'Decision: STOP or CONTINUE',
+            'Reason: <one concise sentence>',
+            '',
+            `Stop condition: ${workspaceConfig.stopCondition?.trim() || 'No stop condition provided.'}`,
+            '',
+            'User request:',
+            userMessage,
+            '',
+            'Latest viable agent positions:',
+            formatRoundEntries(successfulAgentIds, contributions, agentMap),
+            recentRounds.length > 0 ? `\nRecent debate context:\n${recentRounds.join('\n\n')}` : '',
+            '',
+            'If the condition has been met, choose STOP. Otherwise choose CONTINUE.'
         ].join('\n');
     }
 
@@ -1148,13 +1446,23 @@ function cloneChatMessages(messages: ChatMessage[]): ChatMessage[] {
 }
 
 function findLastAssistantMessage(messages: ChatMessage[]): ChatMessage | null {
+    let fallbackAssistant: ChatMessage | null = null;
     for (let index = messages.length - 1; index >= 0; index -= 1) {
-        if (messages[index]?.role === 'assistant') {
-            return messages[index];
+        const message = messages[index];
+        if (message?.role !== 'assistant') {
+            continue;
+        }
+
+        if (!fallbackAssistant) {
+            fallbackAssistant = message;
+        }
+
+        if (hasRenderableMessageBody(message)) {
+            return message;
         }
     }
 
-    return null;
+    return fallbackAssistant;
 }
 
 async function raceWithTimeout<T>(
@@ -1189,6 +1497,41 @@ function isChatMessageRole(value: unknown): value is ChatMessage['role'] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasRenderableMessageBody(message: ChatMessage): boolean {
+    if (message.content.trim()) {
+        return true;
+    }
+
+    return Array.isArray(message.parts) && message.parts.some(part => {
+        if (!part || typeof part !== 'object') {
+            return false;
+        }
+
+        if (part.type === 'text') {
+            return Boolean(part.text?.trim());
+        }
+
+        if (part.type === 'thinking') {
+            return Boolean(part.thinking?.trim());
+        }
+
+        if (part.type === 'toolResult') {
+            return Boolean(part.result?.trim());
+        }
+
+        return false;
+    });
+}
+
+function buildClusterResultTiming(startedAtMs: number, startedAt: string): ClusterBroadcastResult['timing'] {
+    const completedAtMs = Date.now();
+    return {
+        startedAt,
+        completedAt: new Date(completedAtMs).toISOString(),
+        elapsedMs: Math.max(0, completedAtMs - startedAtMs)
+    };
 }
 
 function buildClusterId(name: string): string {
@@ -1262,13 +1605,109 @@ function workspaceConfigOrDefault(config?: ClusterWorkspaceConfig): ClusterWorks
     return normalizeClusterWorkspaceConfig(config || createDefaultClusterWorkspaceConfig());
 }
 
-function resolveSwarmParticipantAgentIds(
+function resolveSwarmActivationPlan(
     agentIds: string[],
     workspaceConfig: ClusterWorkspaceConfig,
     mode: 'broadcast' | 'collaborate',
     userMessage: string
-): string[] {
-    return agentIds.filter(agentId => isClusterAgentEligibleForSwarm(workspaceConfig, agentId, mode, userMessage));
+): SwarmActivationPlan {
+    const parentMap = resolveClusterMemberParentMap(agentIds, workspaceConfig);
+    const childrenByParent = new Map<string, string[]>();
+    const orderedAgentIds: string[] = [];
+
+    for (const agentId of agentIds) {
+        childrenByParent.set(agentId, []);
+    }
+
+    for (const agentId of agentIds) {
+        const parentAgentId = parentMap.get(agentId) || null;
+        if (parentAgentId) {
+            childrenByParent.get(parentAgentId)?.push(agentId);
+        }
+    }
+
+    const buildNode = (
+        agentId: string,
+        parentAgentId: string | null,
+        depth: number
+    ): SwarmActivationNode | null => {
+        if (!isClusterAgentEligibleForSwarm(workspaceConfig, agentId, mode, userMessage)) {
+            return null;
+        }
+
+        const node: SwarmActivationNode = {
+            agentId,
+            parentAgentId,
+            depth,
+            children: []
+        };
+        orderedAgentIds.push(agentId);
+
+        const childIds = childrenByParent.get(agentId) || [];
+        node.children = childIds
+            .map(childAgentId => buildNode(childAgentId, agentId, depth + 1))
+            .filter((childNode): childNode is SwarmActivationNode => Boolean(childNode));
+        return node;
+    };
+
+    const rootNodes = agentIds
+        .filter(agentId => !parentMap.get(agentId))
+        .map(agentId => buildNode(agentId, null, 0))
+        .filter((node): node is SwarmActivationNode => Boolean(node));
+
+    return {
+        rootNodes,
+        orderedAgentIds
+    };
+}
+
+function resolveClusterMemberParentMap(
+    agentIds: string[],
+    workspaceConfig: ClusterWorkspaceConfig
+): Map<string, string | null> {
+    const rawParentMap = new Map<string, string | null>();
+    const knownAgentIds = new Set(agentIds);
+
+    for (const agentId of agentIds) {
+        const configuredParentId = workspaceConfig.memberProfiles?.[agentId]?.parentAgentId?.trim() || '';
+        rawParentMap.set(
+            agentId,
+            configuredParentId && configuredParentId !== agentId && knownAgentIds.has(configuredParentId)
+                ? configuredParentId
+                : null
+        );
+    }
+
+    const sanitizedParentMap = new Map<string, string | null>();
+    for (const agentId of agentIds) {
+        const candidateParentId = rawParentMap.get(agentId) || null;
+        const isValid = candidateParentId
+            ? !introducesParentCycle(agentId, candidateParentId, rawParentMap)
+            : false;
+        sanitizedParentMap.set(agentId, isValid ? candidateParentId : null);
+    }
+
+    return sanitizedParentMap;
+}
+
+function introducesParentCycle(
+    agentId: string,
+    candidateParentId: string,
+    parentMap: Map<string, string | null>
+): boolean {
+    const visited = new Set<string>([agentId]);
+    let currentAgentId: string | null = candidateParentId;
+
+    while (currentAgentId) {
+        if (visited.has(currentAgentId)) {
+            return true;
+        }
+
+        visited.add(currentAgentId);
+        currentAgentId = parentMap.get(currentAgentId) || null;
+    }
+
+    return false;
 }
 
 function isClusterAgentEligibleForSwarm(
@@ -1304,28 +1743,42 @@ function buildCollaborationDebateRounds(maxRounds: number): Array<{
     revisionKind: Extract<ClusterCollaborationRoundKind, `revision-${number}`>;
 }> {
     const rounds = Math.max(1, Math.min(MAX_CLUSTER_WORK_MODE_ROUNDS, Math.round(maxRounds || 1)));
-    return Array.from({ length: rounds }, (_, index) => {
-        const reviewRound = index + 1;
-        return {
-            reviewRound,
-            critiqueKind: `critique-${reviewRound}`,
-            revisionKind: `revision-${reviewRound}`
-        };
-    });
+    return Array.from({ length: rounds }, (_, index) => buildCollaborationDebateRound(index + 1));
+}
+
+function buildCollaborationDebateRound(reviewRound: number): {
+    reviewRound: number;
+    critiqueKind: Extract<ClusterCollaborationRoundKind, `critique-${number}`>;
+    revisionKind: Extract<ClusterCollaborationRoundKind, `revision-${number}`>;
+} {
+    return {
+        reviewRound,
+        critiqueKind: `critique-${reviewRound}`,
+        revisionKind: `revision-${reviewRound}`
+    };
 }
 
 function buildOpeningContributionPrompt(
     clusterName: string,
     userMessage: string,
     workspaceConfig: ClusterWorkspaceConfig,
-    agentId: string
+    agentId: string,
+    delegatedContext?: {
+        delegatedByAgentId: string;
+        routeAgentIds: string[];
+        parentContext: string;
+    }
 ): string {
     const memberProfileLines = buildMemberProfilePromptLines(workspaceConfig, agentId);
+    const wakeContextLines = delegatedContext
+        ? buildDelegatedWakeContextLines(delegatedContext)
+        : [];
     return [
         `You are part of the agent swarm "${clusterName}".`,
         `Debate stage: opening using ${workspaceConfig.collaborationStyle}.`,
         'This is round 1 of a multi-round swarm debate.',
         ...memberProfileLines,
+        ...wakeContextLines,
         buildOpeningStyleInstruction(workspaceConfig.collaborationStyle),
         buildDeliveryInstruction(workspaceConfig.deliveryStyle),
         buildRiskInstruction(workspaceConfig.critiqueLevel),
@@ -1581,9 +2034,100 @@ function buildCoordinatorStyleInstruction(style: ClusterWorkspaceConfig['collabo
     }
 }
 
+function parseStopConditionEvaluation(
+    evaluation: ClusterBroadcastResult,
+    judgeAgentId: string,
+    reviewRound: number
+): ClusterStopConditionEvaluation {
+    const rawContent = evaluation.message?.content || evaluation.error || '';
+    const decisionMatch = rawContent.match(/Decision:\s*(STOP|CONTINUE)/i);
+    const reasonMatch = rawContent.match(/Reason:\s*([\s\S]+)/i);
+    const decision = (decisionMatch?.[1] || '').toUpperCase();
+    const reason = (reasonMatch?.[1] || rawContent || '').trim();
+
+    return {
+        shouldStop: evaluation.ok && decision === 'STOP',
+        judgeAgentId,
+        reviewRound,
+        reason: reason || (evaluation.ok ? 'No reason provided.' : 'Stop-condition evaluation failed.')
+    };
+}
+
+function buildStopConditionSummary(
+    workspaceConfig: ClusterWorkspaceConfig,
+    evaluation: ClusterStopConditionEvaluation | null
+): string {
+    if (!workspaceConfig.runUntilConditionMet || !workspaceConfig.stopCondition?.trim()) {
+        return '';
+    }
+
+    if (!evaluation) {
+        return `Stop condition was enabled: ${workspaceConfig.stopCondition.trim()}`;
+    }
+
+    if (evaluation.safetyCapReached) {
+        return `Stop condition was enabled: ${workspaceConfig.stopCondition.trim()}\nThe debate hit an internal safety cap after round ${evaluation.reviewRound}. Latest judge note: ${evaluation.reason}`;
+    }
+
+    if (evaluation.shouldStop) {
+        return `Stop condition was enabled: ${workspaceConfig.stopCondition.trim()}\nThe debate stopped after round ${evaluation.reviewRound} because the judge concluded: ${evaluation.reason}`;
+    }
+
+    return `Stop condition was enabled: ${workspaceConfig.stopCondition.trim()}\nLatest judge note after round ${evaluation.reviewRound}: ${evaluation.reason}`;
+}
+
 function clusterBriefingLine(workspaceConfig: ClusterWorkspaceConfig): string {
     const briefing = workspaceConfig.briefing?.trim();
     return briefing ? `Cluster briefing: ${briefing}` : 'Cluster briefing: keep the result coherent and user-facing.';
+}
+
+function buildDelegatedBroadcastPrompt(
+    clusterName: string,
+    userMessage: string,
+    delegatedContext: {
+        delegatedByAgentId: string;
+        routeAgentIds: string[];
+        parentContext: string;
+    }
+): string {
+    return [
+        `You are part of the agent swarm "${clusterName}".`,
+        ...buildDelegatedWakeContextLines(delegatedContext),
+        'Handle the original swarm request using the upstream context above.',
+        'Respond in the same language as the user request.',
+        'Do not mention the internal wake chain unless the user explicitly asks.',
+        '',
+        'User request:',
+        userMessage
+    ].join('\n');
+}
+
+function buildDelegatedWakeContextLines(delegatedContext: {
+    delegatedByAgentId: string;
+    routeAgentIds: string[];
+    parentContext: string;
+}): string[] {
+    return [
+        `Wake route: swarm -> ${delegatedContext.routeAgentIds.join(' -> ')}`,
+        `You were awakened by parent agent "${delegatedContext.delegatedByAgentId}".`,
+        'Use the upstream parent context below before answering from your own lane.',
+        '',
+        'Parent context:',
+        delegatedContext.parentContext || 'No upstream context was provided.'
+    ];
+}
+
+function extractSwarmResultContext(result: ClusterBroadcastResult | null): string {
+    if (!result) {
+        return '';
+    }
+
+    const messageContent = result.message?.content?.trim();
+    if (messageContent) {
+        return messageContent;
+    }
+
+    return result.error || '';
 }
 
 function buildMemberProfilePromptLines(
