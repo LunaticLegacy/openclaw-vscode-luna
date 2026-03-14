@@ -523,6 +523,12 @@ export async function handleSaveCluster(
         return;
     }
 
+    const workspaceConfig = data.workspaceConfig as Record<string, unknown> | undefined;
+    if (workspaceConfig?.runUntilConditionMet === true && !String(workspaceConfig.stopCondition || '').trim()) {
+        vscode.window.showErrorMessage(t('clusters.validationStopCondition'));
+        return;
+    }
+
     const createdAgentIds: string[] = [];
     const totalSteps = createAgents.length
         + 1
@@ -561,12 +567,12 @@ export async function handleSaveCluster(
                     ? await context.clusterManager.updateCluster(clusterId, {
                         name,
                         agentIds,
-                        workspaceConfig: data.workspaceConfig as any
+                        workspaceConfig: workspaceConfig as any
                     })
                     : await context.clusterManager.createCluster({
                         name,
                         agentIds,
-                        workspaceConfig: data.workspaceConfig as any
+                        workspaceConfig: workspaceConfig as any
                     });
                 reporter.complete();
 

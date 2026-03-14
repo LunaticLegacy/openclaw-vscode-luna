@@ -27,6 +27,8 @@
             deliveryStyle: preset.deliveryStyle,
             critiqueLevel: preset.critiqueLevel,
             rounds: preset.rounds,
+            runUntilConditionMet: false,
+            stopCondition: '',
             briefing: preset.briefing || '',
             coordinatorAgentId: '',
             memberProfiles: {}
@@ -77,6 +79,8 @@
                 ? config.critiqueLevel
                 : base.critiqueLevel,
             rounds: normalizeClusterRoundsInput(config.rounds, base.rounds || 1),
+            runUntilConditionMet: Boolean(config.runUntilConditionMet && String(config.stopCondition || '').trim()),
+            stopCondition: typeof config.stopCondition === 'string' ? config.stopCondition.trim() : '',
             briefing: typeof config.briefing === 'string' && config.briefing.trim()
                 ? config.briefing.trim()
                 : (base.briefing || ''),
@@ -227,6 +231,30 @@
         return Math.max(1, Math.min(MAX_CLUSTER_ROUNDS, Math.round(parsedValue)));
     }
 
+    function syncClusterRoundModeState() {
+        const isUnlimited = Boolean(elements.clusterEditorRoundsUnlimited?.checked);
+        if (elements.clusterEditorRounds) {
+            elements.clusterEditorRounds.disabled = isUnlimited;
+        }
+        if (elements.clusterEditorStopConditionGroup) {
+            elements.clusterEditorStopConditionGroup.classList.toggle('hidden', !isUnlimited);
+        }
+    }
+
+    function getClusterRoundsSummaryLabel(roundsValue, runUntilConditionMet, stopCondition) {
+        if (!runUntilConditionMet) {
+            return t('clusters.rounds.value', { count: roundsValue }) || String(roundsValue);
+        }
+
+        const condition = String(stopCondition || '').trim();
+        if (!condition) {
+            return t('clusters.rounds.unlimited') || 'Unlimited rounds';
+        }
+
+        return t('clusters.rounds.untilCondition', { condition })
+            || `Until: ${condition}`;
+    }
+
     function populateClusterEditorOptions() {
         if (elements.clusterEditorPreset) {
             const presets = Array.isArray(state.clusterWorkModePresets) ? state.clusterWorkModePresets : [];
@@ -265,6 +293,7 @@
             elements.clusterEditorRounds.step = '1';
             elements.clusterEditorRounds.value = String(normalizeClusterRoundsInput(elements.clusterEditorRounds.value || 2, 2));
         }
+        syncClusterRoundModeState();
     }
 
     function renderClusterAgentPicker(selectedAgentIds) {
@@ -493,6 +522,8 @@
         const deliveryValue = elements.clusterEditorDelivery?.value || 'balanced';
         const critiqueValue = elements.clusterEditorCritique?.value || 'standard';
         const roundsValue = normalizeClusterRoundsInput(elements.clusterEditorRounds?.value || 2, 2);
+        const runUntilConditionMet = Boolean(elements.clusterEditorRoundsUnlimited?.checked);
+        const stopCondition = String(elements.clusterEditorStopCondition?.value || '').trim();
         const briefing = String(elements.clusterEditorBriefing?.value || '').trim();
         const coordinatorId = String(elements.clusterEditorCoordinatorAgent?.value || '').trim();
         const coordinatorLabel = coordinatorId ? resolveClusterAgentLabel(coordinatorId) : t('clusters.form.coordinatorAuto');
@@ -561,13 +592,16 @@
                 </div>
                 <div class="cluster-preset-summary-item">
                     <div class="cluster-preset-summary-label">${escapeHtml(t('clusters.form.rounds'))}</div>
-                    <div class="cluster-preset-summary-value">${escapeHtml(t('clusters.rounds.value', { count: roundsValue }) || String(roundsValue))}</div>
+                    <div class="cluster-preset-summary-value">${escapeHtml(getClusterRoundsSummaryLabel(roundsValue, runUntilConditionMet, stopCondition))}</div>
                 </div>
                 <div class="cluster-preset-summary-item">
                     <div class="cluster-preset-summary-label">${escapeHtml(t('clusters.form.coordinator'))}</div>
                     <div class="cluster-preset-summary-value">${escapeHtml(coordinatorLabel)}</div>
                 </div>
             </div>
+            ${runUntilConditionMet && stopCondition
+                ? `<p>${escapeHtml(`${t('clusters.form.stopCondition')}: ${stopCondition}`)}</p>`
+                : ''}
             ${briefing ? `<p>${escapeHtml(briefing)}</p>` : ''}
             ${presetBlueprintsHtml}
         `;
@@ -605,6 +639,13 @@
         if (elements.clusterEditorRounds) {
             elements.clusterEditorRounds.value = String(normalizeClusterRoundsInput(preset.rounds, 2));
         }
+        if (elements.clusterEditorRoundsUnlimited) {
+            elements.clusterEditorRoundsUnlimited.checked = false;
+        }
+        if (elements.clusterEditorStopCondition) {
+            elements.clusterEditorStopCondition.value = '';
+        }
+        syncClusterRoundModeState();
         if (elements.clusterEditorBriefing) {
             elements.clusterEditorBriefing.value = preset.briefing || '';
         }
@@ -664,6 +705,13 @@
         if (elements.clusterEditorRounds) {
             elements.clusterEditorRounds.value = String(normalizeClusterRoundsInput(config.rounds, 2));
         }
+        if (elements.clusterEditorRoundsUnlimited) {
+            elements.clusterEditorRoundsUnlimited.checked = Boolean(config.runUntilConditionMet);
+        }
+        if (elements.clusterEditorStopCondition) {
+            elements.clusterEditorStopCondition.value = config.stopCondition || '';
+        }
+        syncClusterRoundModeState();
         if (elements.clusterEditorBriefing) {
             elements.clusterEditorBriefing.value = config.briefing || '';
         }
@@ -700,6 +748,11 @@
             return;
         }
 
+        if (elements.clusterEditorRoundsUnlimited?.checked && !String(elements.clusterEditorStopCondition?.value || '').trim()) {
+            showError(t('clusters.validationStopCondition'));
+            return;
+        }
+
         vscode.postMessage({
             type: 'saveCluster',
             clusterId: clusterId || undefined,
@@ -713,6 +766,8 @@
                     deliveryStyle: elements.clusterEditorDelivery?.value || 'balanced',
                     critiqueLevel: elements.clusterEditorCritique?.value || 'standard',
                     rounds: normalizeClusterRoundsInput(elements.clusterEditorRounds?.value || 2, 2),
+                    runUntilConditionMet: Boolean(elements.clusterEditorRoundsUnlimited?.checked),
+                    stopCondition: String(elements.clusterEditorStopCondition?.value || '').trim(),
                     briefing: String(elements.clusterEditorBriefing?.value || '').trim(),
                     coordinatorAgentId: String(elements.clusterEditorCoordinatorAgent?.value || '').trim(),
                     memberProfiles: readClusterMemberProfilesFromEditor()
@@ -735,7 +790,7 @@
             `<span class="cluster-workmode-chip">${escapeHtml(getClusterStyleLabel(config.collaborationStyle))}</span>`,
             `<span class="cluster-workmode-chip">${escapeHtml(getClusterDeliveryLabel(config.deliveryStyle))}</span>`,
             `<span class="cluster-workmode-chip">${escapeHtml(getClusterCritiqueLabel(config.critiqueLevel))}</span>`,
-            `<span class="cluster-workmode-chip">${escapeHtml(t('clusters.rounds.value', { count: config.rounds }) || String(config.rounds))}</span>`,
+            `<span class="cluster-workmode-chip">${escapeHtml(getClusterRoundsSummaryLabel(config.rounds, config.runUntilConditionMet, config.stopCondition))}</span>`,
             coordinatorInfo.agentId
                 ? `<span class="cluster-workmode-chip">${escapeHtml(`${t('clusters.form.coordinator')}: ${resolveClusterAgentLabel(coordinatorInfo.agentId)}${coordinatorInfo.isAuto ? ` (${t('clusters.topology.coordinatorAuto')})` : ''}`)}</span>`
                 : ''

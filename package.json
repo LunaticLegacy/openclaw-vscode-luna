@@ -387,7 +387,7 @@
         },
         "openclaw.configMode": {
           "type": "string",
-          "default": "auto",
+          "default": "openclaw",
           "enum": [
             "auto",
             "openclaw",

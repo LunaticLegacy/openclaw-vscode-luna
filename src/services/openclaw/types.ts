@@ -42,6 +42,8 @@ export interface ClusterWorkspaceConfig {
     deliveryStyle: 'fast' | 'balanced' | 'deep';
     critiqueLevel: 'minimal' | 'standard' | 'aggressive';
     rounds: number;
+    runUntilConditionMet?: boolean;
+    stopCondition?: string;
     briefing?: string;
     coordinatorAgentId?: string;
     memberProfiles?: Record<string, ClusterMemberProfile>;

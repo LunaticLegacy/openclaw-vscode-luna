@@ -137,6 +137,32 @@ form {
     width: auto;
 }
 
+.cluster-rounds-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-secondary);
+    cursor: pointer;
+}
+
+.cluster-rounds-toggle input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+}
+
+.cluster-rounds-toggle span {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.cluster-rounds-group {
+    align-self: start;
+}
+
 .form-actions {
     display: flex;
     justify-content: flex-end;
@@ -574,6 +600,24 @@ form {
     border: 1px solid var(--border);
     border-radius: 12px;
     background: var(--bg-secondary);
+}
+
+.cluster-stop-condition-group {
+    margin-top: 6px;
+    padding: 14px;
+    border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--bg-secondary) 88%, var(--accent) 12%);
+}
+
+.cluster-stop-condition-group label {
+    margin-bottom: 8px;
+}
+
+.cluster-stop-condition-input {
+    min-height: 92px;
+    line-height: 1.6;
+    resize: vertical;
 }
 
 .cluster-preset-blueprint-head {

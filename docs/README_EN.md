@@ -8,18 +8,16 @@
 
 # OpenClaw Luna
 
-Early Access for OpenClaw Users
+### Bring OpenClaw agents, swarms, tasks, and usage back into VS Code
 
-### The OpenClaw console for VS Code
-
-**Use VS Code to complete the smallest OpenClaw loop first: connect, create an agent, send the first message, then decide whether you need Swarms, cron, and usage diagnostics.**
+**Connect OpenClaw, create an agent, send the first message, then decide whether you need deeper multi-agent workflows, scheduled tasks, and diagnostics.**
 
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.80+-007ACC?logo=visualstudiocode&logoColor=white)](https://code.visualstudio.com/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Version](https://img.shields.io/badge/Version-0.5.2-111111)](../package.json)
+[![Version](https://img.shields.io/badge/Version-0.7.1-111111)](../package.json)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](../LICENSE)
 
-[60-Second Setup](#60-second-setup) · [Feedback Path](#if-it-breaks-start-here) · [Connection Modes](#connection-modes) · [Tests](#tests) · [中文](../README.md)
+[60-Second Setup](#60-second-setup) · [Core Features](#core-features) · [Connection Modes](#connection-modes) · [Feedback](#if-it-breaks-send-these-three-things) · [中文](../README.md)
 
 <br />
 
@@ -34,171 +32,152 @@ Early Access for OpenClaw Users
 
 ---
 
-## Why Luna
+## What It Is
 
-> *"Luna is not another chat box. It is the OpenClaw control surface inside VS Code."*
+OpenClaw Luna is a VS Code extension that turns OpenClaw into a workflow you can actually operate from one place.
 
-If you already use OpenClaw and do not want to bounce between a CLI, browser, and scattered commands, Luna is the missing control surface. It keeps first-run setup, first chat success, and follow-up workflows like agents, Swarms, cron, and usage inside one VS Code panel.
+Instead of bouncing between a CLI, config files, browser pages, and scattered commands, Luna gives you one control surface for the common OpenClaw path:
 
-It is built for two cases:
+- Connect and verify the first successful run
+- Create agents and start chats
+- Move into swarms, scheduled tasks, and usage only when you need them
 
-- You already use OpenClaw and want your daily control path back inside VS Code.
-- You are new to OpenClaw and want one small success in under a minute before learning the full config model.
+It is best suited for two cases:
 
-Once your workflow spans agent chat, Swarm collaboration, scheduled tasks, connection switching, and usage inspection, the problem is not a lack of entry points. The problem is fragmented context. Luna is built to compress those actions into one stable main path:
+- You already use OpenClaw and want your main control path inside VS Code
+- You are trying OpenClaw for the first time and want one quick success before learning the full config model
 
-- Create agents, chat, switch models, and inspect context from one panel.
-- Manage Swarms, broadcasts, collaboration, and cluster entry points inside one workspace.
-- Inspect OpenClaw cron jobs, run them immediately, edit them, and debug them without leaving VS Code.
-- See 7-day / 30-day requests, tokens, costs, and model distribution without jumping back to a CLI or browser.
-- Make mode differences explicit so the UI does not degrade into hidden "works here but not there" behavior.
+If you want a generic AI chat extension with no OpenClaw workflow attached, that is not what Luna is built for.
 
 ---
 
 ## 60-Second Setup
 
-### 1. Install the extension from the marketplace
+### 1. Install the extension
 
-The extension has been published to the marketplace.
+Install `OpenClaw Luna` from the VS Code Marketplace.
 
-### 2. Open the Luna panel
+### 2. Open the panel
 
-You have three ways to access it:
+Use any of these entry points:
 
 - Command palette: `OpenClaw Luna: Open OpenClaw Luna`
-- Status bar item in the bottom-right corner: `OpenClaw`
+- Bottom-right status bar item: `OpenClaw`
 - Activity Bar sidebar: `OpenClaw`
 
-### 3. Finish the first success before learning every mode
+### 3. Follow the shortest successful path first
 
-On first entry, the top-left `OpenClaw Luna` brand takes you back to the initial setup screen. Follow this shortest path first:
+Do not optimize every mode on first run. Start with this:
 
-- Check whether local OpenClaw is installed
+- Check whether OpenClaw is installed locally
 - Start the local `OpenClaw gateway`, or enter your remote Gateway
-- Keep the default mode for now instead of optimizing `Auto Detect / Gateway / OpenClaw CLI / Local Models`
+- Keep the default connection mode
 - Create your first agent
-- Send your first message and confirm that Luna returns a result
+- Send your first message
 
-### 4. Expand only after the first message works
+### 4. Expand only after the first reply works
 
-After the first successful reply, go deeper only if you need it:
+Once the first message succeeds, go deeper only if you need it:
 
-- Open `Swarm` if you want multi-agent collaboration
-- Switch to `OpenClaw CLI` if you need scheduled tasks
-- Open `Usage` if you want request, token, and cost inspection
-- Edit `OpenClaw Config` or local model files if you need tighter control
+- Open `Swarm` for multi-agent collaboration
+- Switch to `OpenClaw CLI` for scheduled tasks
+- Open `Usage` for requests, tokens, and cost inspection
+- Edit `OpenClaw Config` or local model files for tighter control
 
-For a first trial, "it connects, creates an agent, and sends one message" is enough.
-
----
-
-## If It Breaks, Start Here
-
-If Luna fails on the first run, the most useful feedback is not "it doesn't work". Send these three things instead:
-
-- Which connection mode you used: `Auto Detect`, `Gateway`, `OpenClaw CLI`, or `Local Models`
-- Which step failed: install, connect, create agent, send message, open tasks, or open usage
-- The actual error text from the VS Code developer tools, output panel, or in-product message
-
-Feedback links:
-
-- Issues: <https://github.com/LunaticLegacy/openclaw-vscode-luna/issues>
-- Repository: <https://github.com/LunaticLegacy/openclaw-vscode-luna>
-
-That is enough to reproduce real failures and turn setup friction into actionable feedback.
+The first win is simple: connect, create an agent, send a message.
 
 ---
 
 ## Core Features
 
-### Agent Console
+### Agent Workspace
 
 - Create, edit, delete, and refresh agents
-- Create agents from built-in presets
+- Start from built-in agent presets
 - Configure custom models, system prompts, and workspaces
-- Persist chat history automatically with streaming replies and live sync support where available
+- Persist chat history automatically with streaming replies
 
 ### Swarm Workspace
 
-- Switch between `Broadcast / Collaborate / Member Chat` in one workspace
+- Switch between `Broadcast / Collaborate / Member Chat` inside one workspace
 - Open clusters directly from the sidebar
-- Add or remove agents from a cluster without leaving the workspace
+- Add or remove members without leaving VS Code
 
-### OpenClaw Cron
+### Scheduled Tasks
 
-- Read OpenClaw cron jobs and run history directly from the task view
+- Read OpenClaw cron jobs and run history
 - Support `every / at / cron` schedules
 - Create, edit, enable, disable, run now, and delete tasks
-- Task support is only available in `OpenClaw CLI` mode
+- Task support is available in `OpenClaw CLI` mode
 
 ### Usage and Diagnostics
 
-- Toggle between 7-day and 30-day windows
-- Break usage down by day, tokens, requests, and cost
-- Inspect model distribution and cost share
-- Hover daily usage bars to see exact values
-- Panel, sidebar, and service now share the same usage invalidation path, reducing stale-view drift
+- Switch between 7-day and 30-day windows
+- Inspect requests, tokens, and cost by day
+- Break usage down by model
+- Keep operational debugging in the same place as chat and tasks
+
+---
+
+## Why Someone Would Use It
+
+Luna is not solving "how do I add another chat box to VS Code."
+
+It is solving these OpenClaw workflow problems:
+
+- Agent chat lives in one place while cluster management lives somewhere else
+- Scheduled tasks push you back into CLI flows
+- Usage inspection requires a different surface again
+- Different connection modes expose different capabilities, but that difference is easy to hide or misunderstand
+
+If your real workflow already includes agents, swarms, cron, or usage debugging, Luna compresses those paths into one stable surface.
 
 ---
 
 ## Connection Modes
 
-Luna supports four connection modes:
-
 | Mode | Best for | Data source |
 | --- | --- | --- |
-| `Auto Detect` | Let Luna resolve the best local path automatically | Local environment probing |
+| `Auto Detect` | Let Luna choose the best local path automatically | Local environment probing |
 | `Gateway` | Shared remote deployment for teams | OpenClaw Gateway |
 | `OpenClaw CLI` | Full local OpenClaw workflow, including cron and live session sync | Local CLI + Gateway |
-| `Local Models` | Run only against local model providers | `models.json` / `auth-profiles.json` |
+| `Local Models` | Running only against local model providers | `models.json` / `auth-profiles.json` |
 
-### OpenClaw Config vs Local Models
+### Config Boundaries
 
-- The `OpenClaw Config` card edits `openclaw.json`
+- `OpenClaw Config` edits `openclaw.json`
 - `Local Models` mode uses `models.json` and optional `auth-profiles.json`
-- These are intentionally separate configuration surfaces, and Luna now enforces that capability boundary in both UI and runtime logic
+- These are different configuration surfaces, and Luna keeps that capability boundary explicit
 
 ---
 
-## Capability Matrix
+## When Luna Fits
 
-| Capability | Gateway | OpenClaw CLI | Local Models |
-| --- | --- | --- | --- |
-| Agent chat | Native | Native | Native |
-| Agent settings editing | Yes | No | Yes |
-| Swarm workspace | Remote clusters | Luna-managed workspace | Luna-managed workspace |
-| Cluster persistence | Gateway | Workspace | Workspace |
-| Scheduled tasks | No | Yes | No |
-| Live session sync | No | Yes | No |
-| Usage dashboard | Yes | Yes | Yes |
+Good fit:
 
-This table is not decorative. Commands, panel guards, and service behavior now all go through the same capability matrix instead of scattering `if mode` checks across the codebase.
+- You already use OpenClaw
+- You want your main control path inside VS Code
+- You need agents, swarms, tasks, and usage in the same workflow
+
+Poor fit:
+
+- You only want a lightweight AI chat extension
+- You do not plan to use OpenClaw runtime or configuration at all
 
 ---
 
-## OpenClaw Flow
+## If It Breaks, Send These Three Things
 
-```text
-VS Code
-  |
-  +-- Activity Bar / Tree Views / Status Bar
-  |
-  +-- OpenClaw Luna Panel
-        |
-        +-- Chat / Tasks / Usage / Config
-        |
-        +-- OpenClawService
-              |
-              +-- GatewayTransport
-              +-- LocalModeRuntime
-              +-- OpenClawModeRuntime
-                    |
-                    +-- Usage Service
-                    +-- Agent / Session Repository
-                    +-- Task Runtime
-```
+The most useful bug report is not "it doesn't work." Send these three details instead:
 
-After the recent refactor, `OpenClawService` is now a facade instead of a God Object. Mode runtimes, usage mapping, local repositories, and transport are split out.
+- Which mode you used: `Auto Detect`, `Gateway`, `OpenClaw CLI`, or `Local Models`
+- Which step failed: install, connect, create agent, send message, open tasks, or open usage
+- The raw error text from the VS Code developer tools, output panel, or in-product message
+
+Feedback links:
+
+- Issues: <https://github.com/LunaticLegacy/openclaw-vscode-luna/issues>
+- Repository: <https://github.com/LunaticLegacy/openclaw-vscode-luna>
 
 ---
 
@@ -206,7 +185,7 @@ After the recent refactor, `OpenClawService` is now a facade instead of a God Ob
 
 | Setting | Description | Default |
 | --- | --- | --- |
-| `openclaw.configMode` | Connection mode | `auto` |
+| `openclaw.configMode` | Connection mode | `openclaw` |
 | `openclaw.gatewayUrl` | Gateway URL | `http://127.0.0.1:18789` |
 | `openclaw.gatewayToken` | Gateway token | `""` |
 | `openclaw.defaultAgent` | Default agent ID | `default` |
@@ -224,7 +203,7 @@ After the recent refactor, `OpenClawService` is now a facade instead of a God Ob
 npm test
 ```
 
-The current main-path smoke coverage includes:
+Main-path smoke coverage includes:
 
 - Extension activation and core command contributions
 - Creating an agent, sending a message, and reading usage in `Local Models` mode
@@ -233,7 +212,7 @@ The current main-path smoke coverage includes:
 - OpenClaw config merge behavior and field preservation
 - Usage model fallback and cache invalidation after mode/config changes
 
-To run the real VS Code host path:
+For the full VS Code host path:
 
 ```bash
 npm run test:host
@@ -246,19 +225,19 @@ npm run test:host
 ```text
 openclaw-vscode-luna/
 ├── src/
-│   ├── commands/          # Command registration and handlers
-│   ├── extension/         # Composition root and runtime wiring
-│   ├── managers/          # Agent / Cluster / Usage / Task managers
-│   ├── panels/            # Webview panel and message bridge
-│   ├── providers/         # Sidebar / Usage / Task tree providers
-│   ├── services/          # Transport / Runtime / Config / CLI
-│   ├── config/            # Agent presets
-│   ├── test/              # Fixtures and smoke tests
-│   └── utils/             # Capability / status / date helpers
-├── media/                 # panel.html / panel.js / CSS / UI helpers
-├── i18n/                  # Localized messages
-├── docs/                  # English README
-├── resources/             # Icons and other assets
+│   ├── commands/
+│   ├── extension/
+│   ├── managers/
+│   ├── panels/
+│   ├── providers/
+│   ├── services/
+│   ├── config/
+│   ├── test/
+│   └── utils/
+├── media/
+├── i18n/
+├── docs/
+├── resources/
 └── package.json
 ```
 
@@ -273,8 +252,8 @@ openclaw-vscode-luna/
 - [x] OpenClaw Config UI
 - [x] 7-day / 30-day usage dashboard
 - [x] Main-path smoke tests
-- [ ] More real extension-host UI regression coverage
-- [ ] Ongoing screenshot and scenario documentation updates
+- [ ] More real host-path coverage
+- [ ] More scenario docs and demo captures
 
 ---
 
@@ -287,8 +266,6 @@ git checkout -b feature/your-change
 npm test
 git commit -m "Describe your change"
 ```
-
-At minimum, keep the main-path smoke tests green before sending changes.
 
 ---
 

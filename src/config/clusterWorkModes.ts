@@ -164,6 +164,8 @@ export function createDefaultClusterWorkspaceConfig(): ClusterWorkspaceConfig {
         deliveryStyle: preset.deliveryStyle,
         critiqueLevel: preset.critiqueLevel,
         rounds: preset.rounds,
+        runUntilConditionMet: false,
+        stopCondition: '',
         briefing: preset.briefing,
         coordinatorAgentId: undefined,
         memberProfiles: {}
@@ -177,6 +179,8 @@ export function normalizeClusterWorkspaceConfig(
     const briefing = typeof config?.briefing === 'string'
         ? config.briefing.trim()
         : '';
+    const stopCondition = normalizeStopCondition(config?.stopCondition);
+    const runUntilConditionMet = normalizeRunUntilConditionMet(config?.runUntilConditionMet, stopCondition);
 
     return {
         presetId: preset.id,
@@ -184,10 +188,24 @@ export function normalizeClusterWorkspaceConfig(
         deliveryStyle: normalizeDeliveryStyle(config?.deliveryStyle, preset.deliveryStyle),
         critiqueLevel: normalizeCritiqueLevel(config?.critiqueLevel, preset.critiqueLevel),
         rounds: normalizeRounds(preset.rounds, config?.rounds),
+        runUntilConditionMet,
+        stopCondition,
         briefing: briefing || preset.briefing || '',
         coordinatorAgentId: normalizeCoordinatorAgentId(config?.coordinatorAgentId),
         memberProfiles: normalizeMemberProfiles(config?.memberProfiles)
     };
+}
+
+function normalizeRunUntilConditionMet(
+    value: boolean | undefined,
+    stopCondition?: string
+): boolean {
+    return Boolean(value) && Boolean(stopCondition);
+}
+
+function normalizeStopCondition(value?: string | null): string | undefined {
+    const normalized = String(value || '').trim();
+    return normalized || undefined;
 }
 
 function normalizeCoordinatorAgentId(value?: string | null): string | undefined {

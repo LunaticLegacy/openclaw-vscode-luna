@@ -295,6 +295,33 @@ suite('clusterActions', () => {
         assert.deepEqual(context.__metrics.loadClustersCalls, ['cluster-created']);
         assert.ok(posted.some(message => message.type === 'clusterSaved'));
     });
+
+    test('saves unlimited-round swarm settings with the stop condition', async () => {
+        const clusterManager = new FakeClusterManager();
+        const sessionManager = new FakeClusterSessionManager();
+        const posted: Array<Record<string, unknown>> = [];
+        const context = createClusterActionContext(clusterManager, sessionManager, posted);
+
+        await handleSaveCluster(context, undefined, {
+            name: 'Unlimited Swarm',
+            agentIds: ['alpha', 'beta'],
+            workspaceConfig: {
+                presetId: 'implementation-squad',
+                collaborationStyle: 'debate',
+                deliveryStyle: 'balanced',
+                critiqueLevel: 'standard',
+                rounds: 2,
+                runUntilConditionMet: true,
+                stopCondition: 'Stop when the swarm converges on one rollout plan.'
+            }
+        });
+
+        assert.equal(clusterManager.cluster.workspaceConfig?.runUntilConditionMet, true);
+        assert.equal(
+            clusterManager.cluster.workspaceConfig?.stopCondition,
+            'Stop when the swarm converges on one rollout plan.'
+        );
+    });
 });
 
 class FakeClusterManager {

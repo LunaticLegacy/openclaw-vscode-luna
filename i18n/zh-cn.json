@@ -762,4 +762,12 @@
   ,"clusters.replayBanner": "已加载回放：{source} · 导出时间 {exportedAt}"
   ,"clusters.replayReadonlyHint": "当前是回放模式，只读。导入新的回放，或退出回放后回到实时 swarm。"
   ,"clusters.latency": "时延"
+  ,"clusters.validationStopCondition": "启用无限轮次时，必须设置停止条件。"
+  ,"clusters.form.roundsUnlimited": "无限轮次"
+  ,"clusters.form.roundsUnlimitedHint": "持续迭代直到满足停止条件。Luna 仍会保留内部安全上限。"
+  ,"clusters.form.stopCondition": "停止条件"
+  ,"clusters.form.stopConditionPlaceholder": "例如：当 swarm 已经收敛到一份带有验证步骤的实施方案时停止。"
+  ,"clusters.form.stopConditionHint": "启用无限轮次时必填。请描述什么情况下应该停止辩论。"
+  ,"clusters.rounds.unlimited": "无限轮次"
+  ,"clusters.rounds.untilCondition": "直到：{condition}"
 }

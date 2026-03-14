@@ -1,6 +1,6 @@
 {
   "displayName": "OpenClaw Luna",
-  "description": "首个面向多 Agent 工作流的 VS Code 可观测控制台",
+  "description": "在 VS Code 里控制 OpenClaw：与 Agent 对话、管理 Swarm 和定时任务、查看用量。",
   "command.category": "OpenClaw Luna",
   "command.openPanel.title": "打开 OpenClaw Luna",
   "command.quickChat.title": "快速聊天",
@@ -47,6 +47,6 @@
   "configuration.showTokenCount.description": "在可用时显示助手回复的 Token 计数。",
   "configuration.codeTheme.description": "聊天面板中代码块的显示主题。",
   "configuration.enableMetrics.description": "在侧边栏和主面板中收集并显示用量指标。",
-  "viewsWelcome.openclawSidebar.contents": "还没有 Agent。\n[打开 OpenClaw Luna](command:openclaw.openPanel) 或 [创建新 Agent](command:openclaw.newAgent)",
+  "viewsWelcome.openclawSidebar.contents": "先连接 OpenClaw，再创建第一个 Agent。\n[打开 OpenClaw Luna](command:openclaw.openPanel) 或 [创建新 Agent](command:openclaw.newAgent)",
   "viewsWelcome.openclawTasks.contents": "还没有定时任务。\n[创建定时任务](command:openclaw.createTask) 或 [管理定时任务](command:openclaw.manageTasks)"
 }

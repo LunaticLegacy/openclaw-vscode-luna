@@ -777,10 +777,19 @@
                                     <label for="cluster-editor-critique" data-i18n="clusters.form.critiqueLevel">Critique Level</label>
                                     <select id="cluster-editor-critique"></select>
                                 </div>
-                                <div class="form-group">
+                                <div class="form-group cluster-rounds-group">
+                                    <label for="cluster-editor-rounds-unlimited" class="cluster-rounds-toggle">
+                                        <input type="checkbox" id="cluster-editor-rounds-unlimited">
+                                        <span data-i18n="clusters.form.roundsUnlimited">Unlimited rounds</span>
+                                    </label>
                                     <label for="cluster-editor-rounds" data-i18n="clusters.form.rounds">Debate Rounds</label>
                                     <input type="number" id="cluster-editor-rounds" min="1" step="1" value="2">
                                 </div>
+                            </div>
+                            <div id="cluster-editor-stop-condition-group" class="form-group cluster-stop-condition-group hidden">
+                                <label for="cluster-editor-stop-condition" data-i18n="clusters.form.stopCondition">Stop Condition</label>
+                                <textarea id="cluster-editor-stop-condition" class="cluster-stop-condition-input" rows="4" data-i18n-placeholder="clusters.form.stopConditionPlaceholder" placeholder="Stop when the swarm converges on an implementation plan with explicit verification steps."></textarea>
+                                <div class="form-hint" data-i18n="clusters.form.stopConditionHint">Required when unlimited rounds is enabled. Describe the condition that should stop the debate.</div>
                             </div>
                             <div class="form-group">
                                 <label for="cluster-editor-briefing" data-i18n="clusters.form.briefing">Cluster Briefing</label>

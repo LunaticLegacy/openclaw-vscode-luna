@@ -123,7 +123,7 @@ export async function handleSaveConnectionSettings(
 
     try {
         await runWithNotificationProgress(t('progress.savingConnectionSettings'), async () => {
-            await config.update('configMode', settings.configMode || 'auto', target);
+            await config.update('configMode', settings.configMode || 'openclaw', target);
             await config.update('gatewayUrl', settings.gatewayUrl?.trim() || '', target);
             await config.update('gatewayToken', settings.gatewayToken?.trim() || '', target);
 

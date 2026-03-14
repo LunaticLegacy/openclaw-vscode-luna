@@ -124,7 +124,16 @@ interface SwarmRoutingContext {
     parentResult: ClusterBroadcastResult | null;
 }
 
+interface ClusterStopConditionEvaluation {
+    shouldStop: boolean;
+    judgeAgentId: string | null;
+    reviewRound: number;
+    reason: string;
+    safetyCapReached?: boolean;
+}
+
 const CLUSTER_AGENT_RESPONSE_TIMEOUT_MS = 45000;
+const MAX_UNLIMITED_CLUSTER_REVIEW_ROUNDS = 48;
 
 export class ClusterManager extends EventEmitter {
     private service: OpenClawService;
@@ -421,67 +430,174 @@ export class ClusterManager extends EventEmitter {
 
         let latestUsableContributions = openingEntries;
         let successfulAgentIds = getSuccessfulAgentIds(initialParticipantAgentIds, latestUsableContributions);
+        const runUntilConditionMet = Boolean(workspaceConfig.runUntilConditionMet && workspaceConfig.stopCondition?.trim());
+        let lastStopConditionEvaluation: ClusterStopConditionEvaluation | null = null;
 
-        for (const debateRound of buildCollaborationDebateRounds(workspaceConfig.rounds)) {
-            if (successfulAgentIds.length === 0) {
-                break;
+        if (runUntilConditionMet) {
+            const stopConditionSessionIds = new Map<string, string>();
+            for (let reviewRound = 1; reviewRound <= MAX_UNLIMITED_CLUSTER_REVIEW_ROUNDS; reviewRound += 1) {
+                if (successfulAgentIds.length === 0) {
+                    break;
+                }
+
+                const debateRound = buildCollaborationDebateRound(reviewRound);
+                const critiqueEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildPeerReviewPrompt(
+                    cluster.name,
+                    message,
+                    workspaceConfig,
+                    agentId,
+                    successfulAgentIds,
+                    latestUsableContributions,
+                    debateRound.reviewRound
+                ), {
+                    clusterId: cluster.id,
+                    mode: 'collaborate',
+                    debateSessionIds,
+                    onAgentResult: (agentId, entry) => options.onProgress?.({
+                        kind: 'round-entry',
+                        roundKind: debateRound.critiqueKind,
+                        agentId,
+                        entry
+                    })
+                });
+                rounds.push({
+                    kind: debateRound.critiqueKind,
+                    entries: critiqueEntries
+                });
+
+                const revisionEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildRevisionPrompt(
+                    cluster.name,
+                    message,
+                    workspaceConfig,
+                    agentId,
+                    successfulAgentIds,
+                    latestUsableContributions,
+                    critiqueEntries,
+                    debateRound.reviewRound
+                ), {
+                    clusterId: cluster.id,
+                    mode: 'collaborate',
+                    debateSessionIds,
+                    onAgentResult: (agentId, entry) => options.onProgress?.({
+                        kind: 'round-entry',
+                        roundKind: debateRound.revisionKind,
+                        agentId,
+                        entry
+                    })
+                });
+                rounds.push({
+                    kind: debateRound.revisionKind,
+                    entries: revisionEntries
+                });
+
+                latestUsableContributions = mergeLatestSuccessfulEntries(
+                    initialParticipantAgentIds,
+                    revisionEntries,
+                    latestUsableContributions
+                );
+                successfulAgentIds = getSuccessfulAgentIds(initialParticipantAgentIds, latestUsableContributions);
+
+                if (successfulAgentIds.length === 0) {
+                    break;
+                }
+
+                const stopJudgeAgentId = resolveCoordinatorAgentId(
+                    cluster.agentIds,
+                    successfulAgentIds,
+                    workspaceConfig.coordinatorAgentId,
+                    options.coordinatorAgentId
+                );
+                if (!stopJudgeAgentId) {
+                    continue;
+                }
+
+                lastStopConditionEvaluation = await this.evaluateStopCondition(
+                    cluster,
+                    message,
+                    workspaceConfig,
+                    stopJudgeAgentId,
+                    successfulAgentIds,
+                    latestUsableContributions,
+                    rounds,
+                    reviewRound,
+                    stopConditionSessionIds
+                );
+                if (lastStopConditionEvaluation.shouldStop) {
+                    break;
+                }
+
+                if (reviewRound === MAX_UNLIMITED_CLUSTER_REVIEW_ROUNDS) {
+                    lastStopConditionEvaluation = {
+                        shouldStop: false,
+                        judgeAgentId: stopJudgeAgentId,
+                        reviewRound,
+                        reason: `Safety cap reached after ${reviewRound} review rounds.`,
+                        safetyCapReached: true
+                    };
+                }
             }
+        } else {
+            for (const debateRound of buildCollaborationDebateRounds(workspaceConfig.rounds)) {
+                if (successfulAgentIds.length === 0) {
+                    break;
+                }
 
-            const critiqueEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildPeerReviewPrompt(
-                cluster.name,
-                message,
-                workspaceConfig,
-                agentId,
-                successfulAgentIds,
-                latestUsableContributions,
-                debateRound.reviewRound
-            ), {
-                clusterId: cluster.id,
-                mode: 'collaborate',
-                debateSessionIds,
-                onAgentResult: (agentId, entry) => options.onProgress?.({
-                    kind: 'round-entry',
-                    roundKind: debateRound.critiqueKind,
+                const critiqueEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildPeerReviewPrompt(
+                    cluster.name,
+                    message,
+                    workspaceConfig,
                     agentId,
-                    entry
-                })
-            });
-            rounds.push({
-                kind: debateRound.critiqueKind,
-                entries: critiqueEntries
-            });
+                    successfulAgentIds,
+                    latestUsableContributions,
+                    debateRound.reviewRound
+                ), {
+                    clusterId: cluster.id,
+                    mode: 'collaborate',
+                    debateSessionIds,
+                    onAgentResult: (agentId, entry) => options.onProgress?.({
+                        kind: 'round-entry',
+                        roundKind: debateRound.critiqueKind,
+                        agentId,
+                        entry
+                    })
+                });
+                rounds.push({
+                    kind: debateRound.critiqueKind,
+                    entries: critiqueEntries
+                });
 
-            const revisionEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildRevisionPrompt(
-                cluster.name,
-                message,
-                workspaceConfig,
-                agentId,
-                successfulAgentIds,
-                latestUsableContributions,
-                critiqueEntries,
-                debateRound.reviewRound
-            ), {
-                clusterId: cluster.id,
-                mode: 'collaborate',
-                debateSessionIds,
-                onAgentResult: (agentId, entry) => options.onProgress?.({
-                    kind: 'round-entry',
-                    roundKind: debateRound.revisionKind,
+                const revisionEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildRevisionPrompt(
+                    cluster.name,
+                    message,
+                    workspaceConfig,
                     agentId,
-                    entry
-                })
-            });
-            rounds.push({
-                kind: debateRound.revisionKind,
-                entries: revisionEntries
-            });
+                    successfulAgentIds,
+                    latestUsableContributions,
+                    critiqueEntries,
+                    debateRound.reviewRound
+                ), {
+                    clusterId: cluster.id,
+                    mode: 'collaborate',
+                    debateSessionIds,
+                    onAgentResult: (agentId, entry) => options.onProgress?.({
+                        kind: 'round-entry',
+                        roundKind: debateRound.revisionKind,
+                        agentId,
+                        entry
+                    })
+                });
+                rounds.push({
+                    kind: debateRound.revisionKind,
+                    entries: revisionEntries
+                });
 
-            latestUsableContributions = mergeLatestSuccessfulEntries(
-                initialParticipantAgentIds,
-                revisionEntries,
-                latestUsableContributions
-            );
-            successfulAgentIds = getSuccessfulAgentIds(initialParticipantAgentIds, latestUsableContributions);
+                latestUsableContributions = mergeLatestSuccessfulEntries(
+                    initialParticipantAgentIds,
+                    revisionEntries,
+                    latestUsableContributions
+                );
+                successfulAgentIds = getSuccessfulAgentIds(initialParticipantAgentIds, latestUsableContributions);
+            }
         }
 
         const coordinatorAgentId = resolveCoordinatorAgentId(
@@ -500,7 +616,8 @@ export class ClusterManager extends EventEmitter {
                 coordinatorAgentId,
                 successfulAgentIds,
                 latestUsableContributions,
-                rounds
+                rounds,
+                buildStopConditionSummary(workspaceConfig, lastStopConditionEvaluation)
             );
             synthesis = await this.sendMessageToAgent(coordinatorAgentId, synthesisPrompt, {
                 clusterId: cluster.id,
@@ -1137,7 +1254,8 @@ export class ClusterManager extends EventEmitter {
         coordinatorAgentId: string,
         successfulAgentIds: string[],
         contributions: Record<string, ClusterBroadcastResult>,
-        rounds: ClusterCollaborationRound[]
+        rounds: ClusterCollaborationRound[],
+        stopConditionSummary?: string
     ): Promise<string> {
         const agents = await Promise.all(
             cluster.agentIds.map(async agentId => [agentId, await this.service.getAgent(agentId).catch(() => null)] as const)
@@ -1175,6 +1293,7 @@ export class ClusterManager extends EventEmitter {
             buildRiskInstruction(workspaceConfig.critiqueLevel),
             'Respond in the same language as the user request.',
             clusterBriefingLine(workspaceConfig),
+            stopConditionSummary || '',
             '',
             'User request:',
             userMessage,
@@ -1187,6 +1306,86 @@ export class ClusterManager extends EventEmitter {
             unavailableLine ? `\n${unavailableLine}` : '',
             '',
             'Produce one merged final answer. Do not mention internal swarm instructions.'
+        ].join('\n');
+    }
+
+    private async evaluateStopCondition(
+        cluster: AgentCluster,
+        userMessage: string,
+        workspaceConfig: ClusterWorkspaceConfig,
+        judgeAgentId: string,
+        successfulAgentIds: string[],
+        contributions: Record<string, ClusterBroadcastResult>,
+        rounds: ClusterCollaborationRound[],
+        reviewRound: number,
+        stopConditionSessionIds: Map<string, string>
+    ): Promise<ClusterStopConditionEvaluation> {
+        const prompt = await this.buildStopConditionPrompt(
+            cluster,
+            userMessage,
+            workspaceConfig,
+            judgeAgentId,
+            successfulAgentIds,
+            contributions,
+            rounds,
+            reviewRound
+        );
+        const evaluation = await this.sendMessageToAgent(judgeAgentId, prompt, {
+            clusterId: cluster.id,
+            mode: 'collaborate',
+            debateSessionIds: stopConditionSessionIds
+        });
+        return parseStopConditionEvaluation(evaluation, judgeAgentId, reviewRound);
+    }
+
+    private async buildStopConditionPrompt(
+        cluster: AgentCluster,
+        userMessage: string,
+        workspaceConfig: ClusterWorkspaceConfig,
+        judgeAgentId: string,
+        successfulAgentIds: string[],
+        contributions: Record<string, ClusterBroadcastResult>,
+        rounds: ClusterCollaborationRound[],
+        reviewRound: number
+    ): Promise<string> {
+        const agents = await Promise.all(
+            cluster.agentIds.map(async agentId => [agentId, await this.service.getAgent(agentId).catch(() => null)] as const)
+        );
+        const agentMap = new Map<string, Agent | null>(agents);
+        const recentRounds = rounds.slice(-2)
+            .map(round => {
+                const activeAgentIds = cluster.agentIds.filter(agentId => round.entries[agentId]);
+                if (activeAgentIds.length === 0) {
+                    return '';
+                }
+
+                return [
+                    `## ${getCollaborationRoundPromptTitle(round.kind)}`,
+                    formatRoundEntries(activeAgentIds, round.entries, agentMap)
+                ].join('\n');
+            })
+            .filter(Boolean);
+
+        return [
+            `You are evaluating whether the agent swarm "${cluster.name}" should continue debating.`,
+            ...buildCoordinatorProfilePromptLines(workspaceConfig, judgeAgentId),
+            'You are not producing the final user answer.',
+            `Current review round: ${reviewRound}.`,
+            'Decide whether the stop condition is already satisfied.',
+            'Respond using exactly this format:',
+            'Decision: STOP or CONTINUE',
+            'Reason: <one concise sentence>',
+            '',
+            `Stop condition: ${workspaceConfig.stopCondition?.trim() || 'No stop condition provided.'}`,
+            '',
+            'User request:',
+            userMessage,
+            '',
+            'Latest viable agent positions:',
+            formatRoundEntries(successfulAgentIds, contributions, agentMap),
+            recentRounds.length > 0 ? `\nRecent debate context:\n${recentRounds.join('\n\n')}` : '',
+            '',
+            'If the condition has been met, choose STOP. Otherwise choose CONTINUE.'
         ].join('\n');
     }
 
@@ -1544,14 +1743,19 @@ function buildCollaborationDebateRounds(maxRounds: number): Array<{
     revisionKind: Extract<ClusterCollaborationRoundKind, `revision-${number}`>;
 }> {
     const rounds = Math.max(1, Math.min(MAX_CLUSTER_WORK_MODE_ROUNDS, Math.round(maxRounds || 1)));
-    return Array.from({ length: rounds }, (_, index) => {
-        const reviewRound = index + 1;
-        return {
-            reviewRound,
-            critiqueKind: `critique-${reviewRound}`,
-            revisionKind: `revision-${reviewRound}`
-        };
-    });
+    return Array.from({ length: rounds }, (_, index) => buildCollaborationDebateRound(index + 1));
+}
+
+function buildCollaborationDebateRound(reviewRound: number): {
+    reviewRound: number;
+    critiqueKind: Extract<ClusterCollaborationRoundKind, `critique-${number}`>;
+    revisionKind: Extract<ClusterCollaborationRoundKind, `revision-${number}`>;
+} {
+    return {
+        reviewRound,
+        critiqueKind: `critique-${reviewRound}`,
+        revisionKind: `revision-${reviewRound}`
+    };
 }
 
 function buildOpeningContributionPrompt(
@@ -1828,6 +2032,48 @@ function buildCoordinatorStyleInstruction(style: ClusterWorkspaceConfig['collabo
         default:
             return 'Act like a coordinator who reconciles competing arguments into one defensible answer.';
     }
+}
+
+function parseStopConditionEvaluation(
+    evaluation: ClusterBroadcastResult,
+    judgeAgentId: string,
+    reviewRound: number
+): ClusterStopConditionEvaluation {
+    const rawContent = evaluation.message?.content || evaluation.error || '';
+    const decisionMatch = rawContent.match(/Decision:\s*(STOP|CONTINUE)/i);
+    const reasonMatch = rawContent.match(/Reason:\s*([\s\S]+)/i);
+    const decision = (decisionMatch?.[1] || '').toUpperCase();
+    const reason = (reasonMatch?.[1] || rawContent || '').trim();
+
+    return {
+        shouldStop: evaluation.ok && decision === 'STOP',
+        judgeAgentId,
+        reviewRound,
+        reason: reason || (evaluation.ok ? 'No reason provided.' : 'Stop-condition evaluation failed.')
+    };
+}
+
+function buildStopConditionSummary(
+    workspaceConfig: ClusterWorkspaceConfig,
+    evaluation: ClusterStopConditionEvaluation | null
+): string {
+    if (!workspaceConfig.runUntilConditionMet || !workspaceConfig.stopCondition?.trim()) {
+        return '';
+    }
+
+    if (!evaluation) {
+        return `Stop condition was enabled: ${workspaceConfig.stopCondition.trim()}`;
+    }
+
+    if (evaluation.safetyCapReached) {
+        return `Stop condition was enabled: ${workspaceConfig.stopCondition.trim()}\nThe debate hit an internal safety cap after round ${evaluation.reviewRound}. Latest judge note: ${evaluation.reason}`;
+    }
+
+    if (evaluation.shouldStop) {
+        return `Stop condition was enabled: ${workspaceConfig.stopCondition.trim()}\nThe debate stopped after round ${evaluation.reviewRound} because the judge concluded: ${evaluation.reason}`;
+    }
+
+    return `Stop condition was enabled: ${workspaceConfig.stopCondition.trim()}\nLatest judge note after round ${evaluation.reviewRound}: ${evaluation.reason}`;
 }
 
 function clusterBriefingLine(workspaceConfig: ClusterWorkspaceConfig): string {
