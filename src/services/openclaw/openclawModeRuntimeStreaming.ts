@@ -43,7 +43,6 @@ export async function *streamMessageViaGateway(
         token: context.config.gatewayToken,
         timeoutMs: 30000,
         caps: ['tool-events'],
-        clientId: 'openclaw-luna-gateway-client',
         clientDisplayName: 'OpenClaw Luna',
         clientVersion: 'vscode-plugin'
     });

@@ -909,9 +909,7 @@ function buildAgentTraceMessages(
     contextLabel: string
 ): PresentedChatMessage[] {
     const trace = Array.isArray(entry.trace) ? entry.trace : [];
-    const source = trace.length > 0
-        ? trace
-        : (entry.message ? [entry.message] : []);
+    const source = mergeTraceWithFinalMessage(trace, entry.message);
     const deduped: PresentedChatMessage[] = [];
     const seen = new Set<string>();
 
@@ -936,8 +934,34 @@ function buildAgentTraceMessages(
     return deduped;
 }
 
+function mergeTraceWithFinalMessage(
+    trace: ChatMessage[],
+    finalMessage?: ChatMessage
+): ChatMessage[] {
+    if (!finalMessage) {
+        return trace;
+    }
+
+    if (trace.length === 0) {
+        return [finalMessage];
+    }
+
+    const finalKey = buildTraceDeduplicationKey(finalMessage);
+    const hasFinalMessage = trace.some(message => buildTraceDeduplicationKey(message) === finalKey);
+    if (hasFinalMessage) {
+        return trace;
+    }
+
+    const hasAssistantResult = trace.some(message => message?.role === 'assistant');
+    return hasAssistantResult ? trace : [...trace, finalMessage];
+}
+
+function buildTraceDeduplicationKey(message: ChatMessage): string {
+    return message.id || `${message.role}:${message.timestamp || ''}:${message.content || ''}`;
+}
+
 function buildSwarmProgressMessageKey(message: PresentedChatMessage): string {
-    return message.id || `${message.role}:${message.timestamp || ''}:${message.content || ''}:${message.displayName || ''}:${message.contextLabel || ''}`;
+    return `${buildTraceDeduplicationKey(message)}:${message.displayName || ''}:${message.contextLabel || ''}`;
 }
 
 function buildSwarmUserMessage(content: string, mode: SwarmMode, batchId: string): PresentedChatMessage {

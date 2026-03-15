@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project follows Semantic Versioning.
 
+## [0.7.2] - 2026.3.15
+
+### Added
+- Support the unlimited round for Agent Swarm (with the stop condition).
+
+### Fixed
+- Fixed the problem of `ERRCOMMANDTOOLONG` directly via `Node.js`.
+
 ## [0.7.1] - 2026-03-14
 
 ### Added

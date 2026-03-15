@@ -723,7 +723,6 @@ export class OpenClawModeRuntime {
             url: this.config.gatewayUrl,
             token: this.config.gatewayToken,
             timeoutMs: 30000,
-            clientId: 'openclaw-luna-activity-monitor',
             clientDisplayName: 'OpenClaw Luna Activity Monitor',
             clientVersion: 'vscode-plugin',
             caps: ['tool-events']

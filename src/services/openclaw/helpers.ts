@@ -501,12 +501,25 @@ export function delay(timeoutMs: number): Promise<void> {
 
 export function sanitizeAgentName(value: string): string {
     const normalized = value.trim().toLowerCase().replace(/[^a-z0-9-_]+/g, '-').replace(/-+/g, '-');
-    return normalized.replace(/^-|-$/g, '') || 'agent';
+    const sanitized = normalized.replace(/^-|-$/g, '') || 'agent';
+    
+    // Ensure the agent name doesn't exceed reasonable length to prevent path issues on Windows
+    // Keep it under 100 characters to avoid path length issues when combined with other path elements
+    return sanitized.length > 100 ? sanitized.substring(0, 100) : sanitized;
 }
 
 export function normalizeOptionalPath(value: string | undefined): string | undefined {
     const trimmed = value?.trim();
-    return trimmed ? trimmed : undefined;
+    if (!trimmed) {
+        return undefined;
+    }
+    
+    // Check if the path is too long and warn if it is
+    if (trimmed.length > 255) {
+        console.warn(`Potentially long path detected: ${trimmed.substring(0, 100)}... (${trimmed.length} chars)`);
+    }
+    
+    return trimmed;
 }
 
 export function resolveOpenClawRecordWorkspacePath(
@@ -528,11 +541,20 @@ export function inferOpenClawWorkspacePath(
     }
 
     const safeAgentId = sanitizeAgentName(normalizedAgentId);
+    let workspacePath: string;
+    
     if (!config.defaultWorkspacePath) {
-        return path.join(config.stateDir, 'workspace', safeAgentId);
+        workspacePath = path.join(config.stateDir, 'workspace', safeAgentId);
+    } else {
+        workspacePath = path.join(path.dirname(config.defaultWorkspacePath), 'agents', safeAgentId);
     }
-
-    return path.join(path.dirname(config.defaultWorkspacePath), 'agents', safeAgentId);
+    
+    // Check if the resulting path is too long
+    if (workspacePath.length > 255) {
+        console.warn(`Potentially long workspace path detected: ${workspacePath.substring(0, 100)}... (${workspacePath.length} chars)`);
+    }
+    
+    return workspacePath;
 }
 
 export function extractString(payload: unknown, keys: string[]): string | undefined {

@@ -3,8 +3,10 @@ import * as crypto from 'crypto';
 import * as path from 'path';
 import { promisify } from 'util';
 import { OpenClawCliServiceConfig } from './openclawConfig';
+import { OpenClawGatewayClient } from './openclawGatewayClient';
 
 const execFileAsync = promisify(execFile);
+const SAFE_WINDOWS_COMMAND_LINE_LENGTH = 8000;
 
 interface OpenClawCliRunnerOptions {
     timeoutMs?: number;
@@ -500,6 +502,10 @@ export class OpenClawCliRunner {
         params: Record<string, unknown> = {},
         options: { expectFinal?: boolean } = {}
     ): Promise<T> {
+        if (this.shouldUseDirectGatewayCall(method, params, options)) {
+            return this.gatewayCallViaClient<T>(method, params, options);
+        }
+
         const args = ['gateway', 'call', method];
 
         if (this.config.gatewayUrl) {
@@ -515,6 +521,47 @@ export class OpenClawCliRunner {
 
         args.push('--params', JSON.stringify(params), '--json');
         return this.execJson<T>(args);
+    }
+
+    private shouldUseDirectGatewayCall(
+        method: string,
+        params: Record<string, unknown>,
+        options: { expectFinal?: boolean }
+    ): boolean {
+        if (!this.config.gatewayUrl) {
+            return false;
+        }
+
+        const estimatedLength = estimateGatewayCallCommandLength(this.config, method, params, options);
+        return estimatedLength > SAFE_WINDOWS_COMMAND_LINE_LENGTH;
+    }
+
+    private async gatewayCallViaClient<T>(
+        method: string,
+        params: Record<string, unknown>,
+        options: { expectFinal?: boolean }
+    ): Promise<T> {
+        if (!this.config.gatewayUrl) {
+            throw new Error('OpenClaw gateway URL is not configured');
+        }
+
+        const client = new OpenClawGatewayClient({
+            url: this.config.gatewayUrl,
+            token: this.config.gatewayToken,
+            timeoutMs: this.timeoutMs,
+            clientDisplayName: 'OpenClaw Luna',
+            clientVersion: 'vscode-plugin'
+        });
+
+        try {
+            await client.connect();
+            return await client.request<T>(method, params, {
+                expectFinal: options.expectFinal === true,
+                timeoutMs: this.timeoutMs
+            });
+        } finally {
+            client.dispose();
+        }
     }
 
     private async execJson<T>(args: string[]): Promise<T> {
@@ -600,23 +647,78 @@ function looksLikeStandaloneJson(value: string): boolean {
 }
 
 const defaultCommandExecutor: OpenClawCliCommandExecutor = async ({ config, args, timeoutMs }) => {
-    const { stdout, stderr } = await execFileAsync(
+    // Check for potential ENAMETOOLONG error by validating argument length
+    const fullCommandLine = [config.nodePath, config.cliEntryPath, ...args].join(' ');
+    
+    // On Windows, command line length is limited to approximately 8191 characters
+    if (fullCommandLine.length > SAFE_WINDOWS_COMMAND_LINE_LENGTH) {
+        throw new Error(`Command line too long (${fullCommandLine.length} chars). Consider shortening paths or arguments.`);
+    }
+    
+    // Validate path lengths as well
+    const pathsToCheck = [
         config.nodePath,
-        [config.cliEntryPath, ...args],
-        {
-            cwd: config.stateDir,
-            env: buildRunnerEnv(config),
-            maxBuffer: 50 * 1024 * 1024,
-            timeout: timeoutMs,
-            windowsHide: true
+        config.cliEntryPath,
+        config.stateDir,
+        config.configPath,
+        config.defaultWorkspacePath
+    ];
+    
+    for (const path of pathsToCheck) {
+        if (path && path.length > 255) {  // Typical filesystem path limits
+            console.warn(`Potentially long path detected: ${path.substring(0, 100)}... (${path.length} chars)`);
         }
-    );
+    }
+    
+    try {
+        const { stdout, stderr } = await execFileAsync(
+            config.nodePath,
+            [config.cliEntryPath, ...args],
+            {
+                cwd: config.stateDir,
+                env: buildRunnerEnv(config),
+                maxBuffer: 50 * 1024 * 1024,
+                timeout: timeoutMs,
+                windowsHide: true
+            }
+        );
 
-    return {
-        stdout,
-        stderr
-    };
+        return {
+            stdout,
+            stderr
+        };
+    } catch (error) {
+        if (error && typeof error === 'object' && 'code' in error && (error as any).code === 'ENAMETOOLONG') {
+            // Handle the ENAMETOOLONG error specifically
+            throw new Error(`Command line too long: ${fullCommandLine.substring(0, 200)}... Reduce path lengths or arguments.`);
+        }
+        // Re-throw other errors
+        throw error;
+    }
 };
+
+function estimateGatewayCallCommandLength(
+    config: OpenClawCliServiceConfig,
+    method: string,
+    params: Record<string, unknown>,
+    options: { expectFinal?: boolean }
+): number {
+    const args = ['gateway', 'call', method];
+
+    if (config.gatewayUrl) {
+        args.push('--url', toWebSocketUrl(config.gatewayUrl));
+        if (config.gatewayToken) {
+            args.push('--token', config.gatewayToken);
+        }
+    }
+
+    if (options.expectFinal) {
+        args.push('--expect-final');
+    }
+
+    args.push('--params', JSON.stringify(params), '--json');
+    return [config.nodePath, config.cliEntryPath, ...args].join(' ').length;
+}
 
 function buildRunnerEnv(config: OpenClawCliServiceConfig): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = {
@@ -661,7 +763,11 @@ function toWebSocketUrl(value: string): string {
 function sanitizeAgentId(value: string): string {
     const trimmed = value.trim().toLowerCase();
     const normalized = trimmed.replace(/[^a-z0-9-_]+/g, '-').replace(/-+/g, '-');
-    return normalized.replace(/^-|-$/g, '') || 'agent';
+    const sanitized = normalized.replace(/^-|-$/g, '') || 'agent';
+    
+    // Ensure the agent ID doesn't exceed reasonable length to prevent path issues on Windows
+    // Keep it under 100 characters to avoid path length issues when combined with other path elements
+    return sanitized.length > 100 ? sanitized.substring(0, 100) : sanitized;
 }
 
 function appendGatewayConnectionArgs(target: string[], config: OpenClawCliServiceConfig): void {

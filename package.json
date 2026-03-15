@@ -9,7 +9,7 @@
     "type": "git",
     "url": "https://github.com/LunaticLegacy/openclaw-vscode-luna.git"
   },
-  "icon": "resources/icon.png",
+  "icon": "resources/openclaw_luna_animated_1to1.webp",
   "engines": {
     "vscode": "^1.80.0"
   },

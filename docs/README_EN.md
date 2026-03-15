@@ -4,7 +4,7 @@
 
 <br />
 
-<img src="../resources/icon.png" width="120" alt="OpenClaw Luna Logo" />
+<img src="../resources/openclaw_luna_animated_1to1.webp" width="120" alt="OpenClaw Luna Logo" />
 
 # OpenClaw Luna
 

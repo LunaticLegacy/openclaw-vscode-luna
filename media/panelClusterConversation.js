@@ -277,9 +277,7 @@
 
     function buildAgentTraceMessages(entry, displayName, contextLabel) {
         const trace = Array.isArray(entry?.trace) ? entry.trace : [];
-        const source = trace.length > 0
-            ? trace
-            : (entry?.message ? [entry.message] : []);
+        const source = mergeTraceWithFinalMessage(trace, entry?.message);
         const deduped = [];
         const seen = new Set();
 
@@ -302,6 +300,29 @@
         });
 
         return deduped;
+    }
+
+    function mergeTraceWithFinalMessage(trace, finalMessage) {
+        if (!finalMessage) {
+            return trace;
+        }
+
+        if (!Array.isArray(trace) || trace.length === 0) {
+            return [finalMessage];
+        }
+
+        const finalKey = buildTraceDeduplicationKey(finalMessage);
+        const hasFinalMessage = trace.some(message => buildTraceDeduplicationKey(message) === finalKey);
+        if (hasFinalMessage) {
+            return trace;
+        }
+
+        const hasAssistantResult = trace.some(message => message?.role === 'assistant');
+        return hasAssistantResult ? trace : [...trace, finalMessage];
+    }
+
+    function buildTraceDeduplicationKey(message) {
+        return message.id || `${message.role}:${message.timestamp || ''}:${message.content || ''}`;
     }
 
     function buildCollaborationConversationMessages(result) {
