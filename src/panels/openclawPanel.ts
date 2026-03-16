@@ -1,4 +1,4 @@
-﻿import * as fs from 'fs';
+﻿﻿﻿﻿﻿import * as fs from 'fs';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { getClusterWorkModePresets } from '../config/clusterWorkModes';
@@ -61,6 +61,7 @@ import {
     handleClusterAgentMessage as clusterAgentMessageAction,
     handleClusterAgentSessionCommand as clusterAgentSessionCommandAction,
     handleCollaborate as collaborateClusterAction,
+    handleCreateClusterFromMemberPreset as createClusterFromMemberPresetAction,
     handleRemoveAgentsFromCluster as removeAgentsFromClusterAction,
     handleSaveCluster as saveClusterAction,
     loadClusterAgentMessages as loadClusterAgentMessagesAction,
@@ -141,6 +142,7 @@ export class OpenClawPanel {
     private _runtimeDiagnostics: OpenClawRuntimeDiagnostics | null = null;
     private _openClawConfigState: OpenClawConfigEditorState | null = null;
     private _seenRuntimeNoticeKeys: Set<string> = new Set();
+    private _skillMarketService: any;
 
     public static createOrShow(
         extensionUri: vscode.Uri,
@@ -377,6 +379,126 @@ export class OpenClawPanel {
 
     private async _refreshRuntimeState() {
         await refreshRuntimeStateAction(this._createRuntimeActionContext());
+    }
+
+    private async _loadSkillMarket(filters: any) {
+        try {
+            const result = await this._skillMarketService.searchSkills(filters || {});
+            
+            this._postMessage({
+                type: 'skillMarketLoaded',
+                skills: result.skills,
+                total: result.total,
+                page: result.page,
+                pageSize: result.pageSize,
+                categories: result.categories,
+                tags: result.tags
+            });
+        } catch (error) {
+            console.error('Failed to load skills from market:', error);
+            this._postMessage({
+                type: 'skillMarketLoadFailed',
+                message: 'Failed to load skills from market'
+            });
+        }
+    }
+
+    private async _refreshSkillMarket() {
+        this._skillMarketService.clearCache();
+        await this._loadSkillMarket(null);
+    }
+
+    private async _installSkill(skillId: string) {
+        try {
+            const skill = await this._skillMarketService.getSkillDetails(skillId);
+            if (!skill) {
+                throw new Error('Skill not found');
+            }
+            
+            const result = await this._skillMarketService.installSkill(skill);
+            
+            if (result.success) {
+                this._postMessage({
+                    type: 'skillInstalled',
+                    skill: result.skill
+                });
+                await this._loadAgents();
+            } else {
+                throw new Error(result.error || 'Installation failed');
+            }
+        } catch (error) {
+            console.error('Failed to install skill:', error);
+            this._postMessage({
+                type: 'skillInstallFailed',
+                skillId,
+                message: String(error)
+            });
+        }
+    }
+
+    private async _uninstallSkill(skillId: string) {
+        try {
+            const success = await this._skillMarketService.uninstallSkill(skillId);
+            
+            if (success) {
+                this._postMessage({
+                    type: 'skillUninstalled',
+                    skillId
+                });
+                await this._loadAgents();
+            } else {
+                throw new Error('Uninstallation failed');
+            }
+        } catch (error) {
+            console.error('Failed to uninstall skill:', error);
+            this._postMessage({
+                type: 'skillUninstallFailed',
+                skillId,
+                message: String(error)
+            });
+        }
+    }
+
+    private async _toggleSkillForAgent(agentId: string, skillId: string, enable: boolean) {
+        try {
+            const agents = await this._agentManager.getAgents();
+            const agent = agents.find(a => a.id === agentId);
+            
+            if (!agent) {
+                throw new Error('Agent not found');
+            }
+            
+            const currentEnabledSkills = agent.enabledSkills || [];
+            let newEnabledSkills: string[];
+            
+            if (enable) {
+                newEnabledSkills = [...new Set([...currentEnabledSkills, skillId])];
+            } else {
+                newEnabledSkills = currentEnabledSkills.filter(id => id !== skillId);
+            }
+            
+            await this._agentManager.updateAgent(agentId, {
+                ...agent,
+                enabledSkills: newEnabledSkills
+            });
+            
+            this._postMessage({
+                type: 'skillToggledForAgent',
+                agentId,
+                skillId,
+                enabled: enable
+            });
+            
+            await this._loadAgents();
+        } catch (error) {
+            console.error('Failed to toggle skill for agent:', error);
+            this._postMessage({
+                type: 'skillToggleFailed',
+                agentId,
+                skillId,
+                message: String(error)
+            });
+        }
     }
 
     private async _handleSendMessage(
@@ -1307,6 +1429,14 @@ export class OpenClawPanel {
         await saveClusterAction(this._createClusterActionContext(), clusterId, data);
     }
 
+    private async _handleCreateClusterFromMemberPreset(params: {
+        memberPresetId: string;
+        customName?: string;
+        model?: string;
+    }) {
+        await createClusterFromMemberPresetAction(this._createClusterActionContext(), params);
+    }
+
     private async _handleAddAgentsToCluster(clusterId: string) {
         await addAgentsToClusterAction(this._createClusterActionContext(), clusterId);
     }
@@ -1466,6 +1596,7 @@ export class OpenClawPanel {
             handleCreateAgentsBatch: this._handleCreateAgentsBatch.bind(this),
             showClusterEditor: this.showClusterEditor.bind(this),
             handleSaveCluster: this._handleSaveCluster.bind(this),
+            handleCreateClusterFromMemberPreset: this._handleCreateClusterFromMemberPreset.bind(this),
             activateChannel: this._activateChannel.bind(this),
             refreshActiveChannelMessages: this._refreshActiveChannelMessages.bind(this),
             handleCreateChannel: this._handleCreateChannel.bind(this),
@@ -1503,7 +1634,12 @@ export class OpenClawPanel {
             handleRetryConnection: this._handleRetryConnection.bind(this),
             handleStartOpenClaw: this._handleStartOpenClaw.bind(this),
             handleSaveConnectionSettings: this._handleSaveConnectionSettings.bind(this),
-            handleSaveOpenClawConfig: this._handleSaveOpenClawConfig.bind(this)
+            handleSaveOpenClawConfig: this._handleSaveOpenClawConfig.bind(this),
+            loadSkillMarket: this._loadSkillMarket.bind(this),
+            refreshSkillMarket: this._refreshSkillMarket.bind(this),
+            installSkill: this._installSkill.bind(this),
+            uninstallSkill: this._uninstallSkill.bind(this),
+            toggleSkillForAgent: this._toggleSkillForAgent.bind(this)
         };
     }
 
@@ -1657,4 +1793,3 @@ export class OpenClawPanel {
         return channels.find(channel => channel.id === channelId) || null;
     }
 }
-

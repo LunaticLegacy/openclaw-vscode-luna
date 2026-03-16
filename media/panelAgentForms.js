@@ -11,6 +11,62 @@
             applyView('chat');
             vscode.postMessage({ type: 'switchView', view: 'chat' });
         }
+
+    function installSkill(skillId) {
+        if (!skillId) {
+            showError('Invalid skill ID');
+            return;
+        }
+        
+        // Show installing status
+        const installBtn = document.querySelector(`[data-skill-install="${escapeHtml(skillId)}"]`);
+        if (installBtn) {
+            const originalText = installBtn.textContent;
+            installBtn.textContent = t('skillMarket.installing') || 'Installing...';
+            installBtn.disabled = true;
+            
+            // Restore button after installation
+            setTimeout(() => {
+                if (installBtn) {
+                    installBtn.textContent = originalText;
+                    installBtn.disabled = false;
+                }
+            }, 3000);
+        }
+        
+        vscode.postMessage({ 
+            type: 'installSkill', 
+            skillId: skillId 
+        });
+    }
+
+    function installSkill(skillId) {
+        if (!skillId) {
+            showError('Invalid skill ID');
+            return;
+        }
+        
+        // Show installing status
+        const installBtn = document.querySelector(`[data-skill-install="${escapeHtml(skillId)}"]`);
+        if (installBtn) {
+            const originalText = installBtn.textContent;
+            installBtn.textContent = t('skillMarket.installing') || 'Installing...';
+            installBtn.disabled = true;
+            
+            // Restore button after installation
+            setTimeout(() => {
+                if (installBtn) {
+                    installBtn.textContent = originalText;
+                    installBtn.disabled = false;
+                }
+            }, 3000);
+        }
+        
+        vscode.postMessage({ 
+            type: 'installSkill', 
+            skillId: skillId 
+        });
+    }
         
         renderConsoleOverview();
         vscode.postMessage({ type: 'selectAgent', agentId });
@@ -505,6 +561,21 @@
             };
     }
 
+    function getOpenClawConfigAuthProvider() {
+        const openClawConfig = state.runtime?.openClawConfig;
+        return openClawConfig?.authProviderId || '';
+    }
+
+    function getOpenClawConfigDefaultModel() {
+        const openClawConfig = state.runtime?.openClawConfig;
+        return openClawConfig?.defaultModel || '';
+    }
+
+    function getOpenClawConfigModelSuggestions() {
+        const openClawConfig = state.runtime?.openClawConfig;
+        return openClawConfig?.defaultModelSuggestionsByProvider || {};
+    }
+
     function renderAgentModelProviderOptions(scope, selectedModelRef = '') {
         const refs = getAgentModelFormElements(scope);
         if (!refs.provider) {
@@ -512,28 +583,33 @@
         }
 
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : key => key;
-        const catalog = buildAgentModelCatalog();
+        
+        // Get auth providers from OpenClaw Config
+        const openClawConfig = state.runtime?.openClawConfig;
+        const authProviders = Array.isArray(openClawConfig?.authProviders) ? openClawConfig.authProviders : [];
+        const configProvider = openClawConfig?.authProviderId || '';
+        
+        // Parse current model to determine provider
         const parsed = parseAgentModelRef(selectedModelRef);
-        const hasKnownProvider = parsed.providerId && catalog.providers.some(([providerId]) => providerId === parsed.providerId);
-        const hasDirectModel = !parsed.providerId && parsed.modelName && catalog.directModels.includes(parsed.modelName);
-        const resolvedProviderValue = hasKnownProvider
-            ? parsed.providerId
-            : hasDirectModel
-                ? DIRECT_AGENT_MODEL_PROVIDER_OPTION_VALUE
-                : parsed.providerId
-                    ? CUSTOM_AGENT_MODEL_PROVIDER_OPTION_VALUE
-                    : catalog.providers[0]?.[0] || (catalog.directModels.length > 0 ? DIRECT_AGENT_MODEL_PROVIDER_OPTION_VALUE : '');
+        const currentProvider = parsed.providerId || configProvider || '';
+        
+        // Determine the selected provider value
+        const resolvedProviderValue = currentProvider && authProviders.includes(currentProvider)
+            ? currentProvider
+            : currentProvider
+                ? CUSTOM_AGENT_MODEL_PROVIDER_OPTION_VALUE
+                : authProviders[0] || '';
 
         refs.provider.innerHTML = [
             `<option value="">${escapeHtml(t('agentSettings.modelProviderPlaceholder'))}</option>`,
-            ...catalog.providers.map(([providerId]) => `<option value="${escapeHtml(providerId)}">${escapeHtml(providerId)}</option>`),
-            ...(catalog.directModels.length > 0 ? [`<option value="${DIRECT_AGENT_MODEL_PROVIDER_OPTION_VALUE}">${escapeHtml(t('agentSettings.modelProviderDirect'))}</option>`] : []),
+            ...authProviders.map(providerId => `<option value="${escapeHtml(providerId)}">${escapeHtml(providerId)}</option>`),
             `<option value="${CUSTOM_AGENT_MODEL_PROVIDER_OPTION_VALUE}">${escapeHtml(t('agentSettings.modelProviderCustom'))}</option>`
         ].join('');
+        
         refs.provider.value = resolvedProviderValue;
 
         if (resolvedProviderValue === CUSTOM_AGENT_MODEL_PROVIDER_OPTION_VALUE && refs.providerCustom) {
-            refs.providerCustom.value = parsed.providerId || '';
+            refs.providerCustom.value = currentProvider || '';
         }
 
         syncAgentModelProviderCustomVisibility(scope, resolvedProviderValue);
@@ -547,43 +623,56 @@
         }
 
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : key => key;
-        const catalog = buildAgentModelCatalog();
         const selectedProviderValue = String(providerValue || refs.provider?.value || '').trim();
-        const parsed = parseAgentModelRef(selectedModelRef);
+        
+        // Get model suggestions from OpenClaw Config based on provider
+        const suggestionsByProvider = getOpenClawConfigModelSuggestions();
+        const configDefaultModel = getOpenClawConfigDefaultModel();
+        
+        // Get available models for the selected provider
         let providerModels = [];
-        let customModelValue = '';
-
-        if (selectedProviderValue === DIRECT_AGENT_MODEL_PROVIDER_OPTION_VALUE) {
-            providerModels = [...catalog.directModels];
-            customModelValue = parsed.providerId ? selectedModelRef : parsed.modelName;
-        } else if (selectedProviderValue === CUSTOM_AGENT_MODEL_PROVIDER_OPTION_VALUE) {
-            providerModels = [];
-            customModelValue = parsed.modelName || selectedModelRef;
-        } else {
-            providerModels = (catalog.providers.find(([providerId]) => providerId === selectedProviderValue)?.[1] || []).map(modelRef => {
-                const parts = parseAgentModelRef(modelRef);
-                return {
-                    label: parts.modelName || modelRef,
-                    value: modelRef
-                };
-            });
-            customModelValue = parsed.providerId === selectedProviderValue ? parsed.modelName : selectedModelRef;
+        if (selectedProviderValue && selectedProviderValue !== CUSTOM_AGENT_MODEL_PROVIDER_OPTION_VALUE) {
+            providerModels = Array.isArray(suggestionsByProvider[selectedProviderValue]) 
+                ? suggestionsByProvider[selectedProviderValue] 
+                : [];
         }
-
-        const resolvedModelValue = providerModels.some(entry => (entry.value || entry) === selectedModelRef)
-            ? selectedModelRef
-            : selectedModelRef
-                ? CUSTOM_AGENT_MODEL_OPTION_VALUE
-                : providerModels[0]?.value || providerModels[0] || '';
+        
+        // Also include available models from agent manager if they match the provider
+        const allAvailableModels = Array.isArray(state.availableModels) ? state.availableModels : [];
+        const matchingModels = allAvailableModels.filter(modelRef => {
+            if (!selectedProviderValue || selectedProviderValue === CUSTOM_AGENT_MODEL_PROVIDER_OPTION_VALUE) {
+                return true;
+            }
+            return modelRef.startsWith(selectedProviderValue + '/');
+        });
+        
+        // Merge suggestions and matching models, remove duplicates
+        const mergedModels = Array.from(new Set([...providerModels, ...matchingModels]));
+        
+        // Parse current model
+        const parsed = parseAgentModelRef(selectedModelRef);
+        let customModelValue = '';
+        
+        // Determine the model to select
+        let resolvedModelValue = '';
+        if (selectedModelRef && mergedModels.includes(selectedModelRef)) {
+            // Use the agent's current model if it's in the list
+            resolvedModelValue = selectedModelRef;
+        } else if (selectedModelRef && parsed.modelName) {
+            // Use custom model if agent has a model not in the list
+            resolvedModelValue = CUSTOM_AGENT_MODEL_OPTION_VALUE;
+            customModelValue = selectedModelRef;
+        } else if (configDefaultModel && mergedModels.includes(configDefaultModel)) {
+            // Fall back to OpenClaw Config default model
+            resolvedModelValue = configDefaultModel;
+        } else if (mergedModels.length > 0) {
+            // Fall back to first available model
+            resolvedModelValue = mergedModels[0];
+        }
 
         refs.model.innerHTML = [
             `<option value="">${escapeHtml(t('agentSettings.modelSelectPlaceholder'))}</option>`,
-            ...providerModels.map(entry => {
-                if (typeof entry === 'string') {
-                    return `<option value="${escapeHtml(entry)}">${escapeHtml(entry)}</option>`;
-                }
-                return `<option value="${escapeHtml(entry.value)}">${escapeHtml(entry.label)}</option>`;
-            }),
+            ...mergedModels.map(modelRef => `<option value="${escapeHtml(modelRef)}">${escapeHtml(modelRef)}</option>`),
             `<option value="${CUSTOM_AGENT_MODEL_OPTION_VALUE}">${escapeHtml(t('agentSettings.modelCustom'))}</option>`
         ].join('');
         refs.model.value = resolvedModelValue;
@@ -851,67 +940,119 @@
         openModal(elements.modalSkillMarket);
     }
 
+    async function refreshSkillMarket() {
+        if (elements.skillMarketLoading) {
+            elements.skillMarketLoading.classList.remove('hidden');
+        }
+        if (elements.skillMarketContent) {
+            elements.skillMarketContent.classList.add('hidden');
+        }
+
+        // Request skills from extension host
+        vscode.postMessage({ type: 'loadSkillMarket' });
+    }
+
     function renderSkillMarket() {
         if (!elements.skillMarketGrid) {
             return;
         }
 
-        const skills = Array.isArray(state.aiSkills) ? state.aiSkills : [];
-        const activeAgent = state.agents.find(agent => agent.id === state.currentAgentId) || null;
-        const enabledSkills = new Set(Array.isArray(activeAgent?.enabledSkills) ? activeAgent.enabledSkills : []);
-
-        if (elements.skillMarketAgentLabel) {
-            elements.skillMarketAgentLabel.textContent = activeAgent
-                ? `Browse SkillMarket.cc and toggle the marketplace skills currently enabled for ${activeAgent.name}.`
-                : 'Browse SkillMarket.cc. Select an agent to enable marketplace skills directly from this view.';
+        const t = window.OpenClawI18n?.t || ((key, args) => key);
+        const tab = state.skillMarketTab || 'market';
+        const filters = state.skillMarketFilters || { query: '', category: 'all', sortBy: 'popular' };
+        
+        // Get skills based on current tab
+        let skills = [];
+        if (tab === 'market') {
+            skills = state.skillMarketData?.skills || state.aiSkills || [];
+        } else if (tab === 'installed') {
+            skills = state.skillMarketInstalled || state.aiSkills || [];
+        } else if (tab === 'enabled') {
+            const activeAgent = state.agents.find(a => a.id === state.currentAgentId);
+            const enabledIds = new Set(activeAgent?.enabledSkills || []);
+            skills = (state.aiSkills || []).filter(s => enabledIds.has(s.id));
         }
 
+        // Apply filters
+        if (filters.query) {
+            const query = filters.query.toLowerCase();
+            skills = skills.filter(s => 
+                (s.label || '').toLowerCase().includes(query) ||
+                (s.description || '').toLowerCase().includes(query) ||
+                (s.tags || []).some(t => t.toLowerCase().includes(query))
+            );
+        }
+
+        if (filters.category && filters.category !== 'all') {
+            skills = skills.filter(s => s.category === filters.category);
+        }
+
+        // Update subtitle
+        if (elements.skillMarketSubtitle) {
+            elements.skillMarketSubtitle.textContent = t('skillMarket.subtitle');
+        }
+
+        // Update stats
+        if (elements.skillMarketStats) {
+            const total = state.skillMarketData?.total || skills.length;
+            elements.skillMarketStats.textContent = t('skillMarket.showingSkills', { showing: skills.length, total });
+        }
+
+        // Show/hide empty state
         if (skills.length === 0) {
-            elements.skillMarketGrid.innerHTML = '<div class="cluster-agent-picker-empty">No skills available.</div>';
+            if (elements.skillMarketEmpty) elements.skillMarketEmpty.classList.remove('hidden');
+            if (elements.skillMarketGrid) elements.skillMarketGrid.classList.add('hidden');
             return;
         }
 
-        const heroCard = `
-            <article class="skill-market-hero">
-                <div class="skill-market-hero-copy">
-                    <div class="skill-market-hero-eyebrow">External Marketplace</div>
-                    <h3>SkillMarket.cc</h3>
-                    <p>Use the public marketplace to discover reusable skills, then enable the matching skill set on the current agent inside Luna.</p>
-                </div>
-                <div class="skill-market-hero-actions">
-                    <button type="button" class="btn btn-primary" data-skill-url="https://skillmarket.cc/zh/">
-                        Browse Marketplace
-                    </button>
-                </div>
-            </article>
-        `;
+        if (elements.skillMarketEmpty) elements.skillMarketEmpty.classList.add('hidden');
+        if (elements.skillMarketGrid) elements.skillMarketGrid.classList.remove('hidden');
 
-        const skillCards = skills.map(skill => {
-            const isEnabled = enabledSkills.has(skill.id);
+        // Render skills grid
+        const activeAgent = state.agents.find(a => a.id === state.currentAgentId);
+        const enabledIds = new Set(activeAgent?.enabledSkills || []);
+
+        elements.skillMarketGrid.innerHTML = skills.map(skill => {
+            const isEnabled = enabledIds.has(skill.id);
+            const isInstalled = skill.isInstalled || skill.source === 'built-in';
+            const rating = skill.rating || 0;
+            const downloads = skill.downloads || 0;
+            
             return `
                 <article class="skill-market-card">
-                    <div class="skill-market-card-head">
+                    <div class="skill-market-card-header">
                         <div>
                             <div class="skill-market-card-title">${escapeHtml(skill.label || skill.id)}</div>
-                            <div class="skill-market-card-meta">${escapeHtml(skill.description || '')}</div>
+                            <div class="skill-market-card-meta">
+                                <span class="skill-market-card-category">${escapeHtml(skill.category || 'Other')}</span>
+                                ${rating ? `<span class="skill-market-card-rating"><span class="skill-market-card-rating-star">&#9733;</span> ${rating}</span>` : ''}
+                                ${downloads ? `<span class="skill-market-card-downloads">${downloads.toLocaleString()} ${t('skillMarket.downloads', { count: downloads }).split(' ')[1]}</span>` : ''}
+                            </div>
                         </div>
-                        <span class="skill-market-badge${isEnabled ? ' is-enabled' : ''}">${isEnabled ? 'Enabled' : 'Available'}</span>
                     </div>
-                    <div class="skill-market-origin">Source: SkillMarket.cc</div>
-                    <div class="skill-market-prompt">${escapeHtml(skill.prompt || '')}</div>
-                    <div class="skill-market-actions">
-                        <button type="button" class="btn ${isEnabled ? 'btn-secondary' : 'btn-primary'} btn-small" data-skill-market-toggle="true" data-skill-id="${escapeHtml(skill.id)}"${activeAgent ? '' : ' disabled'}>
-                            ${isEnabled ? 'Disable' : 'Enable'}
-                        </button>
-                        <button type="button" class="btn btn-secondary btn-small" data-skill-url="${escapeHtml(skill.downloadUrl || '')}">
-                            ${escapeHtml(skill.sourceLabel || 'Open Market')}
-                        </button>
+                    <div class="skill-market-card-description">${escapeHtml(skill.description || '')}</div>
+                    <div class="skill-market-card-tags">
+                        ${(skill.tags || []).slice(0, 4).map(tag => 
+                            `<span class="skill-market-card-tag">${escapeHtml(tag)}</span>`
+                        ).join('')}
+                    </div>
+                    <div class="skill-market-card-actions">
+                        ${tab === 'market' ? `
+                            <button type="button" class="btn ${isInstalled ? 'btn-secondary' : 'btn-primary'} btn-small" 
+                                ${isInstalled ? '' : `data-skill-install="${escapeHtml(skill.id)}"`}>
+                                ${isInstalled ? t('skillMarket.installed') : t('skillMarket.install')}
+                            </button>
+                        ` : ''}
+                        ${tab !== 'market' ? `
+                            <button type="button" class="btn ${isEnabled ? 'btn-secondary' : 'btn-primary'} btn-small" 
+                                data-skill-toggle="${escapeHtml(skill.id)}">
+                                ${isEnabled ? t('skillMarket.disable') : t('skillMarket.enable')}
+                            </button>
+                        ` : ''}
                     </div>
                 </article>
             `;
         }).join('');
-
-        elements.skillMarketGrid.innerHTML = heroCard + skillCards;
     }
 
     function toggleSkillForActiveAgent(skillId) {
@@ -1060,4 +1201,3 @@
         setAgentSettingsStatus('success', t('agentSettings.saving'));
         vscode.postMessage({ type: 'saveAgentSettings', agentId, settings });
     }
-

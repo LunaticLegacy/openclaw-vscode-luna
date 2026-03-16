@@ -83,7 +83,17 @@
         installGuideBusy: false,
         agentMutation: null,
         mainSidebarCollapsed: false,
-        clusterTopologyCollapsed: false
+        clusterTopologyCollapsed: false,
+        skillMarketFilters: {
+            query: '',
+            category: 'all',
+            tags: [],
+            sortBy: 'popular'
+        },
+        skillMarketTab: 'market',
+        skillMarketData: null,
+        skillMarketInstalled: [],
+        skillMarketLoading: false
     };
     let activeTraceContainer = null;
     let activeChannelTraceContainer = null;
@@ -542,8 +552,19 @@
         elements.agentSkillsPicker = document.getElementById('settings-agent-skills');
         elements.agentSkillsHint = document.getElementById('settings-agent-skills-hint');
         elements.agentSkillLinks = document.getElementById('settings-agent-skill-links');
-        elements.skillMarketAgentLabel = document.getElementById('skill-market-agent-label');
+        elements.skillMarketSubtitle = document.getElementById('skill-market-subtitle');
         elements.skillMarketGrid = document.getElementById('skill-market-grid');
+        elements.skillMarketContent = document.getElementById('skill-market-content');
+        elements.skillMarketSearchInput = document.getElementById('skill-market-search-input');
+        elements.skillMarketSearchClear = document.getElementById('skill-market-search-clear');
+        elements.skillMarketSort = document.getElementById('skill-market-sort');
+        elements.skillMarketCategories = document.getElementById('skill-market-categories');
+        elements.skillMarketTags = document.getElementById('skill-market-tags');
+        elements.skillMarketStats = document.getElementById('skill-market-stats');
+        elements.skillMarketEmpty = document.getElementById('skill-market-empty');
+        elements.skillMarketLoading = document.getElementById('skill-market-loading');
+        elements.btnRefreshSkills = document.getElementById('btn-refresh-skills');
+        elements.btnCreateCustomSkill = document.getElementById('btn-create-custom-skill');
         elements.modalTask = document.getElementById('modal-task');
         elements.formTask = document.getElementById('form-task');
     }
@@ -612,6 +633,36 @@
 
         elements.btnOpenSkillMarket?.addEventListener('click', () => {
             openSkillMarket();
+        });
+
+        // Skill Market search and filters
+        elements.skillMarketSearchInput?.addEventListener('input', (e) => {
+            state.skillMarketFilters = { ...state.skillMarketFilters, query: e.target.value };
+            renderSkillMarket();
+            elements.skillMarketSearchClear?.classList.toggle('is-visible', e.target.value.length > 0);
+        });
+
+        elements.skillMarketSearchClear?.addEventListener('click', () => {
+            if (elements.skillMarketSearchInput) {
+                elements.skillMarketSearchInput.value = '';
+                state.skillMarketFilters = { ...state.skillMarketFilters, query: '' };
+                renderSkillMarket();
+                elements.skillMarketSearchClear.classList.remove('is-visible');
+            }
+        });
+
+        elements.skillMarketSort?.addEventListener('change', (e) => {
+            state.skillMarketFilters = { ...state.skillMarketFilters, sortBy: e.target.value };
+            renderSkillMarket();
+        });
+
+        elements.btnRefreshSkills?.addEventListener('click', () => {
+            refreshSkillMarket();
+        });
+
+        elements.btnCreateCustomSkill?.addEventListener('click', () => {
+            // TODO: Open custom skill creation modal
+            showNotification('Custom skill creation coming soon');
         });
 
         elements.formConnectionSettings?.addEventListener('submit', (e) => {
@@ -995,11 +1046,20 @@
                 return;
             }
 
-            const skillToggle = target.closest('[data-skill-market-toggle]');
+            const skillToggle = target.closest('[data-skill-toggle]');
             if (skillToggle) {
                 const skillId = skillToggle.getAttribute('data-skill-id');
                 if (skillId) {
                     toggleSkillForActiveAgent(skillId);
+                }
+                return;
+            }
+
+            const skillInstall = target.closest('[data-skill-install]');
+            if (skillInstall) {
+                const skillId = skillInstall.getAttribute('data-skill-install');
+                if (skillId) {
+                    installSkill(skillId);
                 }
                 return;
             }
@@ -1179,4 +1239,3 @@
             }
         });
     }
-

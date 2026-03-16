@@ -390,6 +390,14 @@
                     window.OpenClawI18n ? window.OpenClawI18n.t('setup.openclawConfig.statusSaved') : 'OpenClaw config saved.'
                 );
                 renderConsoleOverview();
+                // Refresh agent settings model options if modal is open
+                if (elements.modalAgentSettings?.classList.contains('active')) {
+                    const agentId = document.getElementById('settings-agent-id')?.value;
+                    const agent = state.agents.find(a => a.id === agentId);
+                    if (agent) {
+                        syncAgentModelFormState('settings', agent.model || '');
+                    }
+                }
                 break;
 
             case 'openClawConfigSaveFailed':
@@ -416,6 +424,63 @@
                     message.message || (window.OpenClawI18n ? window.OpenClawI18n.t('setup.startStatusFailed', { error: 'unknown error' }) : 'Failed to start OpenClaw.')
                 );
                 renderConnectionSetup();
+                break;
+
+            case 'skillMarketLoaded':
+                state.skillMarketData = {
+                    skills: message.skills || [],
+                    total: message.total || 0,
+                    page: message.page || 1,
+                    pageSize: message.pageSize || 50,
+                    categories: message.categories || [],
+                    tags: message.tags || []
+                };
+                renderSkillMarket();
+                if (elements.skillMarketLoading) {
+                    elements.skillMarketLoading.classList.add('hidden');
+                }
+                if (elements.skillMarketContent) {
+                    elements.skillMarketContent.classList.remove('hidden');
+                }
+                break;
+
+            case 'skillMarketLoadFailed':
+                if (elements.skillMarketLoading) {
+                    elements.skillMarketLoading.classList.add('hidden');
+                }
+                if (elements.skillMarketContent) {
+                    elements.skillMarketContent.classList.remove('hidden');
+                }
+                showNotification(message.message || 'Failed to load skills from market');
+                break;
+
+            case 'skillInstalled':
+                showNotification(window.OpenClawI18n ? window.OpenClawI18n.t('skillMarket.installSuccess') : 'Skill installed successfully');
+                // Refresh installed skills list
+                void refreshSkillMarket();
+                break;
+
+            case 'skillInstallFailed':
+                showNotification(message.message || 'Failed to install skill');
+                break;
+
+            case 'skillUninstalled':
+                showNotification('Skill uninstalled');
+                // Refresh installed skills list
+                void refreshSkillMarket();
+                break;
+
+            case 'skillUninstallFailed':
+                showNotification(message.message || 'Failed to uninstall skill');
+                break;
+
+            case 'skillToggledForAgent':
+                // Refresh UI to reflect the change
+                renderSkillMarket();
+                break;
+
+            case 'skillToggleFailed':
+                showNotification(message.message || 'Failed to toggle skill');
                 break;
         }
     });

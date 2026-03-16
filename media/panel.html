@@ -66,9 +66,10 @@
                         <div class="loading" data-i18n="common.loading">Loading...</div>
                     </div>
                     <div class="agent-primary-actions">
-                        <button id="btn-new-agent-folder" class="btn btn-secondary" type="button" data-i18n="sidebar.newFolder">New Folder</button>
-                        <button id="btn-new-agent" class="btn btn-secondary">
-                            <span class="icon">+</span>
+                        <button id="btn-new-agent-folder" class="btn btn-secondary" type="button">
+                            <span data-i18n="sidebar.newFolder">New Folder</span>
+                        </button>
+                        <button id="btn-new-agent" class="btn btn-secondary" type="button">
                             <span data-i18n="sidebar.newAgent">New Agent</span>
                         </button>
                     </div>
@@ -733,16 +734,61 @@
                 <span class="modal-close">&times;</span>
                 <div class="skill-market-header">
                     <div>
-                        <h2>Skill Market</h2>
-                        <p id="skill-market-agent-label" class="channel-editor-summary">Browse SkillMarket.cc and enable marketplace-aligned skills for the active agent.</p>
+                        <h2 data-i18n="skillMarket.title">Skill Market</h2>
+                        <p id="skill-market-subtitle" class="channel-editor-summary" data-i18n="skillMarket.subtitle">Discover and install AI skills from SkillMarket.cc</p>
                     </div>
                     <div class="skill-market-header-actions">
-                        <button type="button" class="btn btn-primary" data-skill-url="https://skillmarket.cc/zh/">
-                            Open SkillMarket.cc
+                        <button type="button" class="btn btn-secondary" id="btn-refresh-skills" title="Refresh">
+                            <span class="icon">&#8635;</span>
+                        </button>
+                        <button type="button" class="btn btn-primary" id="btn-create-custom-skill" data-i18n="skillMarket.createCustom">
+                            Create Custom
                         </button>
                     </div>
                 </div>
-                <div id="skill-market-grid" class="skill-market-grid"></div>
+                <div class="skill-market-tabs">
+                    <button type="button" class="skill-market-tab is-active" data-tab="market" data-i18n="skillMarket.tabMarket">Market</button>
+                    <button type="button" class="skill-market-tab" data-tab="installed" data-i18n="skillMarket.tabInstalled">Installed</button>
+                    <button type="button" class="skill-market-tab" data-tab="enabled" data-i18n="skillMarket.tabEnabled">Enabled</button>
+                </div>
+                <div class="skill-market-filters">
+                    <div class="skill-market-search-row">
+                        <div class="skill-market-search">
+                            <input type="text" id="skill-market-search-input" data-i18n-placeholder="skillMarket.searchPlaceholder" placeholder="Search skills..." class="skill-market-search-input">
+                            <button type="button" id="skill-market-search-clear" class="skill-market-search-clear" title="Clear search">&times;</button>
+                        </div>
+                        <div class="skill-market-sort">
+                            <select id="skill-market-sort" class="skill-market-sort-select">
+                                <option value="popular" data-i18n="skillMarket.sortPopular">Most Popular</option>
+                                <option value="newest" data-i18n="skillMarket.sortNewest">Newest</option>
+                                <option value="rating" data-i18n="skillMarket.sortRating">Highest Rated</option>
+                                <option value="name" data-i18n="skillMarket.sortName">Name</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="skill-market-categories" id="skill-market-categories">
+                        <button type="button" class="skill-market-category-btn is-active" data-category="all" data-i18n="skillMarket.categoryAll">All</button>
+                        <button type="button" class="skill-market-category-btn" data-category="coding" data-i18n="skillMarket.categoryCoding">Coding</button>
+                        <button type="button" class="skill-market-category-btn" data-category="testing" data-i18n="skillMarket.categoryTesting">Testing</button>
+                        <button type="button" class="skill-market-category-btn" data-category="planning" data-i18n="skillMarket.categoryPlanning">Planning</button>
+                        <button type="button" class="skill-market-category-btn" data-category="analysis" data-i18n="skillMarket.categoryAnalysis">Analysis</button>
+                        <button type="button" class="skill-market-category-btn" data-category="documentation" data-i18n="skillMarket.categoryDocumentation">Documentation</button>
+                    </div>
+                    <div class="skill-market-tags" id="skill-market-tags"></div>
+                    <div class="skill-market-stats" id="skill-market-stats"></div>
+                </div>
+                <div id="skill-market-content" class="skill-market-content">
+                    <div id="skill-market-grid" class="skill-market-grid"></div>
+                </div>
+                <div id="skill-market-empty" class="skill-market-empty hidden">
+                    <div class="skill-market-empty-icon">&#128230;</div>
+                    <div data-i18n="skillMarket.noSkills">No skills found</div>
+                    <div class="skill-market-empty-hint" data-i18n="skillMarket.noSkillsHint">Try adjusting filters or search terms.</div>
+                </div>
+                <div id="skill-market-loading" class="skill-market-loading hidden">
+                    <div class="spinner"></div>
+                    <div data-i18n="common.loading">Loading...</div>
+                </div>
             </div>
         </div>
 

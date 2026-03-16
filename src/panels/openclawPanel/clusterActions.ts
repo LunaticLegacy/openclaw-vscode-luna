@@ -1,6 +1,11 @@
 import * as vscode from 'vscode';
 
-import { getClusterWorkModePresets } from '../../config/clusterWorkModes';
+import { getClusterWorkModePresets, normalizeClusterWorkspaceConfig } from '../../config/clusterWorkModes';
+import {
+    buildClusterNameFromTemplate,
+    getClusterMemberPresets,
+    type ClusterMemberPreset
+} from '../../config/clusterMemberPresets';
 import { t } from '../../i18n';
 import type { AgentCluster } from '../../services/openclawService';
 import type { AgentManager } from '../../managers/agentManager';
@@ -42,7 +47,8 @@ export async function loadClusters(context: ClusterActionContext, selectedCluste
             type: 'clustersLoaded',
             clusters,
             selectedClusterId,
-            workModePresets: getClusterWorkModePresets()
+            workModePresets: getClusterWorkModePresets(),
+            memberPresets: getClusterMemberPresets()
         });
     } catch (error) {
         context.postMessage({
@@ -601,6 +607,156 @@ export async function handleSaveCluster(
                     await context.loadAgents();
                 }
                 vscode.window.showErrorMessage(t(clusterId ? 'clusters.updateFailed' : 'clusters.createFailed', { error: String(error) }));
+            }
+        }
+    );
+}
+
+export interface CreateClusterFromPresetParams {
+    memberPresetId: string;
+    customName?: string;
+    model?: string;
+}
+
+export async function handleCreateClusterFromMemberPreset(
+    context: ClusterActionContext,
+    params: CreateClusterFromPresetParams
+): Promise<void> {
+    const { memberPresetId, customName, model } = params;
+    
+    const memberPresets = getClusterMemberPresets();
+    const preset = memberPresets.find(p => p.id === memberPresetId);
+    
+    if (!preset) {
+        vscode.window.showErrorMessage(t('clusters.memberPresetNotFound', { presetId: memberPresetId }));
+        return;
+    }
+
+    const clusterName = customName?.trim() || buildClusterNameFromTemplate(preset.nameTemplate);
+    
+    const createdAgentIds: string[] = [];
+    const agentIdMap = new Map<string, string>();
+    
+    const totalSteps = preset.memberBlueprints.length + 2;
+    const progressTitle = t('progress.creatingClusterFromPreset', { presetName: preset.description });
+
+    await vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: progressTitle,
+            cancellable: false
+        },
+        async progress => {
+            const reporter = createStepProgressReporter(progress, totalSteps);
+
+            try {
+                const agents = await context.agentManager.getAgents();
+                const defaultModel = model?.trim() || agents[0]?.model || 'moonshot/kimi-k2.5';
+
+                for (const [index, blueprint] of preset.memberBlueprints.entries()) {
+                    reporter.start(t('progress.creatingClusterAgent', {
+                        current: index + 1,
+                        total: preset.memberBlueprints.length,
+                        name: blueprint.nameTemplate
+                    }));
+
+                    const agentName = `${blueprint.nameTemplate}`;
+                    
+                    const existingAgent = agents.find(a => a.name === agentName);
+                    if (existingAgent) {
+                        agentIdMap.set(blueprint.id, existingAgent.id);
+                        createdAgentIds.push(existingAgent.id);
+                        reporter.complete();
+                        continue;
+                    }
+
+                    const createParams: {
+                        name: string;
+                        model: string;
+                        systemPrompt?: string;
+                        presetId?: string;
+                    } = {
+                        name: agentName,
+                        model: blueprint.model || defaultModel,
+                        presetId: blueprint.presetId,
+                        systemPrompt: blueprint.systemPromptAppend
+                    };
+
+                    const createdAgent = await context.agentManager.createAgent(createParams);
+                    agentIdMap.set(blueprint.id, createdAgent.id);
+                    createdAgentIds.push(createdAgent.id);
+                    reporter.complete();
+                }
+
+                const rootBlueprint = preset.memberBlueprints.find(b => b.isCoordinator) || preset.memberBlueprints[0];
+                const coordinatorAgentId = rootBlueprint ? agentIdMap.get(rootBlueprint.id) : undefined;
+
+                const memberProfiles: Record<string, { parentAgentId?: string; activation?: { keywords?: string[]; swarmModes?: ('broadcast' | 'collaborate')[] } }> = {};
+                
+                for (const blueprint of preset.memberBlueprints) {
+                    const agentId = agentIdMap.get(blueprint.id);
+                    if (!agentId) continue;
+
+                    const profile: { parentAgentId?: string; activation?: { keywords?: string[]; swarmModes?: ('broadcast' | 'collaborate')[] } } = {};
+                    
+                    if (blueprint.parentId) {
+                        const parentAgentId = agentIdMap.get(blueprint.parentId);
+                        if (parentAgentId) {
+                            profile.parentAgentId = parentAgentId;
+                        }
+                    }
+                    
+                    if (blueprint.activation) {
+                        profile.activation = blueprint.activation;
+                    }
+                    
+                    if (Object.keys(profile).length > 0) {
+                        memberProfiles[agentId] = profile;
+                    }
+                }
+
+                reporter.start(t('progress.creatingClusterRecord'));
+                const workspaceConfig = normalizeClusterWorkspaceConfig({
+                    ...preset.workspaceConfig,
+                    coordinatorAgentId,
+                    memberProfiles
+                });
+
+                const cluster = await context.clusterManager.createCluster({
+                    name: clusterName,
+                    agentIds: createdAgentIds,
+                    workspaceConfig
+                });
+                reporter.complete();
+
+                reporter.start(t('progress.refreshingAgents'));
+                await context.loadAgents();
+                reporter.complete();
+
+                context.postMessage({
+                    type: 'clusterSaved',
+                    cluster
+                });
+
+                reporter.start(t('progress.refreshingClusters'));
+                await context.loadClusters(cluster.id);
+                reporter.complete();
+
+                showSuccessStatus(t('clusters.createdFromPreset', { 
+                    name: cluster.name, 
+                    presetName: preset.description 
+                }));
+
+                if (preset.onboardingMessageTemplate) {
+                    vscode.window.showInformationMessage(preset.onboardingMessageTemplate);
+                }
+            } catch (error) {
+                if (createdAgentIds.length > 0) {
+                    reporter.start(t('progress.rollingBackClusterAgents'));
+                    await Promise.allSettled(createdAgentIds.map(agentId => context.agentManager.deleteAgent(agentId)));
+                    await context.loadAgents();
+                }
+                vscode.window.showErrorMessage(t('clusters.createFromPresetFailed', { error: String(error) }));
             }
         }
     );
