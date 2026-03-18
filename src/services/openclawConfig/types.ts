@@ -111,6 +111,9 @@ export interface ModelsFile {
     }>;
 }
 
+/**
+ * OpenClaw本体配置文件结构。
+ */
 export interface OpenClawConfigFile {
     auth?: {
         profiles?: Record<string, {
@@ -131,6 +134,15 @@ export interface OpenClawConfigFile {
                 primary?: string;
             };
         };
+        list?: [
+            {
+                id?: string;
+                name?: string;
+                provider?: string;
+                model?: string;
+                workspace?: string;
+            }
+        ];
     };
 }
 

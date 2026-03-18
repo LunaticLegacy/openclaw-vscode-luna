@@ -11,11 +11,19 @@ import {
     RealtimeUsageSnapshot
 } from './types';
 
+/**
+ * Service for tracking local mode API usage statistics.
+ */
 export class LocalUsageService {
     private usage: APIUsage = createEmptyUsage();
     private usageByAgent: Map<string, APIUsage> = new Map();
     private requestTimestamps: number[] = [];
 
+    /**
+     * Initializes the usage service with agent and global hints.
+     * @param agentHints - Array of agent hints with IDs and model info
+     * @param globalHints - Global hints for currency inference
+     */
     public initialize(agentHints: Array<{ agentId: string; providerId: string; model: string }>, globalHints: string[]): void {
         this.usage = createEmptyUsage(inferCurrencyFromHints(globalHints));
         this.usageByAgent.clear();
@@ -29,6 +37,10 @@ export class LocalUsageService {
         }
     }
 
+    /**
+     * Attaches an agent for usage tracking.
+     * @param agent - The local agent to attach
+     */
     public attachAgent(agent: LocalAgent): void {
         this.usageByAgent.set(
             agent.id,
@@ -36,18 +48,36 @@ export class LocalUsageService {
         );
     }
 
+    /**
+     * Removes an agent from usage tracking.
+     * @param agentId - The agent ID to remove
+     */
     public deleteAgent(agentId: string): void {
         this.usageByAgent.delete(agentId);
     }
 
+    /**
+     * Gets overall usage statistics.
+     * @returns The API usage data
+     */
     public getUsage(): APIUsage {
         return cloneUsage(this.usage);
     }
 
+    /**
+     * Gets usage statistics for a specific agent.
+     * @param agentId - The agent ID
+     * @returns The agent's API usage data
+     */
     public getUsageByAgent(agentId: string): APIUsage {
         return cloneUsage(this.usageByAgent.get(agentId) || createEmptyUsage());
     }
 
+    /**
+     * Gets real-time usage snapshot.
+     * @param activeSessions - Number of active sessions
+     * @returns Realtime usage statistics
+     */
     public getRealtimeUsage(activeSessions: number): RealtimeUsageSnapshot {
         const now = Date.now();
         this.requestTimestamps = this.requestTimestamps.filter(timestamp => now - timestamp < 60000);
@@ -58,6 +88,11 @@ export class LocalUsageService {
         };
     }
 
+    /**
+     * Records a request with optional usage data.
+     * @param agent - The local agent making the request
+     * @param usage - Optional usage data from the response
+     */
     public recordRequest(
         agent: LocalAgent,
         usage?: {
@@ -81,6 +116,9 @@ export class LocalUsageService {
         this.requestTimestamps.push(Date.now());
     }
 
+    /**
+     * Resets all usage statistics.
+     */
     public reset(): void {
         this.usage = createEmptyUsage();
         this.usageByAgent.clear();
@@ -88,6 +126,11 @@ export class LocalUsageService {
     }
 }
 
+/**
+ * Creates an empty usage object.
+ * @param currency - Optional currency info
+ * @returns The empty API usage object
+ */
 export function createEmptyUsage(currency?: { code: string; symbol: string }): APIUsage {
     return {
         totalRequests: 0,
@@ -105,6 +148,11 @@ export function createEmptyUsage(currency?: { code: string; symbol: string }): A
     };
 }
 
+/**
+ * Creates a deep clone of usage data.
+ * @param usage - The usage data to clone
+ * @returns The cloned usage data
+ */
 export function cloneUsage(usage: APIUsage): APIUsage {
     return {
         totalRequests: usage.totalRequests,
@@ -122,6 +170,14 @@ export function cloneUsage(usage: APIUsage): APIUsage {
     };
 }
 
+/**
+ * Maps OpenClaw sessions usage to API usage format.
+ * @param sessionsUsage - The sessions usage result from OpenClaw
+ * @param usageCost - The usage cost result
+ * @param agentId - Optional agent ID to filter by
+ * @param modelHints - Hints for model resolution
+ * @returns The mapped API usage
+ */
 export function mapOpenClawUsage(
     sessionsUsage: OpenClawSessionsUsageResult,
     usageCost: OpenClawUsageCostResult | null,
@@ -270,6 +326,11 @@ export function mapOpenClawUsage(
     return usage;
 }
 
+/**
+ * Builds model hints map from sessions list.
+ * @param sessions - Array of session entries
+ * @returns Map of session keys/IDs to model names
+ */
 export function buildSessionModelHints(sessions: OpenClawSessionsListEntry[]): Map<string, string> {
     const hints = new Map<string, string>();
 
@@ -293,6 +354,11 @@ export function buildSessionModelHints(sessions: OpenClawSessionsListEntry[]): M
     return hints;
 }
 
+/**
+ * Infers currency from provider/model hints.
+ * @param hints - Array of hint strings
+ * @returns Currency info or undefined
+ */
 export function inferCurrencyFromHints(hints: string[]): { code: string; symbol: string } | undefined {
     const normalized = hints
         .map(hint => hint.trim().toLowerCase())
@@ -305,6 +371,11 @@ export function inferCurrencyFromHints(hints: string[]): { code: string; symbol:
     return undefined;
 }
 
+/**
+ * Gets unique model names from a list.
+ * @param values - Array of model name values
+ * @returns Array of unique model names
+ */
 export function uniqueModelNames(values: Array<string | undefined | null>): string[] {
     const models: string[] = [];
     const seen = new Set<string>();
@@ -322,16 +393,28 @@ export function uniqueModelNames(values: Array<string | undefined | null>): stri
     return models;
 }
 
+/**
+ * Estimates fallback cost from token counts.
+ * @param promptTokens - Number of prompt tokens
+ * @param completionTokens - Number of completion tokens
+ * @returns Estimated cost
+ */
 function estimateFallbackCost(promptTokens: number, completionTokens: number): number {
     return ((promptTokens + completionTokens) / 1000) * 0.002;
 }
 
+/**
+ * Resolves the model key for usage tracking.
+ * @param session - The session usage entry
+ * @param modelHints - Hints for model resolution
+ * @param fallbackWindowModel - Fallback model name
+ * @returns The resolved model key
+ */
 function resolveUsageModelKey(
     session: OpenClawSessionsUsageEntry,
     modelHints: {
         sessionModels?: Map<string, string>;
         agentModels?: Map<string, string>;
-        defaultModel?: string;
     },
     fallbackWindowModel?: string
 ): string {
@@ -343,17 +426,27 @@ function resolveUsageModelKey(
         || modelHints.sessionModels?.get(sessionKey)
         || modelHints.sessionModels?.get(sessionId)
         || modelHints.agentModels?.get(agentId)
-        || fallbackWindowModel
-        || normalizeUsageModelName(modelHints.defaultModel);
+        || fallbackWindowModel;
 
     return hintedModel || 'unknown';
 }
 
+/**
+ * Resolves the channel key for usage tracking.
+ * @param session - The session usage entry
+ * @returns The channel key
+ */
 function resolveUsageChannelKey(session: OpenClawSessionsUsageEntry): string {
     const normalized = session.channel?.trim().toLowerCase();
     return normalized || 'chat';
 }
 
+/**
+ * Resolves the fallback window model from sessions usage.
+ * @param sessionsUsage - The sessions usage result
+ * @param defaultModel - Default model name
+ * @returns The fallback model or undefined
+ */
 function resolveFallbackWindowModel(
     sessionsUsage: OpenClawSessionsUsageResult,
     defaultModel?: string
@@ -366,6 +459,11 @@ function resolveFallbackWindowModel(
     return normalizeUsageModelName(defaultModel);
 }
 
+/**
+ * Collects known model names from usage data.
+ * @param sessionsUsage - The sessions usage result
+ * @returns Array of known model names
+ */
 function collectKnownUsageModels(sessionsUsage: OpenClawSessionsUsageResult): string[] {
     const seen = new Set<string>();
     const result: string[] = [];
@@ -395,6 +493,11 @@ function collectKnownUsageModels(sessionsUsage: OpenClawSessionsUsageResult): st
     return result;
 }
 
+/**
+ * Normalizes a usage model name.
+ * @param value - The model name value
+ * @returns The normalized model name or undefined
+ */
 function normalizeUsageModelName(value: string | undefined | null): string | undefined {
     const normalized = value?.trim();
     if (!normalized) {
@@ -408,6 +511,16 @@ function normalizeUsageModelName(value: string | undefined | null): string | und
     return normalized;
 }
 
+/**
+ * Updates usage aggregate with new data.
+ * @param usage - The usage object to update
+ * @param model - The model name
+ * @param day - The day key
+ * @param promptTokens - Number of prompt tokens
+ * @param completionTokens - Number of completion tokens
+ * @param totalTokens - Total token count
+ * @param cost - The cost amount
+ */
 function updateUsageAggregate(
     usage: APIUsage,
     model: string,

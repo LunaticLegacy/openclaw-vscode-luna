@@ -3,16 +3,43 @@ import { EventEmitter } from 'events';
 import { t } from '../i18n';
 import { ChatMessage, ChatSession, CreateChatSessionOptions, OpenClawService } from '../services/openclawService';
 
+/**
+ * 聊天会话管理器，负责管理聊天会话的创建、消息发送和状态管理
+ * 
+ * @emits sessionCreated - 当会话被创建时触发
+ * @emits sessionChanged - 当当前会话改变时触发
+ * @emits messageReceived - 当收到消息时触发
+ * @emits historyCleared - 当历史记录被清除时触发
+ * @emits sessionClosed - 当会话被关闭时触发
+ * 
+ * @example
+ * ```typescript
+ * const manager = new ChatSessionManager(service);
+ * const session = await manager.createSession(agentId);
+ * await manager.sendMessage('Hello');
+ * ```
+ */
 export class ChatSessionManager extends EventEmitter {
     private service: OpenClawService;
     private sessions: Map<string, ChatSession> = new Map();
     private currentSessionId: string | null = null;
 
+    /**
+     * 创建 ChatSessionManager 实例
+     * @param service - OpenClaw 服务实例
+     */
     constructor(service: OpenClawService) {
         super();
         this.service = service;
     }
 
+    /**
+     * 创建新会话
+     * 
+     * @param agentId - 智能体ID
+     * @param options - 创建选项
+     * @returns 创建的会话
+     */
     public async createSession(agentId: string, options: CreateChatSessionOptions = {}): Promise<ChatSession> {
         const session = await this.service.createChatSession(agentId, options);
         this.sessions.set(session.id, session);
@@ -21,6 +48,13 @@ export class ChatSessionManager extends EventEmitter {
         return session;
     }
 
+    /**
+     * 获取或创建会话
+     * 
+     * @param agentId - 智能体ID
+     * @param options - 选项
+     * @returns 现有会话或新创建的会话
+     */
     public async getOrCreateSession(
         agentId: string,
         options: { refreshHistory?: boolean; sessionId?: string } = {}
@@ -54,6 +88,12 @@ export class ChatSessionManager extends EventEmitter {
         });
     }
 
+    /**
+     * 根据智能体查找会话
+     * 
+     * @param agentId - 智能体ID
+     * @returns 会话对象或 null
+     */
     public findSessionByAgent(agentId: string): ChatSession | null {
         for (const session of this.sessions.values()) {
             if (session.agentId === agentId) {
@@ -64,19 +104,41 @@ export class ChatSessionManager extends EventEmitter {
         return null;
     }
 
+    /**
+     * 获取指定会话
+     * 
+     * @param sessionId - 会话ID
+     * @returns 会话对象或 null
+     */
     public getSession(sessionId: string): ChatSession | null {
         return this.sessions.get(sessionId) || null;
     }
 
+    /**
+     * 获取当前会话
+     * 
+     * @returns 当前会话或 null
+     */
     public getCurrentSession(): ChatSession | null {
         if (!this.currentSessionId) return null;
         return this.sessions.get(this.currentSessionId) || null;
     }
 
+    /**
+     * 获取当前会话ID
+     * 
+     * @returns 当前会话ID或 null
+     */
     public getCurrentSessionId(): string | null {
         return this.currentSessionId;
     }
 
+    /**
+     * 设置当前会话
+     * 
+     * @param sessionId - 会话ID
+     * @returns 是否设置成功
+     */
     public setCurrentSession(sessionId: string): boolean {
         if (this.sessions.has(sessionId)) {
             this.currentSessionId = sessionId;
@@ -86,6 +148,13 @@ export class ChatSessionManager extends EventEmitter {
         return false;
     }
 
+    /**
+     * 发送消息
+     * 
+     * @param content - 消息内容
+     * @returns 助手回复消息
+     * @throws Error - 当没有活跃会话时抛出
+     */
     public async sendMessage(content: string): Promise<ChatMessage> {
         const session = this.getCurrentSession();
         if (!session) {
@@ -107,6 +176,13 @@ export class ChatSessionManager extends EventEmitter {
         return response;
     }
 
+    /**
+     * 流式发送消息
+     * 
+     * @param content - 消息内容
+     * @returns 消息块生成器
+     * @throws Error - 当没有活跃会话时抛出
+     */
     public async *streamMessage(content: string): AsyncGenerator<{ content: string; done: boolean; message?: ChatMessage }, void, unknown> {
         const session = this.getCurrentSession();
         if (!session) {
@@ -153,6 +229,11 @@ export class ChatSessionManager extends EventEmitter {
         }
     }
 
+    /**
+     * 获取当前会话的历史记录
+     * 
+     * @returns 消息列表
+     */
     public async getHistory(): Promise<ChatMessage[]> {
         const session = this.getCurrentSession();
         if (!session) {
@@ -167,6 +248,13 @@ export class ChatSessionManager extends EventEmitter {
         return session.messages;
     }
 
+    /**
+     * 刷新会话历史记录
+     * 
+     * @param sessionId - 会话ID，默认当前会话
+     * @param options - 刷新选项
+     * @returns 消息列表
+     */
     public async refreshSessionHistory(
         sessionId?: string,
         options: { preferLiveState?: boolean } = {}
@@ -194,6 +282,11 @@ export class ChatSessionManager extends EventEmitter {
         return session.messages;
     }
 
+    /**
+     * 清除当前会话的历史记录
+     * 
+     * @returns Promise<void>
+     */
     public async clearHistory(): Promise<void> {
         const session = this.getCurrentSession();
         if (!session) return;
@@ -203,6 +296,11 @@ export class ChatSessionManager extends EventEmitter {
         this.emit('historyCleared', session.id);
     }
 
+    /**
+     * 关闭会话
+     * 
+     * @param sessionId - 会话ID，默认当前会话
+     */
     public closeSession(sessionId?: string): void {
         const id = sessionId || this.currentSessionId;
         if (!id) return;
@@ -216,14 +314,27 @@ export class ChatSessionManager extends EventEmitter {
         this.emit('sessionClosed', id);
     }
 
+    /**
+     * 获取所有会话
+     * 
+     * @returns 会话列表
+     */
     public getAllSessions(): ChatSession[] {
         return Array.from(this.sessions.values());
     }
 
+    /**
+     * 获取会话数量
+     * 
+     * @returns 会话数量
+     */
     public getSessionCount(): number {
         return this.sessions.size;
     }
 
+    /**
+     * 释放资源
+     */
     public dispose() {
         this.removeAllListeners();
         this.sessions.clear();

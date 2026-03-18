@@ -7,7 +7,17 @@ import { ClusterTreeItem } from './clusterTreeProvider';
 
 type SidebarNode = SidebarSectionTreeItem | SidebarInfoTreeItem | AgentTreeItem | ClusterTreeItem;
 
+/**
+ * 侧边栏分区节点
+ * 表示 Agents 或 Clusters 分区标题
+ */
 class SidebarSectionTreeItem extends vscode.TreeItem {
+    /**
+     * 创建 SidebarSectionTreeItem 实例
+     * @param section - 分区类型（agents 或 clusters）
+     * @param label - 显示标签
+     * @param count - 项目数量
+     */
     constructor(
         public readonly section: 'agents' | 'clusters',
         label: string,
@@ -21,7 +31,15 @@ class SidebarSectionTreeItem extends vscode.TreeItem {
     }
 }
 
+/**
+ * 侧边栏信息节点
+ * 用于显示空状态或提示信息
+ */
 class SidebarInfoTreeItem extends vscode.TreeItem {
+    /**
+     * 创建 SidebarInfoTreeItem 实例
+     * @param message - 显示的信息文本
+     */
     constructor(message: string) {
         super(message, vscode.TreeItemCollapsibleState.None);
 
@@ -30,10 +48,19 @@ class SidebarInfoTreeItem extends vscode.TreeItem {
     }
 }
 
+/**
+ * OpenClaw 侧边栏主提供器
+ * 实现 VSCode TreeDataProvider 接口，整合 Agent 和集群数据
+ */
 export class OpenClawSidebarProvider implements vscode.TreeDataProvider<SidebarNode> {
     private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<SidebarNode | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<SidebarNode | undefined | null | void> = this.onDidChangeTreeDataEmitter.event;
 
+    /**
+     * 创建 OpenClawSidebarProvider 实例
+     * @param agentManager - Agent 管理器实例
+     * @param clusterManager - 集群管理器实例
+     */
     constructor(
         private readonly agentManager: AgentManager,
         private readonly clusterManager: ClusterManager
@@ -48,14 +75,28 @@ export class OpenClawSidebarProvider implements vscode.TreeDataProvider<SidebarN
         this.clusterManager.on('clusterDeleted', () => this.refresh());
     }
 
+    /**
+     * 刷新树视图
+     * 触发 onDidChangeTreeData 事件重新加载数据
+     */
     public refresh(): void {
         this.onDidChangeTreeDataEmitter.fire();
     }
 
+    /**
+     * 获取树节点项
+     * @param element - 树节点元素
+     * @returns VSCode TreeItem 对象
+     */
     public getTreeItem(element: SidebarNode): vscode.TreeItem {
         return element;
     }
 
+    /**
+     * 获取子节点列表
+     * @param element - 父节点元素（根节点时为 undefined）
+     * @returns SidebarNode 数组
+     */
     public async getChildren(element?: SidebarNode): Promise<SidebarNode[]> {
         if (!element) {
             const [agents, clusters] = await Promise.all([
@@ -80,10 +121,19 @@ export class OpenClawSidebarProvider implements vscode.TreeDataProvider<SidebarN
         return [];
     }
 
+    /**
+     * 获取父节点
+     * @param _element - 当前节点元素
+     * @returns 父节点（根节点返回 null）
+     */
     public getParent(_element: SidebarNode): vscode.ProviderResult<SidebarNode> {
         return null;
     }
 
+    /**
+     * 获取 Agent 列表节点
+     * @returns Agent 相关节点数组
+     */
     private async getAgentItems(): Promise<SidebarNode[]> {
         const agents = await this.agentManager.getAgents();
         if (agents.length === 0) {
@@ -98,6 +148,10 @@ export class OpenClawSidebarProvider implements vscode.TreeDataProvider<SidebarN
         return sortedAgents.map(agent => new AgentTreeItem(agent, vscode.TreeItemCollapsibleState.None));
     }
 
+    /**
+     * 获取集群列表节点
+     * @returns 集群相关节点数组
+     */
     private async getClusterItems(): Promise<SidebarNode[]> {
         const clusters = await this.clusterManager.getClusters();
         if (clusters.length === 0) {

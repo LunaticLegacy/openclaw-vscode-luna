@@ -2,6 +2,9 @@ import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
+/**
+ * 智能体文件夹接口
+ */
 export interface AgentFolder {
     id: string;
     name: string;
@@ -11,22 +14,46 @@ export interface AgentFolder {
     updatedAt: string;
 }
 
+/**
+ * 持久化的智能体文件夹文件结构
+ */
 export interface PersistedAgentFoldersFile {
     version: number;
     folders: AgentFolder[];
 }
 
+/**
+ * 智能体文件夹管理器，负责管理智能体文件夹的创建、重命名、删除和智能体移动
+ * 
+ * @emits foldersChanged - 当文件夹列表发生变化时触发
+ * 
+ * @example
+ * ```typescript
+ * const manager = new AgentFolderManager(storageFilePath);
+ * const folder = await manager.createFolder('My Folder');
+ * ```
+ */
 export class AgentFolderManager extends EventEmitter {
     private readonly storageFilePath: string;
     private readonly folders: Map<string, AgentFolder> = new Map();
     private loaded = false;
     private loadPromise: Promise<void> | null = null;
 
+    /**
+     * 创建 AgentFolderManager 实例
+     * @param storageFilePath - 存储文件路径
+     */
     constructor(storageFilePath: string) {
         super();
         this.storageFilePath = storageFilePath;
     }
 
+    /**
+     * 获取所有文件夹
+     * 
+     * @param refresh - 是否强制刷新
+     * @returns 文件夹列表
+     */
     public async getFolders(refresh: boolean = false): Promise<AgentFolder[]> {
         await this.ensureLoaded(refresh);
         return Array.from(this.folders.values()).sort((left, right) =>
@@ -34,6 +61,12 @@ export class AgentFolderManager extends EventEmitter {
         );
     }
 
+    /**
+     * 创建新文件夹
+     * 
+     * @param name - 文件夹名称
+     * @returns 创建的文件夹
+     */
     public async createFolder(name: string): Promise<AgentFolder> {
         await this.ensureLoaded();
 
@@ -53,6 +86,13 @@ export class AgentFolderManager extends EventEmitter {
         return folder;
     }
 
+    /**
+     * 重命名文件夹
+     * 
+     * @param folderId - 文件夹ID
+     * @param name - 新名称
+     * @returns 更新后的文件夹
+     */
     public async renameFolder(folderId: string, name: string): Promise<AgentFolder> {
         await this.ensureLoaded();
         const existing = this.requireFolder(folderId);
@@ -68,6 +108,12 @@ export class AgentFolderManager extends EventEmitter {
         return updated;
     }
 
+    /**
+     * 删除文件夹
+     * 
+     * @param folderId - 文件夹ID
+     * @returns Promise<void>
+     */
     public async deleteFolder(folderId: string): Promise<void> {
         await this.ensureLoaded();
         this.requireFolder(folderId);
@@ -76,6 +122,13 @@ export class AgentFolderManager extends EventEmitter {
         this.emit('foldersChanged');
     }
 
+    /**
+     * 设置文件夹折叠状态
+     * 
+     * @param folderId - 文件夹ID
+     * @param collapsed - 是否折叠
+     * @returns 更新后的文件夹
+     */
     public async setFolderCollapsed(folderId: string, collapsed: boolean): Promise<AgentFolder> {
         await this.ensureLoaded();
         const existing = this.requireFolder(folderId);
@@ -91,6 +144,13 @@ export class AgentFolderManager extends EventEmitter {
         return updated;
     }
 
+    /**
+     * 移动智能体到指定文件夹
+     * 
+     * @param agentId - 智能体ID
+     * @param folderId - 目标文件夹ID，null 表示移出所有文件夹
+     * @returns Promise<void>
+     */
     public async moveAgentToFolder(agentId: string, folderId: string | null): Promise<void> {
         await this.ensureLoaded();
         const normalizedAgentId = String(agentId || '').trim();
@@ -132,6 +192,12 @@ export class AgentFolderManager extends EventEmitter {
         this.emit('foldersChanged');
     }
 
+    /**
+     * 清理不存在的智能体引用
+     * 
+     * @param validAgentIds - 有效的智能体ID列表
+     * @returns 是否有变化
+     */
     public async pruneMissingAgents(validAgentIds: string[]): Promise<boolean> {
         await this.ensureLoaded();
         const validSet = new Set(validAgentIds.map(agentId => String(agentId || '').trim()).filter(Boolean));
@@ -159,6 +225,9 @@ export class AgentFolderManager extends EventEmitter {
         return changed;
     }
 
+    /**
+     * 释放资源
+     */
     public dispose(): void {
         this.removeAllListeners();
         this.folders.clear();
@@ -166,6 +235,12 @@ export class AgentFolderManager extends EventEmitter {
         this.loadPromise = null;
     }
 
+    /**
+     * 获取文件夹，不存在则抛出错误
+     * @param folderId - 文件夹ID
+     * @returns 文件夹对象
+     * @throws Error - 当文件夹不存在时抛出
+     */
     private requireFolder(folderId: string): AgentFolder {
         const folder = this.folders.get(folderId);
         if (!folder) {
@@ -174,6 +249,10 @@ export class AgentFolderManager extends EventEmitter {
         return folder;
     }
 
+    /**
+     * 确保数据已加载
+     * @param forceRefresh - 是否强制刷新
+     */
     private async ensureLoaded(forceRefresh: boolean = false): Promise<void> {
         if (forceRefresh) {
             this.loaded = false;
@@ -230,6 +309,9 @@ export class AgentFolderManager extends EventEmitter {
         }
     }
 
+    /**
+     * 持久化数据到磁盘
+     */
     private async persist(): Promise<void> {
         const payload: PersistedAgentFoldersFile = {
             version: 1,
@@ -241,6 +323,11 @@ export class AgentFolderManager extends EventEmitter {
     }
 }
 
+/**
+ * 根据名称构建文件夹ID
+ * @param name - 文件夹名称
+ * @returns 文件夹ID
+ */
 function buildFolderId(name: string): string {
     const normalized = String(name || '')
         .trim()
@@ -251,6 +338,12 @@ function buildFolderId(name: string): string {
     return `folder:${normalized || 'agents'}:${Date.now()}`;
 }
 
+/**
+ * 要求有效的文件夹名称
+ * @param name - 文件夹名称
+ * @returns 规范化后的名称
+ * @throws Error - 当名称为空时抛出
+ */
 function requireFolderName(name: string): string {
     const normalized = String(name || '').trim();
     if (!normalized) {

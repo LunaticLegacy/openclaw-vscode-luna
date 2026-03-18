@@ -1,12 +1,12 @@
-# OpenClaw Luna for VS Code
+# LunaClaw for VS Code
 
 <div align="center">
 
 <br />
 
-<img src="../resources/openclaw_luna_animated_1to1.webp" width="120" alt="OpenClaw Luna Logo" />
+<img src="../resources/openclaw_luna_animated_1to1.webp" width="120" alt="LunaClaw Logo" />
 
-# OpenClaw Luna
+# LunaClaw
 
 ### Bring OpenClaw agents, swarms, tasks, and usage back into VS Code
 
@@ -21,11 +21,11 @@
 
 <br />
 
-<img src="../resources/screenshot-01.png" width="88%" alt="OpenClaw Luna screenshot 1" />
+<img src="../resources/screenshot-01.png" width="88%" alt="LunaClaw screenshot 1" />
 
 <p>
-  <img src="../resources/screenshot-02.png" width="43.5%" alt="OpenClaw Luna screenshot 2" />
-  <img src="../resources/screenshot-03.png" width="43.5%" alt="OpenClaw Luna screenshot 3" />
+  <img src="../resources/screenshot-02.png" width="43.5%" alt="LunaClaw screenshot 2" />
+  <img src="../resources/screenshot-03.png" width="43.5%" alt="LunaClaw screenshot 3" />
 </p>
 
 </div>
@@ -34,7 +34,7 @@
 
 ## What It Is
 
-OpenClaw Luna is a VS Code extension that turns OpenClaw into a workflow you can actually operate from one place.
+LunaClaw is a VS Code extension that turns OpenClaw into a workflow you can actually operate from one place.
 
 Instead of bouncing between a CLI, config files, browser pages, and scattered commands, Luna gives you one control surface for the common OpenClaw path:
 
@@ -55,13 +55,13 @@ If you want a generic AI chat extension with no OpenClaw workflow attached, that
 
 ### 1. Install the extension
 
-Install `OpenClaw Luna` from the VS Code Marketplace.
+Install `LunaClaw` from the VS Code Marketplace.
 
 ### 2. Open the panel
 
 Use any of these entry points:
 
-- Command palette: `OpenClaw Luna: Open OpenClaw Luna`
+- Command palette: `LunaClaw: Open LunaClaw`
 - Bottom-right status bar item: `OpenClaw`
 - Activity Bar sidebar: `OpenClaw`
 

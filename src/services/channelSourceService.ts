@@ -25,11 +25,26 @@ export interface SourceProviderAdapter {
   ): Promise<AggregatedItem[]>;
 }
 
+/**
+ * 频道源服务类
+ * 
+ * 管理外部数据源（RSS、YouTube、Twitter、GitHub）的适配器注册、凭证存储和同步操作
+ * 
+ * @example
+ * ```typescript
+ * const service = new ChannelSourceService(secretStorage);
+ * const result = await service.syncChannel(channel);
+ * ```
+ */
 export class ChannelSourceService extends EventEmitter {
   private secretStorage: vscode.SecretStorage;
   private adapters: Map<string, SourceProviderAdapter> = new Map();
   private syncIntervals: Map<string, NodeJS.Timeout> = new Map();
 
+  /**
+   * 创建频道源服务实例
+   * @param secretStorage - VS Code 安全存储实例
+   */
   constructor(secretStorage: vscode.SecretStorage) {
     super();
     this.secretStorage = secretStorage;
@@ -38,6 +53,9 @@ export class ChannelSourceService extends EventEmitter {
 
   // ===== Adapter Registration =====
 
+  /**
+   * 注册内置适配器
+   */
   private registerBuiltInAdapters(): void {
     this.registerAdapter('rss', new RSSAdapter());
     this.registerAdapter('youtube', new YouTubeAdapter());
@@ -45,16 +63,31 @@ export class ChannelSourceService extends EventEmitter {
     this.registerAdapter('github', new GitHubAdapter());
   }
 
+  /**
+   * 注册数据源适配器
+   * @param provider - 提供者名称
+   * @param adapter - 适配器实例
+   */
   public registerAdapter(provider: string, adapter: SourceProviderAdapter): void {
     this.adapters.set(provider, adapter);
   }
 
+  /**
+   * 获取指定提供者的适配器
+   * @param provider - 提供者名称
+   * @returns 适配器实例或 undefined
+   */
   public getAdapter(provider: string): SourceProviderAdapter | undefined {
     return this.adapters.get(provider);
   }
 
   // ===== Credential Management (Secure) =====
 
+  /**
+   * 保存频道的凭证（加密存储）
+   * @param channelId - 频道 ID
+   * @param credentials - 凭证对象
+   */
   public async saveCredentials(
     channelId: string,
     credentials: SourceCredentials
@@ -64,6 +97,11 @@ export class ChannelSourceService extends EventEmitter {
     await this.secretStorage.store(key, encrypted);
   }
 
+  /**
+   * 获取频道的凭证
+   * @param channelId - 频道 ID
+   * @returns 凭证对象或 null
+   */
   public async getCredentials(channelId: string): Promise<SourceCredentials | null> {
     const key = `${CREDENTIAL_PREFIX}${channelId}`;
     const encrypted = await this.secretStorage.get(key);
@@ -76,6 +114,10 @@ export class ChannelSourceService extends EventEmitter {
     }
   }
 
+  /**
+   * 删除频道的凭证
+   * @param channelId - 频道 ID
+   */
   public async deleteCredentials(channelId: string): Promise<void> {
     const key = `${CREDENTIAL_PREFIX}${channelId}`;
     await this.secretStorage.delete(key);
@@ -83,6 +125,11 @@ export class ChannelSourceService extends EventEmitter {
 
   // ===== Source Configuration =====
 
+  /**
+   * 配置外部数据源
+   * @param channelId - 频道 ID
+   * @param config - 源配置
+   */
   public async configureExternalSource(
     channelId: string,
     config: ChannelSourceConfig
@@ -97,6 +144,12 @@ export class ChannelSourceService extends EventEmitter {
     this.emit('sourceConfigured', { channelId, config });
   }
 
+  /**
+   * 验证源配置
+   * @param provider - 提供者名称
+   * @param config - 配置对象
+   * @returns 验证结果
+   */
   public async validateSourceConfig(
     provider: string,
     config: unknown
@@ -118,6 +171,12 @@ export class ChannelSourceService extends EventEmitter {
 
   // ===== Sync Operations =====
 
+  /**
+   * 同步频道数据
+   * @param channel - 频道配置
+   * @param options - 同步选项
+   * @returns 同步结果
+   */
   public async syncChannel(
     channel: ChannelConfig,
     options?: { force?: boolean; since?: Date }
@@ -198,6 +257,10 @@ export class ChannelSourceService extends EventEmitter {
     }
   }
 
+  /**
+   * 启动频道的自动同步
+   * @param channel - 频道配置
+   */
   public startAutoSync(channel: ChannelConfig): void {
     if (channel.type !== 'external' || !channel.externalConfig) {
       return;
@@ -207,6 +270,10 @@ export class ChannelSourceService extends EventEmitter {
     this.scheduleNextSync(channel);
   }
 
+  /**
+   * 停止频道的自动同步
+   * @param channelId - 频道 ID
+   */
   public stopAutoSync(channelId: string): void {
     const interval = this.syncIntervals.get(channelId);
     if (interval) {
@@ -215,6 +282,9 @@ export class ChannelSourceService extends EventEmitter {
     }
   }
 
+  /**
+   * 停止所有频道的自动同步
+   */
   public stopAllAutoSync(): void {
     for (const [channelId, interval] of this.syncIntervals) {
       clearTimeout(interval);
@@ -222,6 +292,10 @@ export class ChannelSourceService extends EventEmitter {
     this.syncIntervals.clear();
   }
 
+  /**
+   * 调度下一次同步
+   * @param channel - 频道配置
+   */
   private scheduleNextSync(channel: ChannelConfig): void {
     if (!channel.externalConfig) return;
 
@@ -240,6 +314,12 @@ export class ChannelSourceService extends EventEmitter {
 
   // ===== Item Processing =====
 
+  /**
+   * 处理聚合项
+   * @param items - 聚合项数组
+   * @param processing - 处理选项
+   * @returns 处理后的数组
+   */
   private async processItems(
     items: AggregatedItem[],
     processing: { deduplicate: boolean; summarize: boolean; translate?: string; maxLength?: number }
@@ -275,6 +355,9 @@ export class ChannelSourceService extends EventEmitter {
     return result;
   }
 
+  /**
+   * 释放服务资源
+   */
   public dispose(): void {
     this.stopAllAutoSync();
     this.removeAllListeners();
@@ -283,15 +366,30 @@ export class ChannelSourceService extends EventEmitter {
 
 // ===== Built-in Adapters =====
 
+/**
+ * RSS 源适配器
+ */
 class RSSAdapter implements SourceProviderAdapter {
   name = 'RSS Feed';
 
+  /**
+   * 验证 RSS 配置
+   * @param config - 配置对象
+   * @returns 是否有效
+   */
   validateConfig(config: unknown): boolean {
     if (!config || typeof config !== 'object') return false;
     const c = config as RSSConfig;
     return Boolean(c.url && typeof c.url === 'string' && c.url.startsWith('http'));
   }
 
+  /**
+   * 获取 RSS 项
+   * @param config - 配置对象
+   * @param _credentials - 凭证（RSS 通常不需要）
+   * @param since - 起始日期
+   * @returns 聚合项数组
+   */
   async fetchItems(
     config: unknown,
     _credentials: SourceCredentials,
@@ -319,6 +417,13 @@ class RSSAdapter implements SourceProviderAdapter {
     }
   }
 
+  /**
+   * 解析 RSS XML
+   * @param xml - XML 内容
+   * @param config - RSS 配置
+   * @param since - 起始日期
+   * @returns 聚合项数组
+   */
   private parseRSS(xml: string, config: RSSConfig, since?: Date): AggregatedItem[] {
     const items: AggregatedItem[] = [];
     
@@ -375,12 +480,23 @@ class RSSAdapter implements SourceProviderAdapter {
     return items;
   }
 
+  /**
+   * 从 XML 中提取标签内容
+   * @param xml - XML 内容
+   * @param tagName - 标签名
+   * @returns 标签内容或 undefined
+   */
   private extractTag(xml: string, tagName: string): string | undefined {
     const regex = new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'i');
     const match = xml.match(regex);
     return match?.[1].trim();
   }
 
+  /**
+   * 解码 HTML 实体
+   * @param text - 原始文本
+   * @returns 解码后的文本
+   */
   private decodeHtmlEntities(text: string | undefined): string {
     if (!text) return '';
     return text
@@ -393,15 +509,37 @@ class RSSAdapter implements SourceProviderAdapter {
   }
 }
 
+/**
+ * YouTube 源适配器
+ */
 class YouTubeAdapter implements SourceProviderAdapter {
   name = 'YouTube';
 
+  /**
+   * 验证 YouTube 配置
+   * @param config - 配置对象
+   * @returns 是否有效
+   */
   validateConfig(config: unknown): boolean {
     if (!config || typeof config !== 'object') return false;
     const c = config as YouTubeConfig;
     return Boolean(c.channelId || c.playlistId || c.searchQuery);
   }
 
+  /**
+   * 获取 YouTube 视频
+   * @param config - 配置对象
+   * @param credentials - 包含 API key 的凭证
+   * @param since - 起始日期
+   * @returns 聚合项数组
+   */
+  /**
+   * 获取 GitHub 事件
+   * @param config - 配置对象
+   * @param credentials - 包含 token 的凭证
+   * @param since - 起始日期
+   * @returns 聚合项数组
+   */
   async fetchItems(
     config: unknown,
     credentials: SourceCredentials,
@@ -445,6 +583,13 @@ class YouTubeAdapter implements SourceProviderAdapter {
     return items;
   }
 
+  /**
+   * 获取播放列表项
+   * @param playlistId - 播放列表 ID
+   * @param apiKey - API 密钥
+   * @param since - 起始日期
+   * @returns 聚合项数组
+   */
   private async fetchPlaylistItems(
     playlistId: string, 
     apiKey: string, 
@@ -492,15 +637,30 @@ class YouTubeAdapter implements SourceProviderAdapter {
   }
 }
 
+/**
+ * Twitter/X 源适配器（占位实现）
+ */
 class TwitterAdapter implements SourceProviderAdapter {
   name = 'Twitter/X';
 
+  /**
+   * 验证 Twitter 配置
+   * @param config - 配置对象
+   * @returns 是否有效
+   */
   validateConfig(config: unknown): boolean {
     if (!config || typeof config !== 'object') return false;
     const c = config as TwitterConfig;
     return Boolean(c.searchQuery || (c.userHandles && c.userHandles.length > 0));
   }
 
+  /**
+   * 获取 Twitter 内容（未实现）
+   * @param _config - 配置对象
+   * @param _credentials - 凭证
+   * @param _since - 起始日期
+   * @throws Error - 始终抛出未实现错误
+   */
   async fetchItems(
     _config: unknown,
     _credentials: SourceCredentials,
@@ -512,9 +672,17 @@ class TwitterAdapter implements SourceProviderAdapter {
   }
 }
 
+/**
+ * GitHub 源适配器
+ */
 class GitHubAdapter implements SourceProviderAdapter {
   name = 'GitHub';
 
+  /**
+   * 验证 GitHub 配置
+   * @param config - 配置对象
+   * @returns 是否有效
+   */
   validateConfig(config: unknown): boolean {
     if (!config || typeof config !== 'object') return false;
     const c = config as GitHubConfig;
@@ -560,6 +728,14 @@ class GitHubAdapter implements SourceProviderAdapter {
     return items;
   }
 
+  /**
+   * 获取仓库发布
+   * @param owner - 仓库所有者
+   * @param repo - 仓库名
+   * @param headers - 请求头
+   * @param since - 起始日期
+   * @returns 聚合项数组
+   */
   private async fetchReleases(
     owner: string,
     repo: string,

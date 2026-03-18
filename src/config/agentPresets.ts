@@ -1,5 +1,8 @@
 import { t } from '../i18n';
 
+/**
+ * 自定义预设标识符
+ */
 export const CUSTOM_AGENT_PRESET_ID = 'custom';
 
 export interface AgentPresetOption {
@@ -117,6 +120,10 @@ const AGENT_PRESET_DEFINITIONS: readonly AgentPresetDefinition[] = [
     }
 ];
 
+/**
+ * 获取所有智能体预设选项列表
+ * @returns 智能体预设选项数组
+ */
 export function getAgentPresets(): AgentPresetOption[] {
     return AGENT_PRESET_DEFINITIONS.map(definition => ({
         id: definition.id,
@@ -131,6 +138,11 @@ export function getAgentPresets(): AgentPresetOption[] {
     }));
 }
 
+/**
+ * 根据预设ID获取对应的智能体预设选项
+ * @param presetId - 预设标识符
+ * @returns 智能体预设选项，如果不存在则返回 null
+ */
 export function getAgentPreset(presetId?: string | null): AgentPresetOption | null {
     if (!presetId || presetId === CUSTOM_AGENT_PRESET_ID) {
         return null;

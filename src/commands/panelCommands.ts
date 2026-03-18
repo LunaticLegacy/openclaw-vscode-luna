@@ -4,6 +4,12 @@ import { OpenClawExtensionRuntime } from '../extension/runtime';
 import { runWithNotificationProgress, showSuccessStatus } from '../utils/statusFeedback';
 import { resolveAgentId } from './helpers';
 
+/**
+ * 注册面板相关命令
+ * @param context - VSCode 扩展上下文
+ * @param runtime - 扩展运行时实例
+ * @returns 无返回值
+ */
 export function registerPanelCommands(
     context: vscode.ExtensionContext,
     runtime: OpenClawExtensionRuntime

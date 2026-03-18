@@ -76,10 +76,23 @@ export interface OpenClawRuntimeLogExport {
     filesystem: RuntimeLogCollection;
 }
 
+/**
+ * 解析 OpenClaw 服务配置
+ * 
+ * @param extensionPath - 扩展所在路径
+ * @returns 已解析的服务配置
+ * @throws Error - 配置解析失败时抛出
+ */
 export async function resolveOpenClawServiceConfig(extensionPath: string): Promise<ResolvedServiceConfig> {
     return resolveOpenClawServiceConfigInternal(extensionPath);
 }
 
+/**
+ * 检查 OpenClaw 运行环境
+ * 
+ * @param extensionPath - 扩展所在路径
+ * @returns 运行时诊断信息
+ */
 export async function inspectOpenClawEnvironment(extensionPath: string): Promise<OpenClawRuntimeDiagnostics> {
     const config = vscode.workspace.getConfiguration('openclaw');
     const configMode = config.get<'auto' | 'gateway' | 'local' | 'openclaw'>('configMode', 'openclaw');
@@ -114,6 +127,12 @@ export async function inspectOpenClawEnvironment(extensionPath: string): Promise
     };
 }
 
+/**
+ * 加载 OpenClaw 配置编辑器状态
+ * 
+ * @param extensionPath - 扩展所在路径
+ * @returns 配置编辑器状态
+ */
 export async function loadOpenClawConfigEditorState(extensionPath: string): Promise<OpenClawConfigEditorState> {
     const config = vscode.workspace.getConfiguration('openclaw');
     const stateDir = await resolveOpenClawConfigStateDir(config, extensionPath);
@@ -138,6 +157,14 @@ export async function loadOpenClawConfigEditorState(extensionPath: string): Prom
     );
 }
 
+/**
+ * 保存 OpenClaw 配置编辑器状态
+ * 
+ * @param extensionPath - 扩展所在路径
+ * @param update - 配置更新内容
+ * @returns 更新后的配置编辑器状态
+ * @throws Error - 保存失败时抛出
+ */
 export async function saveOpenClawConfigEditorState(
     extensionPath: string,
     update: OpenClawConfigEditorUpdate
@@ -177,6 +204,12 @@ export async function saveOpenClawConfigEditorState(
     );
 }
 
+/**
+ * 启动 OpenClaw Gateway
+ * 
+ * @param extensionPath - 扩展所在路径
+ * @throws Error - 启动失败时抛出
+ */
 export async function startOpenClawGateway(extensionPath: string): Promise<void> {
     const config = vscode.workspace.getConfiguration('openclaw');
     const stateDir = await resolveOpenClawConfigStateDir(config, extensionPath);
@@ -208,6 +241,12 @@ export async function startOpenClawGateway(extensionPath: string): Promise<void>
     );
 }
 
+/**
+ * 构建 OpenClaw 运行时日志导出
+ * 
+ * @param extensionPath - 扩展所在路径
+ * @returns 运行时日志导出数据
+ */
 export async function buildOpenClawRuntimeLogExport(extensionPath: string): Promise<OpenClawRuntimeLogExport> {
     const [serviceConfig, diagnostics, openClawConfigState] = await Promise.all([
         resolveOpenClawServiceConfigInternal(extensionPath),
@@ -241,6 +280,11 @@ export async function buildOpenClawRuntimeLogExport(extensionPath: string): Prom
     };
 }
 
+/**
+ * 汇总服务配置用于导出
+ * @param serviceConfig - 已解析的服务配置
+ * @returns 汇总后的配置对象
+ */
 function summarizeServiceConfigForExport(serviceConfig: ResolvedServiceConfig): Record<string, unknown> {
     switch (serviceConfig.mode) {
         case 'gateway':

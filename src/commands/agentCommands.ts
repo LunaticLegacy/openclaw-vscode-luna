@@ -7,6 +7,12 @@ import { showSuccessStatus } from '../utils/statusFeedback';
 import { getCapabilityUnavailableMessage, isServiceCapabilityAvailable } from '../utils/capabilitySupport';
 import { pickAgentPreset, resolveAgentId } from './helpers';
 
+/**
+ * 注册 Agent 相关命令
+ * @param context - VSCode 扩展上下文
+ * @param runtime - 扩展运行时实例
+ * @returns 无返回值
+ */
 export function registerAgentCommands(
     context: vscode.ExtensionContext,
     runtime: OpenClawExtensionRuntime
@@ -277,6 +283,12 @@ export function registerAgentCommands(
     );
 }
 
+/**
+ * 处理 Agent 动作
+ * @param action - 动作类型（chat/edit/delete/details）
+ * @param agent - Agent 对象
+ * @returns 无返回值
+ */
 async function handleAgentAction(action: string, agent: Agent): Promise<void> {
     switch (action) {
         case 'chat':

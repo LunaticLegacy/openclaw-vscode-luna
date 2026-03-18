@@ -15,6 +15,9 @@ import type {
   SourceCredentials,
 } from '../../types/channel';
 
+/**
+ * Context interface for channel action operations (V2)
+ */
 interface ChannelActionContext {
   channelManager: ChannelManagerV2;
   channelSourceService: ChannelSourceService;
@@ -29,6 +32,11 @@ interface ChannelActionContext {
 
 // ===== Channel Tree Operations =====
 
+/**
+ * Loads the channel tree structure
+ * @param context - The channel action context
+ * @param selectedChannelId - Optional channel ID to select
+ */
 export async function loadChannelTree(context: ChannelActionContext, selectedChannelId?: string): Promise<void> {
   try {
     const [channels, tree] = await Promise.all([
@@ -63,6 +71,12 @@ export async function loadChannelTree(context: ChannelActionContext, selectedCha
   }
 }
 
+/**
+ * Expands or collapses a channel in the tree
+ * @param context - The channel action context
+ * @param channelId - The ID of the channel to expand/collapse
+ * @param expanded - Whether the channel should be expanded
+ */
 export async function expandChannel(
   context: ChannelActionContext,
   channelId: string,
@@ -77,6 +91,11 @@ export async function expandChannel(
 
 // ===== CRUD Operations =====
 
+/**
+ * Handles creating a new channel
+ * @param context - The channel action context
+ * @param data - The channel creation parameters
+ */
 export async function handleCreateChannel(
   context: ChannelActionContext,
   data: CreateChannelParams
@@ -90,6 +109,12 @@ export async function handleCreateChannel(
   }
 }
 
+/**
+ * Handles updating an existing channel
+ * @param context - The channel action context
+ * @param channelId - The ID of the channel to update
+ * @param data - The update parameters
+ */
 export async function handleUpdateChannel(
   context: ChannelActionContext,
   channelId: string,
@@ -104,6 +129,13 @@ export async function handleUpdateChannel(
   }
 }
 
+/**
+ * Handles moving a channel in the tree
+ * @param context - The channel action context
+ * @param channelId - The ID of the channel to move
+ * @param direction - Optional direction for sibling swap
+ * @param newParentId - Optional new parent ID for reparenting
+ */
 export async function handleMoveChannel(
   context: ChannelActionContext,
   channelId: string,
@@ -139,6 +171,12 @@ export async function handleMoveChannel(
   }
 }
 
+/**
+ * Handles deleting a channel
+ * @param context - The channel action context
+ * @param channelId - The ID of the channel to delete
+ * @param options - Optional deletion options for handling children
+ */
 export async function handleDeleteChannel(
   context: ChannelActionContext,
   channelId: string,
@@ -169,6 +207,12 @@ export async function handleDeleteChannel(
   }
 }
 
+/**
+ * Handles archiving or unarchiving a channel
+ * @param context - The channel action context
+ * @param channelId - The ID of the channel to archive/unarchive
+ * @param archive - Whether to archive (true) or unarchive (false)
+ */
 export async function handleArchiveChannel(
   context: ChannelActionContext,
   channelId: string,
@@ -190,6 +234,12 @@ export async function handleArchiveChannel(
 
 // ===== External Source Operations =====
 
+/**
+ * Handles configuring an external source for a channel
+ * @param context - The channel action context
+ * @param channelId - The ID of the channel to configure
+ * @param config - The external source configuration
+ */
 export async function handleConfigureExternalSource(
   context: ChannelActionContext,
   channelId: string,
@@ -275,6 +325,11 @@ export async function handleConfigureExternalSource(
   }
 }
 
+/**
+ * Handles syncing an external channel
+ * @param context - The channel action context
+ * @param channelId - The ID of the channel to sync
+ */
 export async function handleSyncExternalChannel(
   context: ChannelActionContext,
   channelId: string
@@ -316,6 +371,12 @@ export async function handleSyncExternalChannel(
 
 // ===== Aggregate Operations =====
 
+/**
+ * Handles setting aggregate configuration for a channel
+ * @param context - The channel action context
+ * @param channelId - The ID of the channel to configure
+ * @param config - The aggregate configuration
+ */
 export async function handleSetAggregateConfig(
   context: ChannelActionContext,
   channelId: string,
@@ -348,6 +409,11 @@ export async function handleSetAggregateConfig(
   }
 }
 
+/**
+ * Handles running aggregation for a channel
+ * @param context - The channel action context
+ * @param channelId - The ID of the channel to aggregate
+ */
 export async function handleRunAggregation(
   context: ChannelActionContext,
   channelId: string
@@ -383,6 +449,11 @@ export async function handleRunAggregation(
 
 // ===== Chat Operations (Adapted from V1) =====
 
+/**
+ * Activates a channel and loads its content
+ * @param context - The channel action context
+ * @param channelId - The ID of the channel to activate
+ */
 export async function activateChannel(
   context: ChannelActionContext,
   channelId: string | null | undefined
@@ -439,6 +510,10 @@ export async function activateChannel(
   }
 }
 
+/**
+ * Clears the current channel selection
+ * @param context - The channel action context
+ */
 export function clearChannelSelection(context: ChannelActionContext): void {
   context.setCurrentChannelId(null);
   context.setCurrentChannelSessionId(null);
@@ -455,16 +530,32 @@ export function clearChannelSelection(context: ChannelActionContext): void {
 
 // ===== Helper Functions =====
 
+/**
+ * Finds a channel in the tree by ID
+ * @param tree - The channel tree
+ * @param channelId - The channel ID to find
+ * @returns True if the channel exists in the tree
+ */
 function findChannelInTree(tree: ChannelTree, channelId: string): boolean {
   return tree.all.has(channelId);
 }
 
+/**
+ * Serializes the channel tree for transmission
+ * @param tree - The channel tree
+ * @returns The serialized tree object
+ */
 function serializeTree(tree: ChannelTree): object {
   return {
     roots: tree.roots.map(serializeTreeNode),
   };
 }
 
+/**
+ * Serializes a tree node for transmission
+ * @param node - The tree node
+ * @returns The serialized node object
+ */
 function serializeTreeNode(node: import('../../types/channel').ChannelTreeNode): object {
   return {
     ...node,
@@ -472,6 +563,12 @@ function serializeTreeNode(node: import('../../types/channel').ChannelTreeNode):
   };
 }
 
+/**
+ * Serializes a channel for transmission
+ * @param channel - The channel configuration
+ * @param effectiveAgentId - The effective agent ID
+ * @returns The serialized channel object
+ */
 function serializeChannel(channel: ChannelConfig, effectiveAgentId?: string): object {
   return {
     ...channel,
@@ -481,6 +578,11 @@ function serializeChannel(channel: ChannelConfig, effectiveAgentId?: string): ob
 
 // ===== Legacy Migration =====
 
+/**
+ * Migrates channels from the legacy channel manager
+ * @param context - The channel action context
+ * @param legacyStoragePath - The path to the legacy storage
+ */
 export async function migrateFromLegacyChannelManager(
   context: ChannelActionContext,
   legacyStoragePath: string

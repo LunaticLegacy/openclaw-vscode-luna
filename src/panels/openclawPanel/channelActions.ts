@@ -13,6 +13,9 @@ import {
     normalizeOutgoingMessageContent
 } from './helpers';
 
+/**
+ * Context interface for channel action operations
+ */
 interface ChannelActionContext {
     service: OpenClawService;
     agentManager: AgentManager;
@@ -34,6 +37,11 @@ interface ChannelActionContext {
     isPanelVisible(): boolean;
 }
 
+/**
+ * Loads the list of channels
+ * @param context - The channel action context
+ * @param selectedChannelId - Optional channel ID to select
+ */
 export async function loadChannels(context: ChannelActionContext, selectedChannelId?: string): Promise<void> {
     try {
         const [channels, discoveredChannels] = await Promise.all([
@@ -68,6 +76,11 @@ export async function loadChannels(context: ChannelActionContext, selectedChanne
     }
 }
 
+/**
+ * Activates a channel and loads its messages
+ * @param context - The channel action context
+ * @param channelId - The ID of the channel to activate
+ */
 export async function activateChannel(context: ChannelActionContext, channelId: string | null | undefined): Promise<void> {
     if (!channelId) {
         clearChannelSelection(context);
@@ -137,6 +150,11 @@ export async function activateChannel(context: ChannelActionContext, channelId: 
     }
 }
 
+/**
+ * Refreshes messages for the active channel
+ * @param context - The channel action context
+ * @param channelId - Optional channel ID to refresh
+ */
 export async function refreshActiveChannelMessages(context: ChannelActionContext, channelId?: string): Promise<void> {
     const resolvedChannelId = channelId || context.getCurrentChannelId();
     if (!resolvedChannelId) {
@@ -146,6 +164,11 @@ export async function refreshActiveChannelMessages(context: ChannelActionContext
     await activateChannel(context, resolvedChannelId);
 }
 
+/**
+ * Handles creating a new channel
+ * @param context - The channel action context
+ * @param data - The channel creation data
+ */
 export async function handleCreateChannel(
     context: ChannelActionContext,
     data: { name?: string; agentId?: string; description?: string }
@@ -163,6 +186,12 @@ export async function handleCreateChannel(
     }
 }
 
+/**
+ * Handles updating an existing channel
+ * @param context - The channel action context
+ * @param channelId - The ID of the channel to update
+ * @param data - The updated channel data
+ */
 export async function handleUpdateChannel(
     context: ChannelActionContext,
     channelId: string,
@@ -198,6 +227,11 @@ export async function handleUpdateChannel(
     }
 }
 
+/**
+ * Handles deleting a channel
+ * @param context - The channel action context
+ * @param channelId - The ID of the channel to delete
+ */
 export async function handleDeleteChannel(context: ChannelActionContext, channelId: string): Promise<void> {
     if (!channelId) {
         return;
@@ -228,6 +262,12 @@ export async function handleDeleteChannel(context: ChannelActionContext, channel
     }
 }
 
+/**
+ * Handles sending a message to a channel
+ * @param context - The channel action context
+ * @param channelId - The ID of the channel to send to
+ * @param content - The message content
+ */
 export async function handleSendChannelMessage(
     context: ChannelActionContext,
     channelId: string,
@@ -307,6 +347,10 @@ export async function handleSendChannelMessage(
     }
 }
 
+/**
+ * Clears the current channel selection
+ * @param context - The channel action context
+ */
 export function clearChannelSelection(context: ChannelActionContext): void {
     stopActiveChannelSync(context);
     context.setCurrentChannelId(null);
@@ -323,10 +367,20 @@ export function clearChannelSelection(context: ChannelActionContext): void {
     context.postRunState('channel', false);
 }
 
+/**
+ * Stops the active channel sync
+ * @param context - The channel action context
+ */
 export function stopActiveChannelSync(context: ChannelActionContext): void {
     context.bumpChannelSyncToken();
 }
 
+/**
+ * Loads messages for a channel
+ * @param context - The channel action context
+ * @param channel - The channel to load messages for
+ * @param loadToken - The load token for validation
+ */
 async function loadChannelMessages(
     context: ChannelActionContext,
     channel: { id: string; sessionId?: string },
@@ -362,6 +416,13 @@ async function loadChannelMessages(
     context.postRunState('channel', context.service.hasActiveSessionRun(channel.sessionId));
 }
 
+/**
+ * Starts syncing a channel's messages
+ * @param context - The channel action context
+ * @param channelId - The ID of the channel to sync
+ * @param sessionId - The session ID for the channel
+ * @param loadToken - The load token for validation
+ */
 function startActiveChannelSync(
     context: ChannelActionContext,
     channelId: string,
@@ -407,6 +468,15 @@ function startActiveChannelSync(
     });
 }
 
+/**
+ * Checks if the current sync target matches
+ * @param context - The channel action context
+ * @param syncToken - The sync token
+ * @param channelId - The channel ID
+ * @param sessionId - The session ID
+ * @param loadToken - The load token
+ * @returns True if this is the current sync target
+ */
 function isCurrentChannelSyncTarget(
     context: ChannelActionContext,
     syncToken: number,
@@ -421,6 +491,12 @@ function isCurrentChannelSyncTarget(
         && context.isPanelVisible();
 }
 
+/**
+ * Ensures an imported channel session exists
+ * @param context - The channel action context
+ * @param channelId - The channel ID
+ * @returns The imported session info or null
+ */
 async function ensureImportedChannelSession(
     context: ChannelActionContext,
     channelId: string
@@ -448,6 +524,13 @@ async function ensureImportedChannelSession(
     return importedSession;
 }
 
+/**
+ * Loads messages for an imported channel
+ * @param context - The channel action context
+ * @param channelId - The channel ID
+ * @param sessionId - The session ID
+ * @param loadToken - The load token for validation
+ */
 async function loadImportedChannelMessages(
     context: ChannelActionContext,
     channelId: string,

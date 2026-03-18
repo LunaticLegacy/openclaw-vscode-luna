@@ -15,10 +15,25 @@ export interface AggregateResult {
   summary?: string;
 }
 
+/**
+ * 频道聚合服务类
+ * 
+ * 管理聚合频道的数据收集、处理和消息创建，支持从多个源频道聚合内容
+ * 
+ * @example
+ * ```typescript
+ * const service = new ChannelAggregateService(openclawService);
+ * const result = await service.aggregateChannel(channel, sourceChannels);
+ * ```
+ */
 export class ChannelAggregateService extends EventEmitter {
   private openclawService: OpenClawService;
   private aggregateIntervals: Map<string, NodeJS.Timeout> = new Map();
 
+  /**
+   * 创建频道聚合服务实例
+   * @param openclawService - OpenClaw 服务实例
+   */
   constructor(openclawService: OpenClawService) {
     super();
     this.openclawService = openclawService;
@@ -26,6 +41,13 @@ export class ChannelAggregateService extends EventEmitter {
 
   // ===== Aggregation Operations =====
 
+  /**
+   * 聚合单个频道
+   * @param channel - 目标聚合频道配置
+   * @param sourceChannels - 源频道配置数组
+   * @param options - 聚合选项
+   * @returns 聚合结果
+   */
   public async aggregateChannel(
     channel: ChannelConfig,
     sourceChannels: ChannelConfig[],
@@ -86,6 +108,13 @@ export class ChannelAggregateService extends EventEmitter {
     };
   }
 
+  /**
+   * 递归聚合子树
+   * @param rootNode - 根节点
+   * @param allChannels - 所有频道的映射
+   * @param options - 聚合选项
+   * @returns 聚合结果数组
+   */
   public async aggregateSubtree(
     rootNode: ChannelTreeNode,
     allChannels: Map<string, ChannelTreeNode>,
@@ -118,6 +147,10 @@ export class ChannelAggregateService extends EventEmitter {
 
   // ===== Auto Aggregation =====
 
+  /**
+   * 启动频道的自动聚合
+   * @param channel - 频道配置
+   */
   public startAutoAggregation(channel: ChannelConfig): void {
     if (channel.type !== 'aggregate' || !channel.aggregateConfig) {
       return;
@@ -149,6 +182,10 @@ export class ChannelAggregateService extends EventEmitter {
     this.aggregateIntervals.set(channel.id, interval);
   }
 
+  /**
+   * 停止频道的自动聚合
+   * @param channelId - 频道 ID
+   */
   public stopAutoAggregation(channelId: string): void {
     const interval = this.aggregateIntervals.get(channelId);
     if (interval) {
@@ -157,6 +194,9 @@ export class ChannelAggregateService extends EventEmitter {
     }
   }
 
+  /**
+   * 停止所有频道的自动聚合
+   */
   public stopAllAutoAggregation(): void {
     for (const interval of this.aggregateIntervals.values()) {
       clearInterval(interval);
@@ -166,6 +206,12 @@ export class ChannelAggregateService extends EventEmitter {
 
   // ===== Utility Methods =====
 
+  /**
+   * 预览聚合结果（不创建消息）
+   * @param config - 聚合配置
+   * @param sourceChannels - 源频道数组
+   * @returns 预览统计信息
+   */
   public async previewAggregation(
     config: ChannelAggregateConfig,
     sourceChannels: ChannelConfig[]
@@ -200,6 +246,12 @@ export class ChannelAggregateService extends EventEmitter {
 
   // ===== Private Methods =====
 
+  /**
+   * 获取源频道的消息
+   * @param source - 源频道配置
+   * @param config - 聚合配置
+   * @returns 消息数组
+   */
   private async fetchSourceMessages(
     source: ChannelConfig,
     config: ChannelAggregateConfig
@@ -215,6 +267,12 @@ export class ChannelAggregateService extends EventEmitter {
     }
   }
 
+  /**
+   * 将消息转换为聚合项
+   * @param messages - 消息数组
+   * @param sourceChannelId - 源频道 ID
+   * @returns 聚合项数组
+   */
   private messagesToAggregatedItems(messages: ChatMessage[], sourceChannelId: string): AggregatedItem[] {
     return messages
       .filter(msg => msg.role === 'user' || msg.role === 'assistant')
@@ -237,6 +295,12 @@ export class ChannelAggregateService extends EventEmitter {
       }));
   }
 
+  /**
+   * 应用过滤器到聚合项
+   * @param items - 聚合项数组
+   * @param filter - 过滤器配置
+   * @returns 过滤后的数组
+   */
   private applyFilters(items: AggregatedItem[], filter?: ChannelAggregateConfig['filter']): AggregatedItem[] {
     if (!filter) return items;
 
@@ -275,6 +339,13 @@ export class ChannelAggregateService extends EventEmitter {
     });
   }
 
+  /**
+   * 转换聚合项
+   * @param items - 聚合项数组
+   * @param transform - 转换类型
+   * @param agentId - 可选的智能体 ID（用于 AI 转换）
+   * @returns 转换后的数组
+   */
   private async transformItems(
     items: AggregatedItem[],
     transform: ChannelAggregateConfig['transform'],
@@ -305,6 +376,12 @@ export class ChannelAggregateService extends EventEmitter {
     }
   }
 
+  /**
+   * 创建简单摘要
+   * @param content - 原始内容
+   * @param maxLength - 最大长度
+   * @returns 摘要文本
+   */
   private createSimpleSummary(content: string, maxLength: number = 200): string {
     if (content.length <= maxLength) return content;
     
@@ -315,6 +392,12 @@ export class ChannelAggregateService extends EventEmitter {
     return lastSentence ? lastSentence[0] : truncated + '...';
   }
 
+  /**
+   * 使用 AI 对聚合项进行摘要
+   * @param items - 聚合项数组
+   * @param agentId - 智能体 ID
+   * @returns 带摘要的聚合项数组
+   */
   private async aiSummarizeItems(
     items: AggregatedItem[],
     agentId: string
@@ -357,6 +440,12 @@ export class ChannelAggregateService extends EventEmitter {
     }
   }
 
+  /**
+   * 在聚合频道中创建消息
+   * @param channel - 聚合频道配置
+   * @param items - 聚合项数组
+   * @returns 创建的消息数量
+   */
   private async createAggregateMessages(
     channel: ChannelConfig,
     items: AggregatedItem[]
@@ -386,6 +475,11 @@ export class ChannelAggregateService extends EventEmitter {
     return created;
   }
 
+  /**
+   * 格式化聚合项为消息内容
+   * @param item - 聚合项
+   * @returns 格式化后的文本
+   */
   private formatAggregatedItem(item: AggregatedItem): string {
     const parts: string[] = [];
 
@@ -410,6 +504,11 @@ export class ChannelAggregateService extends EventEmitter {
     return parts.join('\n\n');
   }
 
+  /**
+   * 收集节点的所有后代节点 ID
+   * @param node - 频道树节点
+   * @returns 后代节点 ID 数组
+   */
   private collectDescendants(node: ChannelTreeNode): string[] {
     const ids: string[] = [];
     
@@ -421,6 +520,9 @@ export class ChannelAggregateService extends EventEmitter {
     return ids;
   }
 
+  /**
+   * 释放服务资源
+   */
   public dispose(): void {
     this.stopAllAutoAggregation();
     this.removeAllListeners();

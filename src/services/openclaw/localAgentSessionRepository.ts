@@ -10,10 +10,19 @@ import {
     UpdateAgentParams
 } from './types';
 
+/**
+ * Repository for managing local agent and chat session data.
+ * Handles agent CRUD operations and chat session management in memory.
+ */
 export class LocalAgentSessionRepository {
     private agents: Map<string, LocalAgent> = new Map();
     private sessions: Map<string, ChatSession> = new Map();
 
+    /**
+     * Initializes the repository with provider configurations.
+     * Creates agents for each model in the providers.
+     * @param providers - Array of local provider configurations
+     */
     public initialize(providers: LocalProviderConfig[]): void {
         this.agents.clear();
         this.sessions.clear();
@@ -39,26 +48,53 @@ export class LocalAgentSessionRepository {
         }
     }
 
+    /**
+     * Gets the count of registered agents.
+     * @returns The number of agents
+     */
     public getAgentCount(): number {
         return this.agents.size;
     }
 
+    /**
+     * Gets the count of active chat sessions.
+     * @returns The number of sessions
+     */
     public getSessionCount(): number {
         return this.sessions.size;
     }
 
+    /**
+     * Gets the ID of the first available agent.
+     * @returns The preferred agent ID or null if no agents exist
+     */
     public getPreferredAgentId(): string | null {
         return this.agents.values().next().value?.id ?? null;
     }
 
+    /**
+     * Gets all registered agents.
+     * @returns Array of agents
+     */
     public getAgents(): Agent[] {
         return Array.from(this.agents.values());
     }
 
+    /**
+     * Gets a specific agent by ID.
+     * @param agentId - The agent ID to look up
+     * @returns The agent or null if not found
+     */
     public getAgent(agentId: string): Agent | null {
         return this.agents.get(agentId) || null;
     }
 
+    /**
+     * Creates a new custom agent.
+     * @param params - Agent creation parameters
+     * @returns The created agent
+     * @throws Error if no local provider exists
+     */
     public createAgent(params: CreateAgentParams): LocalAgent {
         const templateAgent = Array.from(this.agents.values())[0];
         if (!templateAgent) {
@@ -80,6 +116,13 @@ export class LocalAgentSessionRepository {
         return agent;
     }
 
+    /**
+     * Updates an existing agent.
+     * @param agentId - The ID of the agent to update
+     * @param params - Update parameters
+     * @returns The updated agent
+     * @throws Error if agent not found
+     */
     public updateAgent(agentId: string, params: UpdateAgentParams): LocalAgent {
         const agent = this.agents.get(agentId);
         if (!agent) {
@@ -98,6 +141,10 @@ export class LocalAgentSessionRepository {
         return updatedAgent;
     }
 
+    /**
+     * Deletes an agent and its associated sessions.
+     * @param agentId - The ID of the agent to delete
+     */
     public deleteAgent(agentId: string): void {
         this.agents.delete(agentId);
         for (const [sessionId, session] of this.sessions.entries()) {
@@ -107,6 +154,13 @@ export class LocalAgentSessionRepository {
         }
     }
 
+    /**
+     * Creates or retrieves a chat session for an agent.
+     * @param agentId - The agent ID for the session
+     * @param sessionId - Optional session ID to use
+     * @returns The chat session
+     * @throws Error if agent not found
+     */
     public createChatSession(agentId: string, sessionId?: string): ChatSession {
         const agent = this.agents.get(agentId);
         if (!agent) {
@@ -140,10 +194,19 @@ export class LocalAgentSessionRepository {
         return session;
     }
 
+    /**
+     * Gets the chat history for a session.
+     * @param sessionId - The session ID
+     * @returns Array of chat messages
+     */
     public getChatHistory(sessionId: string): ChatMessage[] {
         return this.sessions.get(sessionId)?.messages || [];
     }
 
+    /**
+     * Clears all messages from a chat session.
+     * @param sessionId - The session ID to clear
+     */
     public clearChatHistory(sessionId: string): void {
         const session = this.sessions.get(sessionId);
         if (session) {
@@ -152,6 +215,12 @@ export class LocalAgentSessionRepository {
         }
     }
 
+    /**
+     * Gets a session or throws if not found.
+     * @param sessionId - The session ID to look up
+     * @returns The chat session
+     * @throws Error if session not found
+     */
     public requireSession(sessionId: string): ChatSession {
         const session = this.sessions.get(sessionId);
         if (!session) {
@@ -161,6 +230,12 @@ export class LocalAgentSessionRepository {
         return session;
     }
 
+    /**
+     * Gets a local agent or throws if not found or unsupported.
+     * @param agentId - The agent ID to look up
+     * @returns The local agent
+     * @throws Error if agent not found or API unsupported
+     */
     public requireAgent(agentId: string): LocalAgent {
         const agent = this.agents.get(agentId);
         if (!agent) {
@@ -174,6 +249,12 @@ export class LocalAgentSessionRepository {
         return agent;
     }
 
+    /**
+     * Converts session and agent data to provider message format.
+     * @param session - The chat session
+     * @param agent - The local agent
+     * @returns Array of provider-formatted messages
+     */
     public toProviderMessages(
         session: ChatSession,
         agent: LocalAgent
@@ -202,11 +283,19 @@ export class LocalAgentSessionRepository {
         return messages;
     }
 
+    /**
+     * Adds a message to a session and updates its timestamp.
+     * @param session - The chat session
+     * @param message - The message to add
+     */
     public pushMessage(session: ChatSession, message: ChatMessage): void {
         session.messages.push(message);
         session.updatedAt = new Date().toISOString();
     }
 
+    /**
+     * Clears all agents and sessions.
+     */
     public reset(): void {
         this.agents.clear();
         this.sessions.clear();

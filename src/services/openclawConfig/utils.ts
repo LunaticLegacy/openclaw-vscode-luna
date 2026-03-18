@@ -57,7 +57,12 @@ export function pruneEmptyObject(parent: JsonRecord, key: string): void {
     }
 }
 
-export function trimConfigPath(value: string | undefined): string | undefined {
+/**
+ * 对于配置项，如果用户输入了空字符串或者仅包含空白字符，则视为未设置，返回undefined。
+ * @param value 用户输入的字符串，optional……等一下，ts的optional不是要问号吗？
+ * @returns 如果输入有效（非空字符串），返回修剪后的字符串；如果输入无效，返回undefined。（沟槽的ts没有optional封装）
+ */
+export function trimConfigPath(value: string | undefined): string | undefined { 
     const trimmed = value?.trim();
     return trimmed ? trimmed : undefined;
 }
@@ -84,6 +89,12 @@ export function joinSourceDescriptions(...values: Array<string | undefined>): st
         .join(', ');
 }
 
+/**
+ * 将路径及其父路径添加到集合中，直到达到最大深度或根目录。
+ * @param target 要添加路径的集合
+ * @param initialPath 初始路径
+ * @param maxDepth 最大深度，0表示仅添加初始路径，1表示添加初始路径和其父路径，以此类推
+ */
 export function addBaseAndParents(target: Set<string>, initialPath: string, maxDepth: number): void {
     let current = path.resolve(initialPath);
 
@@ -97,6 +108,12 @@ export function addBaseAndParents(target: Set<string>, initialPath: string, maxD
     }
 }
 
+/**
+ * 寻找第一个出现的路径。
+ * 
+ * @param candidates 路径候选列表，按照优先级排序。
+ * @returns 
+ */
 export async function findFirstExistingPath(candidates: string[]): Promise<string | null> {
     for (const candidate of candidates) {
         if (await pathExists(candidate)) {

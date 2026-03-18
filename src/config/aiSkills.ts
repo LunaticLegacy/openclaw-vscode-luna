@@ -9,6 +9,9 @@ export interface AiSkillDefinition {
     sourceLabel?: string;
 }
 
+/**
+ * AI技能市场URL
+ */
 export const SKILL_MARKET_URL = 'https://skillmarket.cc/zh/';
 
 const AI_SKILLS: AiSkillDefinition[] = [
@@ -64,10 +67,19 @@ const AI_SKILLS: AiSkillDefinition[] = [
     }
 ];
 
+/**
+ * 获取所有AI技能定义列表
+ * @returns AI技能定义数组的深拷贝
+ */
 export function getAiSkills(): AiSkillDefinition[] {
     return AI_SKILLS.map(skill => ({ ...skill }));
 }
 
+/**
+ * 规范化启用的技能列表，过滤无效和重复的技能ID
+ * @param skills - 原始技能列表
+ * @returns 有效的、去重的技能ID数组
+ */
 export function normalizeEnabledSkills(skills: unknown): string[] {
     if (!Array.isArray(skills)) {
         return [];
@@ -89,6 +101,11 @@ export function normalizeEnabledSkills(skills: unknown): string[] {
     return result;
 }
 
+/**
+ * 根据启用的技能构建技能提示词附录
+ * @param enabledSkills - 启用的技能列表
+ * @returns 格式化的技能提示词附录字符串
+ */
 export function buildSkillPromptAppendix(enabledSkills: unknown): string {
     const normalizedSkills = normalizeEnabledSkills(enabledSkills);
     if (normalizedSkills.length === 0) {

@@ -15,6 +15,9 @@ import type {
   LegacyChannelConfig,
 } from '../types/channel';
 
+/**
+ * 持久化频道文件结构
+ */
 interface PersistedChannelsFile {
   version: number;
   channels: ChannelConfig[];
@@ -22,12 +25,33 @@ interface PersistedChannelsFile {
 
 const CURRENT_VERSION = 2;
 
+/**
+ * 频道管理器 V2，支持层级结构的频道管理
+ * 
+ * @emits channelCreated - 当频道被创建时触发
+ * @emits channelUpdated - 当频道被更新时触发
+ * @emits channelsDeleted - 当频道被删除时触发
+ * @emits channelArchived - 当频道被归档时触发
+ * @emits channelUnarchived - 当频道被取消归档时触发
+ * @emits channelsReordered - 当频道重新排序时触发
+ * 
+ * @example
+ * ```typescript
+ * const manager = new ChannelManagerV2(storageFilePath);
+ * const channel = await manager.createChannel({ name: 'General', agentId: 'agent-1' });
+ * const tree = await manager.getChannelTree();
+ * ```
+ */
 export class ChannelManagerV2 extends EventEmitter {
   private readonly storageFilePath: string;
   private readonly channels: Map<string, ChannelConfig> = new Map();
   private loaded = false;
   private loadPromise: Promise<void> | null = null;
 
+  /**
+   * 创建 ChannelManagerV2 实例
+   * @param storageFilePath - 存储文件路径
+   */
   constructor(storageFilePath: string) {
     super();
     this.storageFilePath = storageFilePath;
@@ -35,6 +59,12 @@ export class ChannelManagerV2 extends EventEmitter {
 
   // ===== Loading & Persistence =====
 
+  /**
+   * 获取所有频道
+   * 
+   * @param refresh - 是否强制刷新
+   * @returns 频道列表（不包含已归档频道）
+   */
   public async getChannels(refresh: boolean = false): Promise<ChannelConfig[]> {
     await this.ensureLoaded(refresh);
     return Array.from(this.channels.values())
@@ -48,11 +78,22 @@ export class ChannelManagerV2 extends EventEmitter {
       });
   }
 
+  /**
+   * 获取指定频道
+   * 
+   * @param channelId - 频道ID
+   * @returns 频道对象或 null
+   */
   public async getChannel(channelId: string): Promise<ChannelConfig | null> {
     await this.ensureLoaded();
     return this.channels.get(channelId) || null;
   }
 
+  /**
+   * 获取频道树结构
+   * 
+   * @returns 频道树
+   */
   public async getChannelTree(): Promise<ChannelTree> {
     await this.ensureLoaded();
     
@@ -96,6 +137,13 @@ export class ChannelManagerV2 extends EventEmitter {
 
   // ===== CRUD Operations =====
 
+  /**
+   * 创建新频道
+   * 
+   * @param params - 创建频道参数
+   * @returns 创建的频道
+   * @throws Error - 当父频道不存在时抛出
+   */
   public async createChannel(params: CreateChannelParams): Promise<ChannelConfig> {
     await this.ensureLoaded();
 
@@ -142,6 +190,14 @@ export class ChannelManagerV2 extends EventEmitter {
     return channel;
   }
 
+  /**
+   * 更新频道
+   * 
+   * @param channelId - 频道ID
+   * @param params - 更新参数
+   * @returns 更新后的频道
+   * @throws Error - 当频道不存在或父频道不存在时抛出
+   */
   public async updateChannel(
     channelId: string,
     params: UpdateChannelParams
@@ -222,6 +278,12 @@ export class ChannelManagerV2 extends EventEmitter {
     return channel;
   }
 
+  /**
+   * 移动频道
+   * 
+   * @param params - 移动参数
+   * @returns 移动结果
+   */
   public async moveChannel(params: MoveChannelParams): Promise<ChannelMoveResult> {
     const { channelId, newParentId, newOrder } = params;
     
@@ -244,6 +306,14 @@ export class ChannelManagerV2 extends EventEmitter {
     };
   }
 
+  /**
+   * 删除频道
+   * 
+   * @param channelId - 频道ID
+   * @param options - 删除选项
+   * @returns 删除的ID列表和移动的ID列表
+   * @throws Error - 当频道不存在时抛出
+   */
   public async deleteChannel(channelId: string, options?: {
     recursive?: boolean;
     moveChildrenToParent?: boolean;
@@ -311,6 +381,12 @@ export class ChannelManagerV2 extends EventEmitter {
     return { deletedIds, movedIds };
   }
 
+  /**
+   * 归档频道
+   * 
+   * @param channelId - 频道ID
+   * @returns 归档后的频道
+   */
   public async archiveChannel(channelId: string): Promise<ChannelConfig> {
     const channel = await this.updateChannel(channelId, {});
     channel.archivedAt = new Date().toISOString();
@@ -319,6 +395,12 @@ export class ChannelManagerV2 extends EventEmitter {
     return channel;
   }
 
+  /**
+   * 取消归档频道
+   * 
+   * @param channelId - 频道ID
+   * @returns 取消归档后的频道
+   */
   public async unarchiveChannel(channelId: string): Promise<ChannelConfig> {
     const channel = await this.updateChannel(channelId, {});
     channel.archivedAt = undefined;
@@ -329,14 +411,33 @@ export class ChannelManagerV2 extends EventEmitter {
 
   // ===== Session Management =====
 
+  /**
+   * 设置频道会话ID
+   * 
+   * @param channelId - 频道ID
+   * @param sessionId - 会话ID
+   * @returns 更新后的频道
+   */
   public async setChannelSessionId(channelId: string, sessionId: string): Promise<ChannelConfig> {
     return this.updateChannel(channelId, { sessionId: sessionId as unknown as string });
   }
 
+  /**
+   * 清除频道会话ID
+   * 
+   * @param channelId - 频道ID
+   * @returns 更新后的频道
+   */
   public async clearChannelSessionId(channelId: string): Promise<ChannelConfig> {
     return this.updateChannel(channelId, { sessionId: null as unknown as string });
   }
 
+  /**
+   * 获取有效的智能体ID（考虑继承）
+   * 
+   * @param channelId - 频道ID
+   * @returns 有效的智能体ID或 undefined
+   */
   public getEffectiveAgentId(channelId: string): string | undefined {
     const channel = this.channels.get(channelId);
     if (!channel) return undefined;
@@ -355,6 +456,14 @@ export class ChannelManagerV2 extends EventEmitter {
 
   // ===== Aggregate & External Config =====
 
+  /**
+   * 设置聚合配置
+   * 
+   * @param channelId - 频道ID
+   * @param config - 聚合配置
+   * @returns 更新后的频道
+   * @throws Error - 当频道不存在时抛出
+   */
   public async setAggregateConfig(
     channelId: string,
     config: ChannelConfig['aggregateConfig']
@@ -371,6 +480,14 @@ export class ChannelManagerV2 extends EventEmitter {
     return channel;
   }
 
+  /**
+   * 设置外部配置
+   * 
+   * @param channelId - 频道ID
+   * @param config - 外部配置
+   * @returns 更新后的频道
+   * @throws Error - 当频道不存在时抛出
+   */
   public async setExternalConfig(
     channelId: string,
     config: ChannelConfig['externalConfig']
@@ -389,6 +506,11 @@ export class ChannelManagerV2 extends EventEmitter {
 
   // ===== Reordering =====
 
+  /**
+   * 重新排序同层级频道
+   * 
+   * @param parentId - 父频道ID
+   */
   public async reorderSiblings(parentId?: string): Promise<void> {
     await this.ensureLoaded();
 
@@ -408,6 +530,13 @@ export class ChannelManagerV2 extends EventEmitter {
     this.emit('channelsReordered', parentId);
   }
 
+  /**
+   * 交换两个频道的顺序
+   * 
+   * @param channelId1 - 第一个频道ID
+   * @param channelId2 - 第二个频道ID
+   * @throws Error - 当频道不存在或父频道不同时抛出
+   */
   public async swapOrder(channelId1: string, channelId2: string): Promise<void> {
     const c1 = this.channels.get(channelId1);
     const c2 = this.channels.get(channelId2);
@@ -431,10 +560,18 @@ export class ChannelManagerV2 extends EventEmitter {
 
   // ===== Utility =====
 
+  /**
+   * 刷新频道列表
+   * 
+   * @returns 刷新后的频道列表
+   */
   public async refresh(): Promise<ChannelConfig[]> {
     return this.getChannels(true);
   }
 
+  /**
+   * 释放资源
+   */
   public dispose(): void {
     this.removeAllListeners();
     this.channels.clear();
@@ -444,6 +581,10 @@ export class ChannelManagerV2 extends EventEmitter {
 
   // ===== Private Methods =====
 
+  /**
+   * 确保数据已加载
+   * @param forceRefresh - 是否强制刷新
+   */
   private async ensureLoaded(forceRefresh: boolean = false): Promise<void> {
     if (forceRefresh) {
       this.loaded = false;
@@ -467,6 +608,9 @@ export class ChannelManagerV2 extends EventEmitter {
     }
   }
 
+  /**
+   * 从磁盘加载数据
+   */
   private async loadFromDisk(): Promise<void> {
     this.channels.clear();
 
@@ -495,6 +639,10 @@ export class ChannelManagerV2 extends EventEmitter {
     this.loaded = true;
   }
 
+  /**
+   * 从 V1 迁移数据
+   * @param legacyChannels - 旧版频道配置列表
+   */
   private migrateFromV1(legacyChannels: LegacyChannelConfig[]): void {
     const now = new Date().toISOString();
     
@@ -521,6 +669,9 @@ export class ChannelManagerV2 extends EventEmitter {
     void this.persist();
   }
 
+  /**
+   * 持久化数据到磁盘
+   */
   private async persist(): Promise<void> {
     const payload: PersistedChannelsFile = {
       version: CURRENT_VERSION,
@@ -531,6 +682,11 @@ export class ChannelManagerV2 extends EventEmitter {
     await fs.writeFile(this.storageFilePath, JSON.stringify(payload, null, 2), 'utf8');
   }
 
+  /**
+   * 验证频道数据有效性
+   * @param channel - 待验证的频道数据
+   * @returns 是否为有效的频道
+   */
   private isValidChannel(channel: unknown): channel is ChannelConfig {
     if (!channel || typeof channel !== 'object') return false;
     const c = channel as Partial<ChannelConfig>;
@@ -544,6 +700,11 @@ export class ChannelManagerV2 extends EventEmitter {
     );
   }
 
+  /**
+   * 规范化频道数据
+   * @param channel - 部分频道数据
+   * @returns 完整的频道配置
+   */
   private normalizeChannel(channel: Partial<ChannelConfig>): ChannelConfig {
     return {
       id: channel.id!,
@@ -565,6 +726,12 @@ export class ChannelManagerV2 extends EventEmitter {
     };
   }
 
+  /**
+   * 验证无循环引用
+   * @param channelId - 频道ID
+   * @param newParentId - 新父频道ID
+   * @throws Error - 当检测到循环引用时抛出
+   */
   private async validateNoCircularReference(
     channelId: string,
     newParentId?: string
@@ -580,6 +747,11 @@ export class ChannelManagerV2 extends EventEmitter {
     }
   }
 
+  /**
+   * 获取子树所有频道ID
+   * @param rootId - 根频道ID
+   * @returns 所有子频道ID列表
+   */
   private getSubtreeIds(rootId: string): string[] {
     const channel = this.channels.get(rootId);
     if (!channel) return [rootId];
@@ -594,6 +766,11 @@ export class ChannelManagerV2 extends EventEmitter {
 
 // ===== Helpers =====
 
+/**
+ * 根据名称构建频道ID
+ * @param name - 频道名称
+ * @returns 频道ID
+ */
 function buildChannelId(name: string): string {
   const normalized = name
     .trim()
@@ -604,11 +781,23 @@ function buildChannelId(name: string): string {
   return `ch:${safeName}:${Date.now()}`;
 }
 
+/**
+ * 规范化可选文本值
+ * @param value - 输入值
+ * @returns 规范化后的字符串或 undefined
+ */
 function normalizeOptionalText(value: string | null | undefined): string | undefined {
   const normalized = String(value || '').trim();
   return normalized ? normalized : undefined;
 }
 
+/**
+ * 要求非空值
+ * @param value - 输入值
+ * @param key - 错误消息键
+ * @returns 规范化后的字符串
+ * @throws Error - 当值为空时抛出
+ */
 function requireNonEmpty(value: string, key: string): string {
   const normalized = String(value || '').trim();
   if (!normalized) {
@@ -617,6 +806,10 @@ function requireNonEmpty(value: string, key: string): string {
   return normalized;
 }
 
+/**
+ * 获取默认频道设置
+ * @returns 默认频道设置
+ */
 function defaultChannelSettings(): ChannelSettings {
   return {
     notifications: true,

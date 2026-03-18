@@ -4,8 +4,14 @@ import { t } from '../../i18n';
 import { runWithNotificationProgress } from '../../utils/statusFeedback';
 import type { ClusterContextExportKind } from './contextExport';
 
+/**
+ * Type for panel view modes
+ */
 type PanelViewMode = 'chat' | 'clusters' | 'usage' | 'channel' | 'tasks';
 
+/**
+ * Context interface for message routing operations
+ */
 interface MessageRouterContext {
     issueTrackerUrl: string;
     setWebviewReady(ready: boolean): void;
@@ -89,6 +95,11 @@ interface MessageRouterContext {
     toggleSkillForAgent(agentId: string, skillId: string, enable: boolean): Promise<void>;
 }
 
+/**
+ * Handles incoming panel messages and routes them to the appropriate handlers
+ * @param context - The message router context
+ * @param message - The incoming message from the webview
+ */
 export async function handlePanelMessage(context: MessageRouterContext, message: any): Promise<void> {
     switch (message.type) {
         case 'webviewReady':

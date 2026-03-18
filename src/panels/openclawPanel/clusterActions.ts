@@ -20,6 +20,9 @@ import type { Agent, ChatMessage } from '../../services/openclawService';
 import { showSuccessStatus } from '../../utils/statusFeedback';
 import { normalizeOutgoingMessageContent } from './helpers';
 
+/**
+ * Context interface for cluster action operations
+ */
 interface ClusterActionContext {
     clusterManager: ClusterManager;
     agentManager: AgentManager;
@@ -37,9 +40,21 @@ interface ClusterActionContext {
     getClusterAgentRunToken(): number;
 }
 
+/**
+ * Type for swarm operation modes
+ */
 type SwarmMode = 'broadcast' | 'collaborate';
+
+/**
+ * Type alias for presented chat messages
+ */
 type PresentedChatMessage = ChatMessage;
 
+/**
+ * Loads the list of clusters
+ * @param context - The cluster action context
+ * @param selectedClusterId - Optional cluster ID to select
+ */
 export async function loadClusters(context: ClusterActionContext, selectedClusterId?: string): Promise<void> {
     try {
         const clusters = await context.clusterManager.getClusters(true);
@@ -58,6 +73,13 @@ export async function loadClusters(context: ClusterActionContext, selectedCluste
     }
 }
 
+/**
+ * Handles broadcasting a message to all agents in a cluster
+ * @param context - The cluster action context
+ * @param clusterId - The ID of the target cluster
+ * @param message - The message to broadcast
+ * @returns True if the broadcast succeeded
+ */
 export async function handleBroadcast(context: ClusterActionContext, clusterId: string, message: string): Promise<boolean> {
     const swarmRunToken = context.nextClusterSwarmRunToken();
     const runningAgentIds = await beginClusterAgentRuns(context, clusterId);
@@ -118,6 +140,11 @@ export async function handleBroadcast(context: ClusterActionContext, clusterId: 
     return false;
 }
 
+/**
+ * Prompts the user to broadcast a message to a cluster
+ * @param context - The cluster action context
+ * @param clusterId - The ID of the target cluster
+ */
 export async function promptBroadcastToCluster(context: ClusterActionContext, clusterId: string): Promise<void> {
     const message = await vscode.window.showInputBox({
         prompt: t('clusters.broadcastPrompt'),
@@ -131,6 +158,13 @@ export async function promptBroadcastToCluster(context: ClusterActionContext, cl
     await handleBroadcast(context, clusterId, normalizeOutgoingMessageContent(message));
 }
 
+/**
+ * Handles collaboration mode for a cluster
+ * @param context - The cluster action context
+ * @param clusterId - The ID of the target cluster
+ * @param message - The collaboration message
+ * @returns True if the collaboration succeeded
+ */
 export async function handleCollaborate(context: ClusterActionContext, clusterId: string, message: string): Promise<boolean> {
     const swarmRunToken = context.nextClusterSwarmRunToken();
     const runningAgentIds = await beginClusterAgentRuns(context, clusterId);
@@ -188,6 +222,11 @@ export async function handleCollaborate(context: ClusterActionContext, clusterId
     return false;
 }
 
+/**
+ * Prompts the user to start a cluster collaboration
+ * @param context - The cluster action context
+ * @param clusterId - The ID of the target cluster
+ */
 export async function promptCollaborateCluster(context: ClusterActionContext, clusterId: string): Promise<void> {
     const message = await vscode.window.showInputBox({
         prompt: t('clusters.collaborationPrompt'),
@@ -201,6 +240,12 @@ export async function promptCollaborateCluster(context: ClusterActionContext, cl
     await handleCollaborate(context, clusterId, normalizeOutgoingMessageContent(message));
 }
 
+/**
+ * Loads swarm messages for a cluster
+ * @param context - The cluster action context
+ * @param clusterId - The ID of the cluster
+ * @param mode - The swarm mode (broadcast or collaborate)
+ */
 export async function loadClusterSwarmMessages(
     context: ClusterActionContext,
     clusterId: string,
@@ -240,6 +285,12 @@ export async function loadClusterSwarmMessages(
     }
 }
 
+/**
+ * Loads messages for a specific agent in a cluster
+ * @param context - The cluster action context
+ * @param clusterId - The ID of the cluster
+ * @param agentId - The ID of the agent
+ */
 export async function loadClusterAgentMessages(
     context: ClusterActionContext,
     clusterId: string,
@@ -292,6 +343,14 @@ export async function loadClusterAgentMessages(
     }
 }
 
+/**
+ * Handles sending a message to a specific agent in a cluster
+ * @param context - The cluster action context
+ * @param clusterId - The ID of the cluster
+ * @param agentId - The ID of the target agent
+ * @param content - The message content
+ * @returns True if the message was sent successfully
+ */
 export async function handleClusterAgentMessage(
     context: ClusterActionContext,
     clusterId: string,
@@ -358,6 +417,13 @@ export async function handleClusterAgentMessage(
     return false;
 }
 
+/**
+ * Loads swarm messages for a specific agent in a cluster
+ * @param context - The cluster action context
+ * @param clusterId - The ID of the cluster
+ * @param agentId - The ID of the agent
+ * @param mode - The swarm mode (broadcast or collaborate)
+ */
 export async function loadClusterAgentSwarmMessages(
     context: ClusterActionContext,
     clusterId: string,
@@ -401,6 +467,12 @@ export async function loadClusterAgentSwarmMessages(
     }
 }
 
+/**
+ * Begins agent runs for all agents in a cluster
+ * @param context - The cluster action context
+ * @param clusterId - The ID of the cluster
+ * @returns Array of agent IDs that were started
+ */
 async function beginClusterAgentRuns(context: ClusterActionContext, clusterId: string): Promise<string[]> {
     const cluster = await context.clusterManager.getCluster(clusterId);
     if (!cluster) {
@@ -414,12 +486,24 @@ async function beginClusterAgentRuns(context: ClusterActionContext, clusterId: s
     return cluster.agentIds;
 }
 
+/**
+ * Ends agent runs for the specified agents
+ * @param context - The cluster action context
+ * @param agentIds - Array of agent IDs to stop
+ */
 function endClusterAgentRuns(context: ClusterActionContext, agentIds: string[]): void {
     for (const agentId of agentIds) {
         context.endAgentRun(agentId);
     }
 }
 
+/**
+ * Handles cluster agent session commands (new or clear)
+ * @param context - The cluster action context
+ * @param clusterId - The ID of the cluster
+ * @param agentId - The ID of the agent
+ * @param command - The command to execute ('new' or 'clear')
+ */
 export async function handleClusterAgentSessionCommand(
     context: ClusterActionContext,
     clusterId: string,
@@ -487,6 +571,12 @@ export async function handleClusterAgentSessionCommand(
     }
 }
 
+/**
+ * Handles saving a cluster (create or update)
+ * @param context - The cluster action context
+ * @param clusterId - The ID of the cluster to update, or undefined to create new
+ * @param data - The cluster data
+ */
 export async function handleSaveCluster(
     context: ClusterActionContext,
     clusterId: string | undefined,
@@ -612,12 +702,20 @@ export async function handleSaveCluster(
     );
 }
 
+/**
+ * Parameters for creating a cluster from a member preset
+ */
 export interface CreateClusterFromPresetParams {
     memberPresetId: string;
     customName?: string;
     model?: string;
 }
 
+/**
+ * Handles creating a cluster from a member preset
+ * @param context - The cluster action context
+ * @param params - The creation parameters
+ */
 export async function handleCreateClusterFromMemberPreset(
     context: ClusterActionContext,
     params: CreateClusterFromPresetParams
@@ -762,6 +860,11 @@ export async function handleCreateClusterFromMemberPreset(
     );
 }
 
+/**
+ * Handles adding agents to a cluster
+ * @param context - The cluster action context
+ * @param clusterId - The ID of the cluster
+ */
 export async function handleAddAgentsToCluster(context: ClusterActionContext, clusterId: string): Promise<void> {
     if (!clusterId) {
         return;
@@ -810,6 +913,11 @@ export async function handleAddAgentsToCluster(context: ClusterActionContext, cl
     }
 }
 
+/**
+ * Handles removing agents from a cluster
+ * @param context - The cluster action context
+ * @param clusterId - The ID of the cluster
+ */
 export async function handleRemoveAgentsFromCluster(context: ClusterActionContext, clusterId: string): Promise<void> {
     if (!clusterId) {
         return;
@@ -866,6 +974,14 @@ export async function handleRemoveAgentsFromCluster(context: ClusterActionContex
     }
 }
 
+/**
+ * Initializes progress tracking for a cluster swarm operation
+ * @param context - The cluster action context
+ * @param clusterId - The ID of the cluster
+ * @param mode - The swarm mode
+ * @param userMessage - The user's message
+ * @returns The progress tracking object
+ */
 async function initializeClusterSwarmProgress(
     context: ClusterActionContext,
     clusterId: string,
@@ -902,6 +1018,12 @@ async function initializeClusterSwarmProgress(
     };
 }
 
+/**
+ * Appends messages to the cluster swarm progress
+ * @param context - The cluster action context
+ * @param progress - The progress tracking object
+ * @param messages - The messages to append
+ */
 async function appendClusterSwarmProgressMessages(
     context: ClusterActionContext,
     progress: {
@@ -939,6 +1061,13 @@ async function appendClusterSwarmProgressMessages(
     });
 }
 
+/**
+ * Finalizes the cluster swarm progress
+ * @param context - The cluster action context
+ * @param progress - The progress tracking object
+ * @param assistantMessages - The assistant messages to finalize with
+ * @returns The complete message list
+ */
 async function finalizeClusterSwarmProgress(
     context: ClusterActionContext,
     progress: {
@@ -955,6 +1084,12 @@ async function finalizeClusterSwarmProgress(
     return progress.messages;
 }
 
+/**
+ * Builds conversation messages for a broadcast response
+ * @param responses - The broadcast responses
+ * @param agents - The list of agents
+ * @returns The conversation messages
+ */
 function buildBroadcastConversationMessages(
     responses: Record<string, ClusterBroadcastResult>,
     agents: Agent[]
@@ -971,6 +1106,12 @@ function buildBroadcastConversationMessages(
     return messages;
 }
 
+/**
+ * Builds conversation messages for a collaboration result
+ * @param result - The collaboration result
+ * @param agents - The list of agents
+ * @returns The conversation messages
+ */
 function buildCollaborationConversationMessages(
     result: ClusterCollaborationResult,
     agents: Agent[]
@@ -1014,6 +1155,12 @@ function buildCollaborationConversationMessages(
     return messages;
 }
 
+/**
+ * Builds conversation messages for a progress event
+ * @param event - The collaboration progress event
+ * @param agents - The list of agents
+ * @returns The conversation messages
+ */
 function buildConversationMessagesForProgressEvent(
     event: ClusterCollaborationProgressEvent,
     agents: Agent[]
@@ -1044,6 +1191,13 @@ function buildConversationMessagesForProgressEvent(
     );
 }
 
+/**
+ * Builds conversation messages for a broadcast entry
+ * @param entry - The broadcast result entry
+ * @param displayName - The display name for the agent
+ * @param contextLabel - The context label
+ * @returns The conversation messages
+ */
 function buildConversationMessagesForEntry(
     entry: ClusterBroadcastResult,
     displayName: string,
@@ -1059,6 +1213,13 @@ function buildConversationMessagesForEntry(
         : [buildErrorTraceMessage(displayName, contextLabel, entry.error, entry.agentId, entry)];
 }
 
+/**
+ * Builds trace messages for an agent's execution
+ * @param entry - The broadcast result entry
+ * @param displayName - The display name for the agent
+ * @param contextLabel - The context label
+ * @returns The trace messages
+ */
 function buildAgentTraceMessages(
     entry: ClusterBroadcastResult,
     displayName: string,
@@ -1090,6 +1251,12 @@ function buildAgentTraceMessages(
     return deduped;
 }
 
+/**
+ * Merges trace messages with the final message
+ * @param trace - The trace messages
+ * @param finalMessage - The final message
+ * @returns The merged messages
+ */
 function mergeTraceWithFinalMessage(
     trace: ChatMessage[],
     finalMessage?: ChatMessage
@@ -1112,14 +1279,31 @@ function mergeTraceWithFinalMessage(
     return hasAssistantResult ? trace : [...trace, finalMessage];
 }
 
+/**
+ * Builds a deduplication key for a trace message
+ * @param message - The chat message
+ * @returns The deduplication key
+ */
 function buildTraceDeduplicationKey(message: ChatMessage): string {
     return message.id || `${message.role}:${message.timestamp || ''}:${message.content || ''}`;
 }
 
+/**
+ * Builds a progress message key for swarm operations
+ * @param message - The presented chat message
+ * @returns The progress message key
+ */
 function buildSwarmProgressMessageKey(message: PresentedChatMessage): string {
     return `${buildTraceDeduplicationKey(message)}:${message.displayName || ''}:${message.contextLabel || ''}`;
 }
 
+/**
+ * Builds a user message for swarm operations
+ * @param content - The message content
+ * @param mode - The swarm mode
+ * @param batchId - The batch ID
+ * @returns The user message
+ */
 function buildSwarmUserMessage(content: string, mode: SwarmMode, batchId: string): PresentedChatMessage {
     return {
         id: `swarm-user:${Date.now()}:${++swarmMessageCounter}`,
@@ -1135,6 +1319,12 @@ function buildSwarmUserMessage(content: string, mode: SwarmMode, batchId: string
     };
 }
 
+/**
+ * Decorates cluster agent log messages with context labels
+ * @param messages - The messages to decorate
+ * @param mode - The swarm mode
+ * @returns The decorated messages
+ */
 function decorateClusterAgentLogMessages(
     messages: PresentedChatMessage[],
     mode: SwarmMode
@@ -1148,6 +1338,15 @@ function decorateClusterAgentLogMessages(
     }));
 }
 
+/**
+ * Builds an error trace message
+ * @param displayName - The display name
+ * @param contextLabel - The context label
+ * @param error - The error message
+ * @param agentId - Optional agent ID
+ * @param entry - Optional broadcast result entry
+ * @returns The error trace message
+ */
 function buildErrorTraceMessage(
     displayName: string,
     contextLabel: string,
@@ -1167,6 +1366,12 @@ function buildErrorTraceMessage(
     };
 }
 
+/**
+ * Decorates a swarm result message with metadata
+ * @param message - The chat message
+ * @param entry - The broadcast result entry
+ * @returns The decorated message
+ */
 function decorateSwarmResultMessage(message: PresentedChatMessage, entry: ClusterBroadcastResult): PresentedChatMessage {
     return {
         ...message,
@@ -1177,6 +1382,11 @@ function decorateSwarmResultMessage(message: PresentedChatMessage, entry: Cluste
     };
 }
 
+/**
+ * Builds metadata for a swarm result
+ * @param entry - The broadcast result entry
+ * @returns The metadata object or undefined
+ */
 function buildSwarmResultMetadata(entry?: ClusterBroadcastResult): Record<string, unknown> | undefined {
     const elapsedMs = Number(entry?.timing?.elapsedMs);
     if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
@@ -1190,6 +1400,12 @@ function buildSwarmResultMetadata(entry?: ClusterBroadcastResult): Record<string
     };
 }
 
+/**
+ * Resolves the display label for an agent
+ * @param agents - The list of agents
+ * @param agentId - The agent ID
+ * @returns The agent label
+ */
 function resolveAgentLabel(agents: Agent[], agentId: string): string {
     const agent = agents.find(item => item.id === agentId);
     if (!agent) {
@@ -1199,6 +1415,11 @@ function resolveAgentLabel(agents: Agent[], agentId: string): string {
     return `${agent.name} (${agent.model})`;
 }
 
+/**
+ * Gets the label for a collaboration round
+ * @param kind - The round kind
+ * @returns The round label
+ */
 function getCollaborationRoundLabel(kind: ClusterCollaborationResult['rounds'][number]['kind']): string {
     const keyMap: Record<string, string> = {
         opening: 'clusters.debateRoundOpening',
@@ -1229,6 +1450,12 @@ function getCollaborationRoundLabel(kind: ClusterCollaborationResult['rounds'][n
     return t('clusters.contributions');
 }
 
+/**
+ * Attaches swarm batch metadata to a message
+ * @param message - The chat message
+ * @param batchId - The batch ID
+ * @returns The message with batch metadata
+ */
 function attachSwarmBatchMetadata(message: PresentedChatMessage, batchId: string): PresentedChatMessage {
     return {
         ...message,
@@ -1239,13 +1466,31 @@ function attachSwarmBatchMetadata(message: PresentedChatMessage, batchId: string
     };
 }
 
+/**
+ * Builds a unique batch ID for swarm operations
+ * @param mode - The swarm mode
+ * @returns The batch ID
+ */
 function buildSwarmBatchId(mode: SwarmMode): string {
     return `swarm-batch:${mode}:${Date.now()}:${++swarmBatchCounter}`;
 }
 
+/**
+ * Counter for swarm messages
+ */
 let swarmMessageCounter = 0;
+
+/**
+ * Counter for swarm batches
+ */
 let swarmBatchCounter = 0;
 
+/**
+ * Creates a step progress reporter for long-running operations
+ * @param progress - The VS Code progress object
+ * @param totalSteps - The total number of steps
+ * @returns The progress reporter with start and complete methods
+ */
 function createStepProgressReporter(
     progress: vscode.Progress<{ message?: string; increment?: number }>,
     totalSteps: number

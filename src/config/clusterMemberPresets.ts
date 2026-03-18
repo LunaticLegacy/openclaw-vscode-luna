@@ -44,6 +44,9 @@ export interface ClusterMemberPreset {
     onboardingMessageTemplate?: string;
 }
 
+/**
+ * 默认集群成员预设ID
+ */
 export const DEFAULT_CLUSTER_MEMBER_PRESET_ID = 'implementation-squad';
 
 const CLUSTER_MEMBER_PRESETS: ClusterMemberPreset[] = [
@@ -422,10 +425,19 @@ const CLUSTER_MEMBER_PRESETS: ClusterMemberPreset[] = [
     }
 ];
 
+/**
+ * 获取所有集群成员预设列表
+ * @returns 集群成员预设数组的深拷贝
+ */
 export function getClusterMemberPresets(): ClusterMemberPreset[] {
     return CLUSTER_MEMBER_PRESETS.map(cloneClusterMemberPreset);
 }
 
+/**
+ * 根据预设ID获取集群成员预设
+ * @param presetId - 预设标识符
+ * @returns 集群成员预设，如果不存在则返回 null
+ */
 export function getClusterMemberPreset(presetId?: string | null): ClusterMemberPreset | null {
     if (!presetId) {
         return null;
@@ -434,12 +446,23 @@ export function getClusterMemberPreset(presetId?: string | null): ClusterMemberP
     return preset ? cloneClusterMemberPreset(preset) : null;
 }
 
+/**
+ * 解析集群成员预设，如指定ID不存在则返回默认预设
+ * @param presetId - 预设标识符
+ * @returns 集群成员预设
+ */
 export function resolveClusterMemberPreset(presetId?: string | null): ClusterMemberPreset {
     return getClusterMemberPreset(presetId) 
         || getClusterMemberPreset(DEFAULT_CLUSTER_MEMBER_PRESET_ID)
         || cloneClusterMemberPreset(CLUSTER_MEMBER_PRESETS[0]);
 }
 
+/**
+ * 根据模板构建集群名称
+ * @param template - 名称模板，支持 {{timestamp}} 等占位符
+ * @param context - 可选的上下文变量
+ * @returns 构建后的集群名称
+ */
 export function buildClusterNameFromTemplate(template: string, context?: Record<string, string>): string {
     const timestamp = new Date().toLocaleString('zh-CN', {
         month: 'short',
@@ -459,6 +482,13 @@ export function buildClusterNameFromTemplate(template: string, context?: Record<
     return result;
 }
 
+/**
+ * 根据模板构建智能体名称
+ * @param template - 名称模板，支持 {{clusterName}} 和 {{index}} 占位符
+ * @param clusterName - 集群名称
+ * @param index - 成员索引
+ * @returns 构建后的智能体名称
+ */
 export function buildAgentNameFromTemplate(template: string, clusterName: string, index: number): string {
     return template
         .replace(/\{\{\s*clusterName\s*\}\}/g, clusterName)

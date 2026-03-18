@@ -7,6 +7,9 @@ import type { OpenClawBooleanCapabilityId } from '../../services/openclawService
 import { getCapabilityUnavailableMessage } from '../../utils/capabilitySupport';
 import { runWithNotificationProgress, showSuccessStatus } from '../../utils/statusFeedback';
 
+/**
+ * Context interface for agent action operations
+ */
 interface AgentActionContext {
     agentManager: AgentManager;
     postMessage(message: Record<string, unknown>): void;
@@ -17,6 +20,11 @@ interface AgentActionContext {
     setCurrentSessionId(sessionId: string | null): void;
 }
 
+/**
+ * Handles creating a new agent
+ * @param context - The agent action context
+ * @param data - The agent creation data
+ */
 export async function handleCreateAgent(context: AgentActionContext, data: any): Promise<void> {
     const agentName = typeof data?.name === 'string' ? data.name.trim() : '';
     context.postMessage({
@@ -67,6 +75,11 @@ export async function handleCreateAgent(context: AgentActionContext, data: any):
     );
 }
 
+/**
+ * Handles creating multiple agents in batch
+ * @param context - The agent action context
+ * @param data - The batch creation data containing agent configurations
+ */
 export async function handleCreateAgentsBatch(
     context: AgentActionContext,
     data: { agents?: Array<{ name?: string; model?: string; systemPrompt?: string; presetId?: string; enabledSkills?: string[] }> }
@@ -138,6 +151,11 @@ export async function handleCreateAgentsBatch(
     });
 }
 
+/**
+ * Handles deleting an agent
+ * @param context - The agent action context
+ * @param agentId - The ID of the agent to delete
+ */
 export async function handleDeleteAgent(context: AgentActionContext, agentId: string): Promise<void> {
     context.postMessage({
         type: 'agentMutationState',
@@ -178,6 +196,10 @@ export async function handleDeleteAgent(context: AgentActionContext, agentId: st
     }
 }
 
+/**
+ * Prompts the user to select and delete multiple agents in batch
+ * @param context - The agent action context
+ */
 export async function promptDeleteAgentsBatch(context: AgentActionContext): Promise<void> {
     const agents = await context.agentManager.getAgents(true);
     if (agents.length === 0) {
@@ -252,6 +274,12 @@ export async function promptDeleteAgentsBatch(context: AgentActionContext): Prom
     showSuccessStatus(t('agentBatch.deleted', { count: String(selections.length) }));
 }
 
+/**
+ * Handles saving agent settings
+ * @param context - The agent action context
+ * @param agentId - The ID of the agent to update
+ * @param settings - The new agent settings
+ */
 export async function handleSaveAgentSettings(context: AgentActionContext, agentId: string, settings: any): Promise<void> {
     if (!context.ensureCapability('agentEditing')) {
         vscode.window.showErrorMessage(getCapabilityUnavailableMessage('agentEditing'));
@@ -278,6 +306,11 @@ export async function handleSaveAgentSettings(context: AgentActionContext, agent
     }
 }
 
+/**
+ * Handles opening agent settings in the panel
+ * @param context - The agent action context
+ * @param agentId - The ID of the agent to open settings for
+ */
 export async function handleOpenAgentSettings(context: AgentActionContext, agentId: string): Promise<void> {
     try {
         const agent = await context.agentManager.getAgent(agentId);
@@ -301,6 +334,11 @@ export async function handleOpenAgentSettings(context: AgentActionContext, agent
     }
 }
 
+/**
+ * Handles opening an agent's folder in VS Code
+ * @param context - The agent action context
+ * @param agentId - The ID of the agent whose folder to open
+ */
 export async function handleOpenAgentFolder(context: AgentActionContext, agentId: string): Promise<void> {
     try {
         const agent = await context.agentManager.getAgent(agentId);

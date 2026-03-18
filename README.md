@@ -1,12 +1,12 @@
-# OpenClaw Luna for VS Code
+# LunaClaw for VS Code
 
 <div align="center">
 
 <br />
 
-<img src="resources/openclaw_luna_animated_1to1.webp" width="120" alt="OpenClaw Luna Logo" />
+<img src="resources/openclaw_luna_animated_1to1.webp" width="120" alt="LunaClaw Logo" />
 
-# OpenClaw Luna
+# LunaClaw
 
 ### 把 OpenClaw 的 Agent、Swarm、定时任务和用量统一带回 VS Code
 
@@ -21,11 +21,11 @@
 
 <br />
 
-<img src="resources/screenshot-01.png" width="88%" alt="OpenClaw Luna screenshot 1" />
+<img src="resources/screenshot-01.png" width="88%" alt="LunaClaw screenshot 1" />
 
 <p>
-  <img src="resources/screenshot-02.png" width="43.5%" alt="OpenClaw Luna screenshot 2" />
-  <img src="resources/screenshot-03.png" width="43.5%" alt="OpenClaw Luna screenshot 3" />
+  <img src="resources/screenshot-02.png" width="43.5%" alt="LunaClaw screenshot 2" />
+  <img src="resources/screenshot-03.png" width="43.5%" alt="LunaClaw screenshot 3" />
 </p>
 
 </div>
@@ -34,7 +34,7 @@
 
 ## 它是什么
 
-OpenClaw Luna 是一个 VS Code 扩展，用来把 OpenClaw 的日常控制路径收进一个面板里。
+LunaClaw 是一个 VS Code 扩展，用来把 OpenClaw 的日常控制路径收进一个面板里。
 
 你不需要在 CLI、浏览器、配置文件和零散命令之间来回跳。Luna 的目标很直接：
 
@@ -55,13 +55,13 @@ OpenClaw Luna 是一个 VS Code 扩展，用来把 OpenClaw 的日常控制路�
 
 ### 1. 安装扩展
 
-从 VS Code Marketplace 安装 `OpenClaw Luna`。
+从 VS Code Marketplace 安装 `LunaClaw`。
 
 ### 2. 打开面板
 
 任选一个入口：
 
-- 命令面板 `OpenClaw Luna: Open OpenClaw Luna`
+- 命令面板 `LunaClaw: Open LunaClaw`
 - 右下角状态栏 `OpenClaw`
 - 左侧 Activity Bar `OpenClaw`
 

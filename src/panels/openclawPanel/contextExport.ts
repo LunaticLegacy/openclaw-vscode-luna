@@ -1,18 +1,27 @@
 import * as path from 'path';
 import type { ChatMessage } from '../../services/openclawService';
 
+/**
+ * Information about a cluster for export
+ */
 interface ExportClusterInfo {
     id: string;
     name: string;
     agentIds: string[];
 }
 
+/**
+ * Information about an agent for export
+ */
 interface ExportAgentInfo {
     id: string;
     name: string;
     model: string | null;
 }
 
+/**
+ * Body of a cluster swarm context export
+ */
 export interface ClusterSwarmContextExportBody {
     exportedAt: string;
     kind: 'cluster-swarm-context';
@@ -22,6 +31,9 @@ export interface ClusterSwarmContextExportBody {
     messages: ChatMessage[];
 }
 
+/**
+ * Body of a cluster agent context export
+ */
 export interface ClusterAgentContextExportBody {
     exportedAt: string;
     kind: 'cluster-agent-context';
@@ -40,10 +52,16 @@ export interface ClusterAgentContextExportBody {
     };
 }
 
+/**
+ * Union type for cluster context export bodies
+ */
 export type ClusterContextExportBody =
     | ClusterSwarmContextExportBody
     | ClusterAgentContextExportBody;
 
+/**
+ * Bundle containing all export data and metadata
+ */
 export interface ClusterContextExportBundle {
     baseName: string;
     readableFileName: string;
@@ -52,14 +70,26 @@ export interface ClusterContextExportBundle {
     readableMarkdown: string;
 }
 
+/**
+ * Type for export kind (readable markdown or raw JSON)
+ */
 export type ClusterContextExportKind = 'readable' | 'raw';
 
+/**
+ * Import data for cluster swarm replay
+ */
 export interface ClusterSwarmReplayImport {
     sourcePath: string;
     importedAt: string;
     body: ClusterSwarmContextExportBody;
 }
 
+/**
+ * Builds a cluster context export bundle
+ * @param baseName - The base file name
+ * @param body - The export body data
+ * @returns The complete export bundle
+ */
 export function buildClusterContextExportBundle(
     baseName: string,
     body: ClusterContextExportBody
@@ -73,6 +103,12 @@ export function buildClusterContextExportBundle(
     };
 }
 
+/**
+ * Resolves the export path based on the selected path and export kind
+ * @param selectedPath - The user-selected path
+ * @param kind - The export kind (readable or raw)
+ * @returns The resolved export path
+ */
 export function resolveContextExportPath(selectedPath: string, kind: ClusterContextExportKind): string {
     const parsed = path.parse(selectedPath);
     const normalizedBasePath = parsed.ext.toLowerCase() === '.md' || parsed.ext.toLowerCase() === '.json'
@@ -81,6 +117,13 @@ export function resolveContextExportPath(selectedPath: string, kind: ClusterCont
     return `${normalizedBasePath}.${kind === 'readable' ? 'md' : 'json'}`;
 }
 
+/**
+ * Parses a cluster swarm replay import from JSON content
+ * @param sourcePath - The source file path
+ * @param rawContent - The raw JSON content
+ * @returns The parsed replay import data
+ * @throws Error if the JSON is invalid or missing required fields
+ */
 export function parseClusterSwarmReplayImport(
     sourcePath: string,
     rawContent: string
@@ -131,6 +174,11 @@ export function parseClusterSwarmReplayImport(
     };
 }
 
+/**
+ * Renders the cluster context as readable markdown
+ * @param body - The export body data
+ * @returns The rendered markdown string
+ */
 function renderReadableClusterContextMarkdown(body: ClusterContextExportBody): string {
     const lines: string[] = [];
 
@@ -154,6 +202,11 @@ function renderReadableClusterContextMarkdown(body: ClusterContextExportBody): s
     return lines.join('\n').trimEnd() + '\n';
 }
 
+/**
+ * Renders human-readable sections for the export
+ * @param body - The export body data
+ * @returns Array of section lines
+ */
 function renderHumanReadableSections(body: ClusterContextExportBody): string[] {
     if (body.kind === 'cluster-agent-context') {
         return [
@@ -171,6 +224,12 @@ function renderHumanReadableSections(body: ClusterContextExportBody): string[] {
     );
 }
 
+/**
+ * Renders a message section
+ * @param title - The section title
+ * @param messages - The messages to render
+ * @returns Array of rendered lines
+ */
 function renderMessageSection(title: string, messages: ChatMessage[]): string[] {
     const lines: string[] = [];
     lines.push(`### ${title}`);
@@ -197,6 +256,12 @@ function renderMessageSection(title: string, messages: ChatMessage[]): string[] 
     return lines;
 }
 
+/**
+ * Renders a single message block
+ * @param message - The chat message
+ * @param index - The message index
+ * @returns Array of rendered lines
+ */
 function renderMessageBlock(message: ChatMessage, index: number): string[] {
     const lines: string[] = [];
     if (!shouldIncludeInReadableExport(message)) {
@@ -226,6 +291,11 @@ function renderMessageBlock(message: ChatMessage, index: number): string[] {
     return lines;
 }
 
+/**
+ * Determines if a message should be included in readable export
+ * @param message - The chat message
+ * @returns True if the message should be included
+ */
 function shouldIncludeInReadableExport(message: ChatMessage): boolean {
     if (!message) {
         return false;
@@ -239,6 +309,11 @@ function shouldIncludeInReadableExport(message: ChatMessage): boolean {
     return Boolean(String(message.content || '').trim());
 }
 
+/**
+ * Normalizes replay messages from imported data
+ * @param messages - The raw messages array
+ * @returns The normalized chat messages
+ */
 function normalizeReplayMessages(messages: unknown): ChatMessage[] {
     if (!Array.isArray(messages)) {
         return [];
