@@ -14,6 +14,9 @@ export type OpenClawCapabilityId =
 
 export type OpenClawBooleanCapabilityId = keyof OpenClawModeCapabilities['supports'];
 
+/**
+ * Represents the capabilities available in a specific OpenClaw mode.
+ */
 export interface OpenClawModeCapabilities {
     mode: OpenClawMode;
     supports: {
@@ -30,6 +33,9 @@ export interface OpenClawModeCapabilities {
     currentModeBodyKey: string;
 }
 
+/**
+ * Represents a row in the capability matrix showing support across modes.
+ */
 export interface OpenClawCapabilityMatrixRow {
     id: OpenClawCapabilityId;
     titleKey: string;
@@ -161,6 +167,11 @@ const CAPABILITY_MATRIX: readonly OpenClawCapabilityMatrixRow[] = [
     }
 ];
 
+/**
+ * Gets the capabilities for a specific OpenClaw mode.
+ * @param mode - The OpenClaw mode
+ * @returns The mode capabilities
+ */
 export function getModeCapabilities(mode: OpenClawMode): OpenClawModeCapabilities {
     const capabilities = MODE_CAPABILITIES[mode];
     return {
@@ -169,6 +180,10 @@ export function getModeCapabilities(mode: OpenClawMode): OpenClawModeCapabilitie
     };
 }
 
+/**
+ * Gets the full capability matrix showing support across all modes.
+ * @returns Array of capability matrix rows
+ */
 export function getModeCapabilityMatrix(): OpenClawCapabilityMatrixRow[] {
     return CAPABILITY_MATRIX.map(row => ({
         ...row,
@@ -180,6 +195,12 @@ export function getModeCapabilityMatrix(): OpenClawCapabilityMatrixRow[] {
     }));
 }
 
+/**
+ * Checks if a capability is supported in a specific mode.
+ * @param mode - The OpenClaw mode
+ * @param capabilityId - The capability ID to check
+ * @returns True if the capability is supported
+ */
 export function isCapabilitySupported(
     mode: OpenClawMode,
     capabilityId: OpenClawBooleanCapabilityId

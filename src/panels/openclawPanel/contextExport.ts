@@ -1,18 +1,27 @@
 import * as path from 'path';
 import type { ChatMessage } from '../../services/openclawService';
 
+/**
+ * Information about a cluster for export
+ */
 interface ExportClusterInfo {
     id: string;
     name: string;
     agentIds: string[];
 }
 
+/**
+ * Information about an agent for export
+ */
 interface ExportAgentInfo {
     id: string;
     name: string;
     model: string | null;
 }
 
+/**
+ * Body of a cluster swarm context export
+ */
 export interface ClusterSwarmContextExportBody {
     exportedAt: string;
     kind: 'cluster-swarm-context';
@@ -22,6 +31,9 @@ export interface ClusterSwarmContextExportBody {
     messages: ChatMessage[];
 }
 
+/**
+ * Body of a cluster agent context export
+ */
 export interface ClusterAgentContextExportBody {
     exportedAt: string;
     kind: 'cluster-agent-context';
@@ -40,10 +52,16 @@ export interface ClusterAgentContextExportBody {
     };
 }
 
+/**
+ * Union type for cluster context export bodies
+ */
 export type ClusterContextExportBody =
     | ClusterSwarmContextExportBody
     | ClusterAgentContextExportBody;
 
+/**
+ * Bundle containing all export data and metadata
+ */
 export interface ClusterContextExportBundle {
     baseName: string;
     readableFileName: string;
@@ -52,14 +70,57 @@ export interface ClusterContextExportBundle {
     readableMarkdown: string;
 }
 
+/**
+ * Type for export kind (readable markdown or raw JSON)
+ */
 export type ClusterContextExportKind = 'readable' | 'raw';
 
+/**
+ * Import data for cluster swarm replay
+ */
 export interface ClusterSwarmReplayImport {
     sourcePath: string;
     importedAt: string;
     body: ClusterSwarmContextExportBody;
 }
 
+/**
+ * Body of a swarm structure export
+ */
+export interface ClusterSwarmStructureExportBody {
+    kind: 'swarm-structure';
+    exportedAt: string;
+    swarm: {
+        id: string;
+        name: string;
+        createdAt?: string;
+        workspaceConfig?: Record<string, unknown>;
+        members: Array<{
+            id: string;
+            name?: string;
+            model?: string;
+            systemPrompt?: string;
+            presetId?: string;
+            enabledSkills?: string[];
+        }>;
+    };
+}
+
+/**
+ * Import data for swarm structure
+ */
+export interface ClusterSwarmStructureImport {
+    sourcePath: string;
+    importedAt: string;
+    body: ClusterSwarmStructureExportBody;
+}
+
+/**
+ * Builds a cluster context export bundle
+ * @param baseName - The base file name
+ * @param body - The export body data
+ * @returns The complete export bundle
+ */
 export function buildClusterContextExportBundle(
     baseName: string,
     body: ClusterContextExportBody
@@ -73,6 +134,12 @@ export function buildClusterContextExportBundle(
     };
 }
 
+/**
+ * Resolves the export path based on the selected path and export kind
+ * @param selectedPath - The user-selected path
+ * @param kind - The export kind (readable or raw)
+ * @returns The resolved export path
+ */
 export function resolveContextExportPath(selectedPath: string, kind: ClusterContextExportKind): string {
     const parsed = path.parse(selectedPath);
     const normalizedBasePath = parsed.ext.toLowerCase() === '.md' || parsed.ext.toLowerCase() === '.json'
@@ -81,6 +148,13 @@ export function resolveContextExportPath(selectedPath: string, kind: ClusterCont
     return `${normalizedBasePath}.${kind === 'readable' ? 'md' : 'json'}`;
 }
 
+/**
+ * Parses a cluster swarm replay import from JSON content
+ * @param sourcePath - The source file path
+ * @param rawContent - The raw JSON content
+ * @returns The parsed replay import data
+ * @throws Error if the JSON is invalid or missing required fields
+ */
 export function parseClusterSwarmReplayImport(
     sourcePath: string,
     rawContent: string
@@ -131,6 +205,86 @@ export function parseClusterSwarmReplayImport(
     };
 }
 
+/**
+ * Parses a swarm structure import from JSON content
+ * @param sourcePath - The source file path
+ * @param rawContent - The raw JSON content
+ * @returns The parsed swarm structure import data
+ * @throws Error if the JSON is invalid or missing required fields
+ */
+export function parseClusterSwarmStructureImport(
+    sourcePath: string,
+    rawContent: string
+): ClusterSwarmStructureImport {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(rawContent);
+    } catch {
+        throw new Error('Swarm JSON is invalid.');
+    }
+
+    if (!parsed || typeof parsed !== 'object') {
+        throw new Error('Swarm JSON must be an object.');
+    }
+
+    const body = parsed as Partial<ClusterSwarmStructureExportBody>;
+    if (body.kind !== 'swarm-structure') {
+        throw new Error('Only swarm structure JSON exports can be imported.');
+    }
+
+    if (!body.swarm || typeof body.swarm !== 'object') {
+        throw new Error('Swarm JSON is missing swarm information.');
+    }
+
+    const swarm = body.swarm as ClusterSwarmStructureExportBody['swarm'];
+    if (!swarm.id || !swarm.name || !Array.isArray(swarm.members)) {
+        throw new Error('Swarm JSON is missing required swarm fields.');
+    }
+
+    const normalizedMembers = swarm.members
+        .filter(member => member && typeof member === 'object')
+        .map(member => ({
+            id: String(member.id || '').trim(),
+            name: typeof member.name === 'string' ? member.name.trim() : '',
+            model: typeof member.model === 'string' ? member.model.trim() : '',
+            systemPrompt: typeof member.systemPrompt === 'string' ? member.systemPrompt : undefined,
+            presetId: typeof member.presetId === 'string' ? member.presetId.trim() : undefined,
+            enabledSkills: Array.isArray(member.enabledSkills)
+                ? member.enabledSkills.map(skill => String(skill || '').trim()).filter(Boolean)
+                : undefined
+        }))
+        .filter(member => member.id);
+
+    if (normalizedMembers.length === 0) {
+        throw new Error('Swarm JSON contains no valid members.');
+    }
+
+    return {
+        sourcePath,
+        importedAt: new Date().toISOString(),
+        body: {
+            kind: 'swarm-structure',
+            exportedAt: typeof body.exportedAt === 'string' && body.exportedAt.trim()
+                ? body.exportedAt
+                : new Date().toISOString(),
+            swarm: {
+                id: swarm.id,
+                name: swarm.name,
+                createdAt: typeof swarm.createdAt === 'string' ? swarm.createdAt : undefined,
+                workspaceConfig: typeof swarm.workspaceConfig === 'object' && swarm.workspaceConfig && !Array.isArray(swarm.workspaceConfig)
+                    ? swarm.workspaceConfig
+                    : undefined,
+                members: normalizedMembers
+            }
+        }
+    };
+}
+
+/**
+ * Renders the cluster context as readable markdown
+ * @param body - The export body data
+ * @returns The rendered markdown string
+ */
 function renderReadableClusterContextMarkdown(body: ClusterContextExportBody): string {
     const lines: string[] = [];
 
@@ -154,6 +308,11 @@ function renderReadableClusterContextMarkdown(body: ClusterContextExportBody): s
     return lines.join('\n').trimEnd() + '\n';
 }
 
+/**
+ * Renders human-readable sections for the export
+ * @param body - The export body data
+ * @returns Array of section lines
+ */
 function renderHumanReadableSections(body: ClusterContextExportBody): string[] {
     if (body.kind === 'cluster-agent-context') {
         return [
@@ -171,6 +330,12 @@ function renderHumanReadableSections(body: ClusterContextExportBody): string[] {
     );
 }
 
+/**
+ * Renders a message section
+ * @param title - The section title
+ * @param messages - The messages to render
+ * @returns Array of rendered lines
+ */
 function renderMessageSection(title: string, messages: ChatMessage[]): string[] {
     const lines: string[] = [];
     lines.push(`### ${title}`);
@@ -197,6 +362,12 @@ function renderMessageSection(title: string, messages: ChatMessage[]): string[] 
     return lines;
 }
 
+/**
+ * Renders a single message block
+ * @param message - The chat message
+ * @param index - The message index
+ * @returns Array of rendered lines
+ */
 function renderMessageBlock(message: ChatMessage, index: number): string[] {
     const lines: string[] = [];
     if (!shouldIncludeInReadableExport(message)) {
@@ -226,6 +397,11 @@ function renderMessageBlock(message: ChatMessage, index: number): string[] {
     return lines;
 }
 
+/**
+ * Determines if a message should be included in readable export
+ * @param message - The chat message
+ * @returns True if the message should be included
+ */
 function shouldIncludeInReadableExport(message: ChatMessage): boolean {
     if (!message) {
         return false;
@@ -239,6 +415,11 @@ function shouldIncludeInReadableExport(message: ChatMessage): boolean {
     return Boolean(String(message.content || '').trim());
 }
 
+/**
+ * Normalizes replay messages from imported data
+ * @param messages - The raw messages array
+ * @returns The normalized chat messages
+ */
 function normalizeReplayMessages(messages: unknown): ChatMessage[] {
     if (!Array.isArray(messages)) {
         return [];

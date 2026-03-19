@@ -277,6 +277,36 @@
     background: color-mix(in srgb, var(--bg-secondary) 52%, transparent);
 }
 
+.memory-status {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg-primary) 92%, white 8%);
+    font-size: 12px;
+}
+
+.memory-status-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    color: var(--text-secondary);
+}
+
+.memory-status-value {
+    color: var(--text-primary);
+    font-weight: 600;
+    text-align: right;
+    max-width: 60%;
+    word-break: break-all;
+}
+
+.memory-status-error {
+    color: #fca5a5;
+}
+
 .console-setup-lead {
     margin-bottom: 14px;
     color: var(--text-secondary);

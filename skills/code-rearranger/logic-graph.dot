@@ -1,0 +1,139 @@
+digraph OpenClawLogicGraph {
+  rankdir=LR;
+  node [shape=box, style=rounded, fontname="Helvetica"];
+  edge [fontname="Helvetica", fontsize=10];
+
+  subgraph cluster_vscode {
+    label="VS Code Host";
+    color="#8aa1c1";
+    vscode [label="VS Code Activation\n(package.json activationEvents)\nsrc/extension.ts"];
+    commands [label="Commands Registry\nsrc/commands/registerCommands.ts"];
+    providers [label="Tree Providers\nsrc/providers/*"];
+    statusbar [label="Status Bar + Context\nsrc/extension/runtime.ts"];
+  }
+
+  subgraph cluster_runtime {
+    label="Runtime Core";
+    color="#9cc1a1";
+    runtime [label="OpenClawExtensionRuntime\nsrc/extension/runtime.ts"];
+  }
+
+  subgraph cluster_panel {
+    label="Panel (Webview)";
+    color="#c1a18a";
+    panel [label="OpenClawPanel\nsrc/panels/openclawPanel.ts"];
+    webviewHtml [label="Webview HTML Builder\nsrc/panels/openclawPanel/webviewHtml.ts"];
+    messageRouter [label="Message Router\nsrc/panels/openclawPanel/messageRouter.ts"];
+    actions [label="Panel Actions\nsrc/panels/openclawPanel/*Actions.ts"];
+    webviewScripts [label="Webview Scripts\nmedia/js/*.js"];
+    webviewTemplate [label="Webview Template\nmedia/panel.html"];
+  }
+
+  subgraph cluster_managers {
+    label="Managers (State + Persistence)";
+    color="#b7c18a";
+    agentMgr [label="AgentManager\nsrc/managers/agentManager.ts"];
+    channelMgr [label="ChannelManager\nsrc/managers/channelManager.ts"];
+    channelMgrV2 [label="ChannelManagerV2\nsrc/managers/channelManagerV2.ts"];
+    folderMgr [label="AgentFolderManager\nsrc/managers/agentFolderManager.ts"];
+    clusterMgr [label="ClusterManager\nsrc/managers/clusterManager.ts"];
+    taskMgr [label="ScheduledTaskManager\nsrc/managers/scheduledTaskManager.ts"];
+    usageMgr [label="UsageManager\nsrc/managers/usageManager.ts"];
+    sessionMgr [label="ChatSessionManager\nsrc/managers/chatSessionManager.ts"];
+  }
+
+  subgraph cluster_services {
+    label="Service Layer";
+    color="#c18ab7";
+    service [label="OpenClawService\nsrc/services/openclawService.ts"];
+    gatewayTransport [label="GatewayTransport (HTTP)\nsrc/services/openclaw/gatewayTransport.ts"];
+    gatewayClient [label="OpenClawGatewayClient (WS)\nsrc/services/openclawGatewayClient.ts"];
+    openclawRuntime [label="OpenClawModeRuntime\nsrc/services/openclaw/openclawModeRuntime.ts"];
+    localRuntime [label="LocalModeRuntime\nsrc/services/openclaw/localModeRuntime.ts"];
+    cli [label="OpenClaw CLI Runner\nsrc/services/openclawCli.ts"];
+    config [label="OpenClaw Config\nsrc/services/openclawConfig.ts"];
+    configDiscovery [label="Config Discovery\nsrc/services/openclawConfig/discovery.ts"];
+    runtimeSupport [label="OpenClaw Runtime Support\nsrc/services/openclaw/openclawModeRuntimeSupport.ts"];
+    channelSource [label="ChannelSourceService\nsrc/services/channelSourceService.ts"];
+    skillMarket [label="SkillMarketService\nsrc/services/skillMarket/skillMarketService.ts"];
+  }
+
+  subgraph cluster_io {
+    label="IO Endpoints";
+    color="#9c8ac1";
+    gatewayHttp [label="Gateway HTTP API\n/ api/*"];
+    gatewayWs [label="Gateway WebSocket"];
+    localProvider [label="Local Provider HTTP\n/chat/completions"];
+    externalApis [label="External APIs\n(RSS/YouTube/GitHub/etc)"];
+    skillMarketApi [label="skillmarket.cc API"];
+    filesystemGlobal [label="Global Storage\nchannels.json\nagent-folders.json\nclusters.json"];
+    filesystemState [label="State Dir\nopenclaw.json\nprofiles/models\nlogs"];
+    filesystemWorkspace [label="Workspace Files\nSYSTEM.md / IDENTITY.md\n.agent settings"];
+    filesystemExports [label="User Exports\n(runtime logs,\ncluster exports)"];
+    clipboard [label="Clipboard\n(navigator.clipboard)"];
+    childProcess [label="Child Process\nexecFile(node openclaw)"];
+  }
+
+  // Activation flow
+  vscode -> runtime [label="activate()"];
+  runtime -> commands [label="register"];
+  runtime -> providers [label="register"];
+  runtime -> statusbar [label="status updates"];
+
+  // Panel flow
+  runtime -> panel [label="showPanel()"];
+  panel -> webviewHtml [label="build HTML"];
+  webviewHtml -> webviewTemplate [label="read template"];
+  webviewHtml -> webviewScripts [label="script tags"];
+  webviewScripts -> messageRouter [label="postMessage"];
+  messageRouter -> actions [label="dispatch"];
+  panel -> messageRouter [label="onDidReceiveMessage"];
+  panel -> webviewScripts [label="postMessage"];
+
+  // Managers wiring
+  runtime -> agentMgr;
+  runtime -> channelMgr;
+  runtime -> folderMgr;
+  runtime -> clusterMgr;
+  runtime -> taskMgr;
+  runtime -> usageMgr;
+  panel -> sessionMgr [label="session state"];
+  actions -> agentMgr;
+  actions -> channelMgr;
+  actions -> channelMgrV2;
+  actions -> folderMgr;
+  actions -> clusterMgr;
+  actions -> taskMgr;
+  actions -> usageMgr;
+  actions -> service;
+
+  // Service flow
+  service -> gatewayTransport [label="gateway mode"];
+  service -> localRuntime [label="local mode"];
+  service -> openclawRuntime [label="openclaw mode"];
+  openclawRuntime -> cli [label="execFile calls"];
+  cli -> gatewayClient [label="WS bridge"];
+  openclawRuntime -> gatewayClient [label="presence/health WS"];
+
+  // Network IO
+  gatewayTransport -> gatewayHttp [label="HTTP REST/stream"];
+  gatewayClient -> gatewayWs [label="WebSocket"];
+  localRuntime -> localProvider [label="HTTP"];
+  channelSource -> externalApis [label="fetch"];
+  skillMarket -> skillMarketApi [label="axios"];
+
+  // Disk IO
+  channelMgr -> filesystemGlobal [label="read/write JSON"];
+  folderMgr -> filesystemGlobal [label="read/write JSON"];
+  clusterMgr -> filesystemGlobal [label="read/write JSON"];
+  taskMgr -> filesystemGlobal [label="read/write JSON"];
+  config -> filesystemState [label="read/write"];
+  configDiscovery -> filesystemState [label="discover"];
+  runtimeSupport -> filesystemWorkspace [label="read/write"];
+  panel -> filesystemExports [label="export/import"];
+
+  // Process + clipboard
+  config -> childProcess [label="start gateway"];
+  cli -> childProcess [label="execFile"];
+  webviewScripts -> clipboard [label="copy command"];
+}

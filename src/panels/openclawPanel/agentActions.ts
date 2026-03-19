@@ -3,12 +3,100 @@ import * as vscode from 'vscode';
 import { t } from '../../i18n';
 import type { AgentManager } from '../../managers/agentManager';
 import { isDuplicateAgentNameError } from '../../managers/agentManager';
-import type { OpenClawBooleanCapabilityId } from '../../services/openclawService';
+import type { OpenClawBooleanCapabilityId, OpenClawService } from '../../services/openclawService';
+import type { MemoryService } from '../../services/memory';
 import { getCapabilityUnavailableMessage } from '../../utils/capabilitySupport';
 import { runWithNotificationProgress, showSuccessStatus } from '../../utils/statusFeedback';
 
+const agentCreateQueue: Array<{ context: AgentActionContext; data: any; agentName: string }> = [];
+let agentCreateRunning = false;
+
+async function runAgentCreateQueue(): Promise<void> {
+    if (agentCreateRunning) {
+        return;
+    }
+
+    agentCreateRunning = true;
+    try {
+        while (agentCreateQueue.length > 0) {
+            const next = agentCreateQueue.shift();
+            if (!next) {
+                continue;
+            }
+
+            const { context, data, agentName } = next;
+            context.postMessage({
+                type: 'agentMutationState',
+                action: 'create',
+                pending: true,
+                agentName
+            });
+
+            const progressAgentName = agentName || 'agent';
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: t('agent.operationCreating', { name: progressAgentName }),
+                    cancellable: false
+                },
+                async () => {
+                    try {
+                        const createdAgent = await context.agentManager.createAgent(data);
+                        await context.loadAgents();
+                        await persistAgentMemory(context, createdAgent.id, 'agent-created');
+                        context.postMessage({
+                            type: 'agentMutationState',
+                            action: 'create',
+                            pending: false,
+                            success: true,
+                            agentName
+                        });
+                    } catch (error) {
+                        if (isDuplicateAgentNameError(error)) {
+                            vscode.window.showWarningMessage(error.message);
+                        }
+                        context.postMessage({
+                            type: 'agentMutationState',
+                            action: 'create',
+                            pending: false,
+                            success: false,
+                            agentName,
+                            error: String(error)
+                        });
+                        context.postMessage({
+                            type: 'error',
+                            message: isDuplicateAgentNameError(error)
+                                ? error.message
+                                : t('newAgent.createFailed', { error: String(error) })
+                        });
+                    }
+                }
+            );
+        }
+    } finally {
+        agentCreateRunning = false;
+    }
+}
+
+async function persistAgentMemory(context: AgentActionContext, agentId: string, reason: string): Promise<void> {
+    try {
+        const workspacePath = await context.service.resolveAgentFolderPath(agentId);
+        if (!workspacePath) {
+            return;
+        }
+        await context.memoryService.persistAgentWorkspace(agentId, workspacePath, reason);
+    } catch (error) {
+        console.warn('[OpenClaw Luna] Failed to persist agent memory.', error);
+    }
+}
+
+/**
+ * Context interface for agent action operations
+ */
 interface AgentActionContext {
     agentManager: AgentManager;
+    service: OpenClawService;
+    memoryService: MemoryService;
     postMessage(message: Record<string, unknown>): void;
     ensureCapability(capabilityId: OpenClawBooleanCapabilityId): boolean;
     loadAgents(): Promise<void>;
@@ -17,56 +105,22 @@ interface AgentActionContext {
     setCurrentSessionId(sessionId: string | null): void;
 }
 
+/**
+ * Handles creating a new agent
+ * @param context - The agent action context
+ * @param data - The agent creation data
+ */
 export async function handleCreateAgent(context: AgentActionContext, data: any): Promise<void> {
     const agentName = typeof data?.name === 'string' ? data.name.trim() : '';
-    context.postMessage({
-        type: 'agentMutationState',
-        action: 'create',
-        pending: true,
-        agentName
-    });
-
-    const progressAgentName = agentName || 'agent';
-    await vscode.window.withProgress(
-        {
-            location: vscode.ProgressLocation.Notification,
-            title: t('agent.operationCreating', { name: progressAgentName }),
-            cancellable: false
-        },
-        async () => {
-            try {
-                await context.agentManager.createAgent(data);
-                await context.loadAgents();
-                context.postMessage({
-                    type: 'agentMutationState',
-                    action: 'create',
-                    pending: false,
-                    success: true,
-                    agentName
-                });
-            } catch (error) {
-                if (isDuplicateAgentNameError(error)) {
-                    vscode.window.showWarningMessage(error.message);
-                }
-                context.postMessage({
-                    type: 'agentMutationState',
-                    action: 'create',
-                    pending: false,
-                    success: false,
-                    agentName,
-                    error: String(error)
-                });
-                context.postMessage({
-                    type: 'error',
-                    message: isDuplicateAgentNameError(error)
-                        ? error.message
-                        : t('newAgent.createFailed', { error: String(error) })
-                });
-            }
-        }
-    );
+    agentCreateQueue.push({ context, data, agentName });
+    await runAgentCreateQueue();
 }
 
+/**
+ * Handles creating multiple agents in batch
+ * @param context - The agent action context
+ * @param data - The batch creation data containing agent configurations
+ */
 export async function handleCreateAgentsBatch(
     context: AgentActionContext,
     data: { agents?: Array<{ name?: string; model?: string; systemPrompt?: string; presetId?: string; enabledSkills?: string[] }> }
@@ -108,8 +162,9 @@ export async function handleCreateAgentsBatch(
                 });
 
                 try {
-                    await context.agentManager.createAgent(agent);
+                    const createdAgent = await context.agentManager.createAgent(agent);
                     createdCount += 1;
+                    await persistAgentMemory(context, createdAgent.id, 'agent-batch-created');
                 } catch (error) {
                     failures.push(`${agent.name}: ${isDuplicateAgentNameError(error) ? error.message : String(error)}`);
                 }
@@ -138,6 +193,11 @@ export async function handleCreateAgentsBatch(
     });
 }
 
+/**
+ * Handles deleting an agent
+ * @param context - The agent action context
+ * @param agentId - The ID of the agent to delete
+ */
 export async function handleDeleteAgent(context: AgentActionContext, agentId: string): Promise<void> {
     context.postMessage({
         type: 'agentMutationState',
@@ -178,6 +238,10 @@ export async function handleDeleteAgent(context: AgentActionContext, agentId: st
     }
 }
 
+/**
+ * Prompts the user to select and delete multiple agents in batch
+ * @param context - The agent action context
+ */
 export async function promptDeleteAgentsBatch(context: AgentActionContext): Promise<void> {
     const agents = await context.agentManager.getAgents(true);
     if (agents.length === 0) {
@@ -252,6 +316,12 @@ export async function promptDeleteAgentsBatch(context: AgentActionContext): Prom
     showSuccessStatus(t('agentBatch.deleted', { count: String(selections.length) }));
 }
 
+/**
+ * Handles saving agent settings
+ * @param context - The agent action context
+ * @param agentId - The ID of the agent to update
+ * @param settings - The new agent settings
+ */
 export async function handleSaveAgentSettings(context: AgentActionContext, agentId: string, settings: any): Promise<void> {
     if (!context.ensureCapability('agentEditing')) {
         vscode.window.showErrorMessage(getCapabilityUnavailableMessage('agentEditing'));
@@ -266,6 +336,7 @@ export async function handleSaveAgentSettings(context: AgentActionContext, agent
                 agent
             });
             await context.loadAgents();
+            await persistAgentMemory(context, agentId, 'agent-updated');
         });
         showSuccessStatus(t('agentSettings.saved'));
     } catch (error) {
@@ -278,6 +349,11 @@ export async function handleSaveAgentSettings(context: AgentActionContext, agent
     }
 }
 
+/**
+ * Handles opening agent settings in the panel
+ * @param context - The agent action context
+ * @param agentId - The ID of the agent to open settings for
+ */
 export async function handleOpenAgentSettings(context: AgentActionContext, agentId: string): Promise<void> {
     try {
         const agent = await context.agentManager.getAgent(agentId);
@@ -301,6 +377,11 @@ export async function handleOpenAgentSettings(context: AgentActionContext, agent
     }
 }
 
+/**
+ * Handles opening an agent's folder in VS Code
+ * @param context - The agent action context
+ * @param agentId - The ID of the agent whose folder to open
+ */
 export async function handleOpenAgentFolder(context: AgentActionContext, agentId: string): Promise<void> {
     try {
         const agent = await context.agentManager.getAgent(agentId);

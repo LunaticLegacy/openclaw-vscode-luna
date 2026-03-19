@@ -1,0 +1,54 @@
+{
+  "id": "code-review-board",
+  "nameTemplate": "代码评审委员会 - {{timestamp}}",
+  "description": "专业的代码审查团队，包含架构视角、边界审查、迁移规划和运维风险评估。",
+  "tags": ["评审", "架构", "质量"],
+  "workspaceConfig": {
+    "presetId": "architecture-review",
+    "collaborationStyle": "review-board",
+    "deliveryStyle": "deep",
+    "critiqueLevel": "aggressive",
+    "rounds": 2,
+    "briefing": "Stress long-term maintainability, boundaries, migration risk, and tradeoffs."
+  },
+  "memberBlueprints": [
+    {
+      "id": "chair",
+      "nameTemplate": "评审主席",
+      "presetId": "code-review-guard",
+      "isCoordinator": true,
+      "systemPromptAppend": "你是评审主席，负责把控代码质量的最后防线，确保边界清晰、权衡合理、决策质量高。"
+    },
+    {
+      "id": "boundary",
+      "nameTemplate": "边界审查员",
+      "presetId": "api-contract-writer",
+      "parentId": "chair",
+      "activation": {
+        "keywords": ["api", "boundary", "contract", "interface"]
+      },
+      "systemPromptAppend": "你是边界审查员，负责审视模块间的所有权边界、API契约和耦合关系。"
+    },
+    {
+      "id": "migration",
+      "nameTemplate": "迁移规划师",
+      "presetId": "refactor-planner",
+      "parentId": "chair",
+      "activation": {
+        "keywords": ["migration", "rollout", "compatibility", "version"]
+      },
+      "systemPromptAppend": "你是迁移规划师，专注于发布路径、兼容性策略、回滚方案和增量迁移。"
+    },
+    {
+      "id": "ops",
+      "nameTemplate": "运维风险评估员",
+      "presetId": "bug-hunter",
+      "parentId": "chair",
+      "activation": {
+        "keywords": ["ops", "latency", "reliability", "failure", "recovery"]
+      },
+      "systemPromptAppend": "你是运维风险评估员，评估可观测性、故障处理、恢复能力和长期运维负担。"
+    }
+  ],
+  "onboardingMessageTemplate": "代码评审委员会已成立！这个团队将从架构、边界、迁移和运维多个维度深度审查代码。"
+}

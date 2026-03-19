@@ -1,0 +1,20 @@
+flowchart LR
+  UI[Webview Collaborate UI] -->|postMessage: collaborate| Router[messageRouter.ts]
+  Router --> Actions[clusterActions.handleCollaborate]
+  Actions -->|onProgress| Progress[appendClusterSwarmProgressMessages]
+  Progress -->|replaceSwarmMessages| UI
+  Actions --> Manager[clusterManager.collaborateOnCluster]
+  Manager --> Service[openclawService.sendMessage]
+
+  subgraph Fix[Fix Applied]
+    Normalize[normalizeSwarmProgressMessage
+(ensure id/timestamp)]
+    Progress --> Normalize
+  end
+
+  note1{{Problem: some progress messages
+not rendered in collaborate UI}}
+  note2{{Fix: ensure each progress message has
+stable id/timestamp so dedup doesn't drop}}
+  note1 -.-> Progress
+  note2 -.-> Normalize

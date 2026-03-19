@@ -5,6 +5,12 @@ import { getCapabilityUnavailableMessage, isServiceCapabilityAvailable } from '.
 import { runWithNotificationProgress, showSuccessStatus } from '../utils/statusFeedback';
 import { resolveTaskId } from './helpers';
 
+/**
+ * 注册任务相关命令
+ * @param context - VSCode 扩展上下文
+ * @param runtime - 扩展运行时实例
+ * @returns 无返回值
+ */
 export function registerTaskCommands(
     context: vscode.ExtensionContext,
     runtime: OpenClawExtensionRuntime

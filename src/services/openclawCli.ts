@@ -3,8 +3,10 @@ import * as crypto from 'crypto';
 import * as path from 'path';
 import { promisify } from 'util';
 import { OpenClawCliServiceConfig } from './openclawConfig';
+import { OpenClawGatewayClient } from './openclawGatewayClient';
 
 const execFileAsync = promisify(execFile);
+const SAFE_WINDOWS_COMMAND_LINE_LENGTH = 8000;
 
 interface OpenClawCliRunnerOptions {
     timeoutMs?: number;
@@ -23,6 +25,10 @@ export type OpenClawCliCommandExecutor = (
 
 let sharedCommandExecutor: OpenClawCliCommandExecutor | null = null;
 
+/**
+ * 设置测试用的 CLI 命令执行器
+ * @param executor - 命令执行器，null 表示重置为默认
+ */
 export function setOpenClawCliCommandExecutorForTests(
     executor: OpenClawCliCommandExecutor | null
 ): void {
@@ -346,10 +352,26 @@ export interface OpenClawCronEditParams {
     payload?: OpenClawCronCommandPayload;
 }
 
+/**
+ * OpenClaw CLI 运行器类
+ * 
+ * 提供执行 OpenClaw CLI 命令的封装，支持 Gateway 调用、智能体管理、定时任务管理等功能
+ * 
+ * @example
+ * ```typescript
+ * const runner = new OpenClawCliRunner(config);
+ * const agents = await runner.listAgents();
+ * ```
+ */
 export class OpenClawCliRunner {
     private readonly timeoutMs: number;
     private readonly executor: OpenClawCliCommandExecutor;
 
+    /**
+     * 创建 CLI 运行器实例
+     * @param config - OpenClaw CLI 服务配置
+     * @param options - 运行器选项
+     */
     constructor(
         private readonly config: OpenClawCliServiceConfig,
         options: OpenClawCliRunnerOptions = {}
@@ -358,22 +380,44 @@ export class OpenClawCliRunner {
         this.executor = options.executor || sharedCommandExecutor || defaultCommandExecutor;
     }
 
+    /**
+     * 检查 Gateway 健康状态
+     * @returns 健康状态信息
+     */
     public async health(): Promise<Record<string, unknown>> {
         return this.gatewayCall<Record<string, unknown>>('health');
     }
 
+    /**
+     * 获取智能体列表
+     * @returns 智能体记录数组
+     */
     public async listAgents(): Promise<OpenClawAgentRecord[]> {
         return this.execJson<OpenClawAgentRecord[]>(['agents', 'list', '--json']);
     }
 
+    /**
+     * 获取 Gateway 管理的智能体列表
+     * @returns Gateway 智能体结果
+     */
     public async listGatewayAgents(): Promise<OpenClawGatewayAgentsResult> {
         return this.gatewayCall<OpenClawGatewayAgentsResult>('agents.list');
     }
 
+    /**
+     * 获取会话列表
+     * @returns 会话列表结果
+     */
     public async listSessions(): Promise<OpenClawSessionsListResult> {
         return this.gatewayCall<OpenClawSessionsListResult>('sessions.list');
     }
 
+    /**
+     * 获取聊天历史
+     * @param sessionKey - 会话键
+     * @param limit - 返回的最大消息数，默认 200
+     * @returns 聊天历史结果
+     */
     public async getChatHistory(sessionKey: string, limit: number = 200): Promise<OpenClawChatHistoryResult> {
         return this.gatewayCall<OpenClawChatHistoryResult>('chat.history', {
             sessionKey,
@@ -381,6 +425,12 @@ export class OpenClawCliRunner {
         });
     }
 
+    /**
+     * 发送聊天消息
+     * @param sessionKey - 会话键
+     * @param message - 消息内容
+     * @returns 发送结果
+     */
     public async sendChat(sessionKey: string, message: string): Promise<Record<string, unknown>> {
         return this.gatewayCall<Record<string, unknown>>(
             'chat.send',
@@ -394,6 +444,12 @@ export class OpenClawCliRunner {
         );
     }
 
+    /**
+     * 中止聊天会话
+     * @param sessionKey - 会话键
+     * @param runId - 可选的运行 ID
+     * @returns 中止结果
+     */
     public async abortChat(sessionKey: string, runId?: string): Promise<Record<string, unknown>> {
         const params: Record<string, unknown> = { sessionKey };
         if (runId?.trim()) {
@@ -403,24 +459,48 @@ export class OpenClawCliRunner {
         return this.gatewayCall<Record<string, unknown>>('chat.abort', params);
     }
 
+    /**
+     * 获取智能体身份信息
+     * @param sessionKey - 会话键
+     * @returns 智能体身份信息
+     */
     public async getAgentIdentity(sessionKey: string): Promise<OpenClawAgentIdentity> {
         return this.gatewayCall<OpenClawAgentIdentity>('agent.identity.get', {
             sessionKey
         });
     }
 
+    /**
+     * 获取会话使用量统计
+     * @param params - 查询参数
+     * @returns 会话使用量结果
+     */
     public async getSessionsUsage(params: Record<string, unknown>): Promise<OpenClawSessionsUsageResult> {
         return this.gatewayCall<OpenClawSessionsUsageResult>('sessions.usage', params);
     }
 
+    /**
+     * 获取使用成本统计
+     * @param params - 查询参数
+     * @returns 成本统计结果
+     */
     public async getUsageCost(params: Record<string, unknown>): Promise<OpenClawUsageCostResult> {
         return this.gatewayCall<OpenClawUsageCostResult>('usage.cost', params);
     }
 
+    /**
+     * 获取频道列表
+     * @returns 频道列表结果
+     */
     public async listChannels(): Promise<OpenClawChannelsListResult> {
         return this.execJson<OpenClawChannelsListResult>(['channels', 'list', '--json']);
     }
 
+    /**
+     * 删除智能体
+     * @param agentId - 智能体 ID
+     * @returns 删除结果
+     */
     public async deleteAgent(agentId: string): Promise<Record<string, unknown> | undefined> {
         return this.execJson<Record<string, unknown>>([
             'agents',
@@ -431,6 +511,12 @@ export class OpenClawCliRunner {
         ]);
     }
 
+    /**
+     * 创建智能体
+     * @param name - 智能体名称
+     * @param model - 可选的模型名称
+     * @returns 创建结果
+     */
     public async createAgent(name: string, model?: string): Promise<Record<string, unknown> | undefined> {
         const workspacePath = this.resolveAgentWorkspacePath(name);
         const args = [
@@ -452,6 +538,11 @@ export class OpenClawCliRunner {
         return this.execJson<Record<string, unknown>>(args);
     }
 
+    /**
+     * 添加定时任务
+     * @param params - 创建定时任务参数
+     * @returns 创建结果
+     */
     public async addCronJob(params: OpenClawCronCreateParams): Promise<Record<string, unknown> | undefined> {
         const args = ['cron', 'add', '--json'];
         appendGatewayConnectionArgs(args, this.config);
@@ -459,6 +550,11 @@ export class OpenClawCliRunner {
         return this.execJson<Record<string, unknown>>(args);
     }
 
+    /**
+     * 编辑定时任务
+     * @param jobId - 任务 ID
+     * @param params - 编辑参数
+     */
     public async editCronJob(jobId: string, params: OpenClawCronEditParams): Promise<void> {
         const args = ['cron', 'edit'];
         appendGatewayConnectionArgs(args, this.config);
@@ -467,6 +563,10 @@ export class OpenClawCliRunner {
         await this.execVoid(args);
     }
 
+    /**
+     * 启用定时任务
+     * @param jobId - 任务 ID
+     */
     public async enableCronJob(jobId: string): Promise<void> {
         const args = ['cron', 'enable'];
         appendGatewayConnectionArgs(args, this.config);
@@ -474,6 +574,10 @@ export class OpenClawCliRunner {
         await this.execVoid(args);
     }
 
+    /**
+     * 禁用定时任务
+     * @param jobId - 任务 ID
+     */
     public async disableCronJob(jobId: string): Promise<void> {
         const args = ['cron', 'disable'];
         appendGatewayConnectionArgs(args, this.config);
@@ -481,6 +585,10 @@ export class OpenClawCliRunner {
         await this.execVoid(args);
     }
 
+    /**
+     * 立即运行定时任务
+     * @param jobId - 任务 ID
+     */
     public async runCronJob(jobId: string): Promise<void> {
         const args = ['cron', 'run'];
         appendGatewayConnectionArgs(args, this.config);
@@ -488,6 +596,10 @@ export class OpenClawCliRunner {
         await this.execVoid(args);
     }
 
+    /**
+     * 移除定时任务
+     * @param jobId - 任务 ID
+     */
     public async removeCronJob(jobId: string): Promise<void> {
         const args = ['cron', 'rm'];
         appendGatewayConnectionArgs(args, this.config);
@@ -495,11 +607,22 @@ export class OpenClawCliRunner {
         await this.execVoid(args);
     }
 
+    /**
+     * 执行 Gateway 调用
+     * @param method - 调用方法名
+     * @param params - 调用参数
+     * @param options - 调用选项
+     * @returns 调用结果
+     */
     private async gatewayCall<T>(
         method: string,
         params: Record<string, unknown> = {},
         options: { expectFinal?: boolean } = {}
     ): Promise<T> {
+        if (this.shouldUseDirectGatewayCall(method, params, options)) {
+            return this.gatewayCallViaClient<T>(method, params, options);
+        }
+
         const args = ['gateway', 'call', method];
 
         if (this.config.gatewayUrl) {
@@ -517,6 +640,66 @@ export class OpenClawCliRunner {
         return this.execJson<T>(args);
     }
 
+    /**
+     * 判断是否应使用直接 Gateway 调用
+     * @param method - 调用方法名
+     * @param params - 调用参数
+     * @param options - 调用选项
+     * @returns 是否使用直接调用
+     */
+    private shouldUseDirectGatewayCall(
+        method: string,
+        params: Record<string, unknown>,
+        options: { expectFinal?: boolean }
+    ): boolean {
+        if (!this.config.gatewayUrl) {
+            return false;
+        }
+
+        const estimatedLength = estimateGatewayCallCommandLength(this.config, method, params, options);
+        return estimatedLength > SAFE_WINDOWS_COMMAND_LINE_LENGTH;
+    }
+
+    /**
+     * 通过客户端执行 Gateway 调用
+     * @param method - 调用方法名
+     * @param params - 调用参数
+     * @param options - 调用选项
+     * @returns 调用结果
+     */
+    private async gatewayCallViaClient<T>(
+        method: string,
+        params: Record<string, unknown>,
+        options: { expectFinal?: boolean }
+    ): Promise<T> {
+        if (!this.config.gatewayUrl) {
+            throw new Error('OpenClaw gateway URL is not configured');
+        }
+
+        const client = new OpenClawGatewayClient({
+            url: this.config.gatewayUrl,
+            token: this.config.gatewayToken,
+            timeoutMs: this.timeoutMs,
+            clientDisplayName: 'OpenClaw Luna',
+            clientVersion: 'vscode-plugin'
+        });
+
+        try {
+            await client.connect();
+            return await client.request<T>(method, params, {
+                expectFinal: options.expectFinal === true,
+                timeoutMs: this.timeoutMs
+            });
+        } finally {
+            client.dispose();
+        }
+    }
+
+    /**
+     * 执行 CLI 命令并解析 JSON 输出
+     * @param args - 命令参数
+     * @returns 解析后的 JSON 结果
+     */
     private async execJson<T>(args: string[]): Promise<T> {
         const { stdout, stderr } = await this.exec(args);
         const output = extractJsonPayload(stdout).trim();
@@ -537,10 +720,19 @@ export class OpenClawCliRunner {
         }
     }
 
+    /**
+     * 执行 CLI 命令（无返回值）
+     * @param args - 命令参数
+     */
     private async execVoid(args: string[]): Promise<void> {
         await this.exec(args);
     }
 
+    /**
+     * 执行 CLI 命令
+     * @param args - 命令参数
+     * @returns 命令输出
+     */
     private async exec(args: string[]): Promise<{ stdout: string; stderr: string }> {
         return this.executor({
             config: this.config,
@@ -549,6 +741,11 @@ export class OpenClawCliRunner {
         });
     }
 
+    /**
+     * 解析智能体工作目录路径
+     * @param agentId - 智能体 ID
+     * @returns 工作目录路径
+     */
     private resolveAgentWorkspacePath(agentId: string): string {
         const safeAgentId = sanitizeAgentId(agentId);
         if (!this.config.defaultWorkspacePath) {
@@ -600,23 +797,78 @@ function looksLikeStandaloneJson(value: string): boolean {
 }
 
 const defaultCommandExecutor: OpenClawCliCommandExecutor = async ({ config, args, timeoutMs }) => {
-    const { stdout, stderr } = await execFileAsync(
+    // Check for potential ENAMETOOLONG error by validating argument length
+    const fullCommandLine = [config.nodePath, config.cliEntryPath, ...args].join(' ');
+    
+    // On Windows, command line length is limited to approximately 8191 characters
+    if (fullCommandLine.length > SAFE_WINDOWS_COMMAND_LINE_LENGTH) {
+        throw new Error(`Command line too long (${fullCommandLine.length} chars). Consider shortening paths or arguments.`);
+    }
+    
+    // Validate path lengths as well
+    const pathsToCheck = [
         config.nodePath,
-        [config.cliEntryPath, ...args],
-        {
-            cwd: config.stateDir,
-            env: buildRunnerEnv(config),
-            maxBuffer: 50 * 1024 * 1024,
-            timeout: timeoutMs,
-            windowsHide: true
+        config.cliEntryPath,
+        config.stateDir,
+        config.configPath,
+        config.defaultWorkspacePath
+    ];
+    
+    for (const path of pathsToCheck) {
+        if (path && path.length > 255) {  // Typical filesystem path limits
+            console.warn(`Potentially long path detected: ${path.substring(0, 100)}... (${path.length} chars)`);
         }
-    );
+    }
+    
+    try {
+        const { stdout, stderr } = await execFileAsync(
+            config.nodePath,
+            [config.cliEntryPath, ...args],
+            {
+                cwd: config.stateDir,
+                env: buildRunnerEnv(config),
+                maxBuffer: 50 * 1024 * 1024,
+                timeout: timeoutMs,
+                windowsHide: true
+            }
+        );
 
-    return {
-        stdout,
-        stderr
-    };
+        return {
+            stdout,
+            stderr
+        };
+    } catch (error) {
+        if (error && typeof error === 'object' && 'code' in error && (error as any).code === 'ENAMETOOLONG') {
+            // Handle the ENAMETOOLONG error specifically
+            throw new Error(`Command line too long: ${fullCommandLine.substring(0, 200)}... Reduce path lengths or arguments.`);
+        }
+        // Re-throw other errors
+        throw error;
+    }
 };
+
+function estimateGatewayCallCommandLength(
+    config: OpenClawCliServiceConfig,
+    method: string,
+    params: Record<string, unknown>,
+    options: { expectFinal?: boolean }
+): number {
+    const args = ['gateway', 'call', method];
+
+    if (config.gatewayUrl) {
+        args.push('--url', toWebSocketUrl(config.gatewayUrl));
+        if (config.gatewayToken) {
+            args.push('--token', config.gatewayToken);
+        }
+    }
+
+    if (options.expectFinal) {
+        args.push('--expect-final');
+    }
+
+    args.push('--params', JSON.stringify(params), '--json');
+    return [config.nodePath, config.cliEntryPath, ...args].join(' ').length;
+}
 
 function buildRunnerEnv(config: OpenClawCliServiceConfig): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = {
@@ -661,7 +913,11 @@ function toWebSocketUrl(value: string): string {
 function sanitizeAgentId(value: string): string {
     const trimmed = value.trim().toLowerCase();
     const normalized = trimmed.replace(/[^a-z0-9-_]+/g, '-').replace(/-+/g, '-');
-    return normalized.replace(/^-|-$/g, '') || 'agent';
+    const sanitized = normalized.replace(/^-|-$/g, '') || 'agent';
+    
+    // Ensure the agent ID doesn't exceed reasonable length to prevent path issues on Windows
+    // Keep it under 100 characters to avoid path length issues when combined with other path elements
+    return sanitized.length > 100 ? sanitized.substring(0, 100) : sanitized;
 }
 
 function appendGatewayConnectionArgs(target: string[], config: OpenClawCliServiceConfig): void {

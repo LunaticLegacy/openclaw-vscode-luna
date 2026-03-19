@@ -1,31 +1,31 @@
-# OpenClaw Luna for VS Code
+# LunaClaw
 
 <div align="center">
 
 <br />
 
-<img src="../resources/icon.png" width="120" alt="OpenClaw Luna Logo" />
+<img src="../resources/openclaw_luna_animated_1to1.webp" width="120" alt="LunaClaw Logo" />
 
-# OpenClaw Luna
+# LunaClaw
 
-### Bring OpenClaw agents, swarms, tasks, and usage back into VS Code
+### A frontend/control surface for OpenClaw workflows (this repo ships the VS Code implementation)
 
-**Connect OpenClaw, create an agent, send the first message, then decide whether you need deeper multi-agent workflows, scheduled tasks, and diagnostics.**
+**Connect OpenClaw, finish your first chat, then pull swarms, presets, import/export, skill hubs, and diagnostics into your main path.**
 
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.80+-007ACC?logo=visualstudiocode&logoColor=white)](https://code.visualstudio.com/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Version](https://img.shields.io/badge/Version-0.7.1-111111)](../package.json)
+[![Version](https://img.shields.io/badge/Version-0.8.0-111111)](../package.json)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](../LICENSE)
 
-[60-Second Setup](#60-second-setup) · [Core Features](#core-features) · [Connection Modes](#connection-modes) · [Feedback](#if-it-breaks-send-these-three-things) · [中文](../README.md)
+[2-Minute Start](#2-minute-start) · [Workflow Features](#workflow-features) · [Current Scope](#current-scope) · [Troubleshooting](#common-problems--troubleshooting) · [中文](../README.md)
 
 <br />
 
-<img src="../resources/screenshot-01.png" width="88%" alt="OpenClaw Luna screenshot 1" />
+<img src="../resources/screenshot-01.png" width="88%" alt="LunaClaw screenshot 1" />
 
 <p>
-  <img src="../resources/screenshot-02.png" width="43.5%" alt="OpenClaw Luna screenshot 2" />
-  <img src="../resources/screenshot-03.png" width="43.5%" alt="OpenClaw Luna screenshot 3" />
+  <img src="../resources/screenshot-02.png" width="43.5%" alt="LunaClaw screenshot 2" />
+  <img src="../resources/screenshot-03.png" width="43.5%" alt="LunaClaw screenshot 3" />
 </p>
 
 </div>
@@ -34,104 +34,104 @@
 
 ## What It Is
 
-OpenClaw Luna is a VS Code extension that turns OpenClaw into a workflow you can actually operate from one place.
+LunaClaw is a **frontend/control surface for OpenClaw workflows**. This repository provides the **VS Code implementation**.
 
-Instead of bouncing between a CLI, config files, browser pages, and scattered commands, Luna gives you one control surface for the common OpenClaw path:
+> Naming note: the product is now officially **LunaClaw**, while the legacy name **OpenClaw Luna** remains for compatibility in docs, commands, and the ecosystem.
 
-- Connect and verify the first successful run
-- Create agents and start chats
-- Move into swarms, scheduled tasks, and usage only when you need them
+This is not another generic chat extension. It is a control surface that collapses OpenClaw into a single operational path:
 
-It is best suited for two cases:
+- Finish your first chat
+- Move into swarm collaboration and presets
+- Bring import/export, skill hubs, diagnostics, and long-term memory into one stable workflow
 
-- You already use OpenClaw and want your main control path inside VS Code
-- You are trying OpenClaw for the first time and want one quick success before learning the full config model
-
-If you want a generic AI chat extension with no OpenClaw workflow attached, that is not what Luna is built for.
+If you only want a lightweight chat box, LunaClaw is not the intended solution.
 
 ---
 
-## 60-Second Setup
+## 2-Minute Start
 
-### 1. Install the extension
+### First Chat (shortest success path)
 
-Install `OpenClaw Luna` from the VS Code Marketplace.
+1. Install the `LunaClaw` VS Code extension.
+2. Open the panel via `LunaClaw: Open LunaClaw` or the `OpenClaw` (legacy) sidebar icon.
+3. Start a local `OpenClaw gateway` or enter a remote Gateway URL.
+4. Create your first agent.
+5. Send your first message.
 
-### 2. Open the panel
+The first win is simple: connect, create an agent, receive a reply.
 
-Use any of these entry points:
+### First Swarm (shortest collaboration path)
 
-- Command palette: `OpenClaw Luna: Open OpenClaw Luna`
-- Bottom-right status bar item: `OpenClaw`
-- Activity Bar sidebar: `OpenClaw`
+1. Open the Swarm workspace.
+2. Create from a preset or add members manually.
+3. Choose Broadcast or Collaborate.
+4. Run a full collaboration round.
 
-### 3. Follow the shortest successful path first
+### Import / Export (shortest migration path)
 
-Do not optimize every mode on first run. Start with this:
-
-- Check whether OpenClaw is installed locally
-- Start the local `OpenClaw gateway`, or enter your remote Gateway
-- Keep the default connection mode
-- Create your first agent
-- Send your first message
-
-### 4. Expand only after the first reply works
-
-Once the first message succeeds, go deeper only if you need it:
-
-- Open `Swarm` for multi-agent collaboration
-- Switch to `OpenClaw CLI` for scheduled tasks
-- Open `Usage` for requests, tokens, and cost inspection
-- Edit `OpenClaw Config` or local model files for tighter control
-
-The first win is simple: connect, create an agent, send a message.
+1. Export the current Swarm structure as JSON.
+2. Import a previously exported Swarm config.
+3. Use a Swarm preset to spin up a new blueprint.
 
 ---
 
-## Core Features
+## Workflow Features
 
-### Agent Workspace
+### Agents
 
 - Create, edit, delete, and refresh agents
-- Start from built-in agent presets
-- Configure custom models, system prompts, and workspaces
-- Persist chat history automatically with streaming replies
+- Agent presets and batch creation
+- Custom models, system prompts, and workspaces
 
-### Swarm Workspace
+### Swarms
 
-- Switch between `Broadcast / Collaborate / Member Chat` inside one workspace
-- Open clusters directly from the sidebar
-- Add or remove members without leaving VS Code
-- Support custom Swarm workflows
+- Switch between `Broadcast / Collaborate / Member Chat` in one workspace
+- Member management, parent topology, and collaboration context
+- Topology view and collaboration/broadcast switching
 
-### Scheduled Tasks
+### Presets
 
-- Read OpenClaw cron jobs and run history
-- Support `every / at / cron` schedules
-- Create, edit, enable, disable, run now, and delete tasks
-- Task support is available in `OpenClaw CLI` mode
+- Swarm presets for fast blueprint creation
+- Identity presets for member profiles
 
-### Usage and Diagnostics
+### Import / Export
 
-- Switch between 7-day and 30-day windows
-- Inspect requests, tokens, and cost by day
-- Break usage down by model
-- Keep operational debugging in the same place as chat and tasks
+- Swarm structure export as JSON
+- Swarm config import and restore
+
+### Skills
+
+- Skill Market via remote hubs
+- Separate Installed and Enabled views
+
+### Memory / Persistence
+
+- Target: a durable memory layer across machines and storage backends
+- Currently in progress
 
 ---
 
-## Why Someone Would Use It
+## Current Scope
 
-Luna is not solving "how do I add another chat box to VS Code."
+- VS Code frontend: available
+- Swarm presets and import/export: available
+- Skill Market remote hubs: available (continuing improvements)
+- Persistent memory layer: in progress
+- Onboarding / Doctor: in progress
+- Tauri / desktop app: planned
 
-It is solving these OpenClaw workflow problems:
+---
 
-- Agent chat lives in one place while cluster management lives somewhere else
-- Scheduled tasks push you back into CLI flows
-- Usage inspection requires a different surface again
-- Different connection modes expose different capabilities, but that difference is easy to hide or misunderstand
+## Common Problems / Troubleshooting
 
-If your real workflow already includes agents, swarms, cron, or usage debugging, Luna compresses those paths into one stable surface.
+- `missing scope: operator.write`: ensure your Gateway token or auth profile includes `operator.write`.
+- `gateway closed (1000)`: verify the Gateway process/port and restart with a matching version.
+- Swarm import fails: confirm the JSON was exported from LunaClaw, not a preset file.
+- Preset invalid: check JSON integrity and required fields.
+- Skill Market not loading: check network/proxy settings or hub availability.
+- Local models unavailable: verify `models.json` and `auth-profiles.json` paths.
+
+When reporting issues, include the mode, the step that failed, and the raw error text.
 
 ---
 
@@ -139,46 +139,16 @@ If your real workflow already includes agents, swarms, cron, or usage debugging,
 
 | Mode | Best for | Data source |
 | --- | --- | --- |
-| `Auto Detect` | Let Luna choose the best local path automatically | Local environment probing |
-| `Gateway` | Shared remote deployment for teams | OpenClaw Gateway |
-| `OpenClaw CLI` | Full local OpenClaw workflow, including cron and live session sync | Local CLI + Gateway |
-| `Local Models` | Running only against local model providers | `models.json` / `auth-profiles.json` |
+| `Auto Detect` | Let LunaClaw pick the best local path | Local environment probing |
+| `Gateway` | Remote deployments and collaboration | OpenClaw Gateway |
+| `OpenClaw CLI` | Full local OpenClaw workflow | Local CLI + Gateway |
+| `Local Models` | Running only local model providers | `models.json` / `auth-profiles.json` |
 
 ### Config Boundaries
 
 - `OpenClaw Config` edits `openclaw.json`
 - `Local Models` mode uses `models.json` and optional `auth-profiles.json`
-- These are different configuration surfaces, and Luna keeps that capability boundary explicit
-
----
-
-## When Luna Fits
-
-Good fit:
-
-- You already use OpenClaw
-- You want your main control path inside VS Code
-- You need agents, swarms, tasks, and usage in the same workflow
-
-Poor fit:
-
-- You only want a lightweight AI chat extension
-- You do not plan to use OpenClaw runtime or configuration at all
-
----
-
-## If It Breaks, Send These Three Things
-
-The most useful bug report is not "it doesn't work." Send these three details instead:
-
-- Which mode you used: `Auto Detect`, `Gateway`, `OpenClaw CLI`, or `Local Models`
-- Which step failed: install, connect, create agent, send message, open tasks, or open usage
-- The raw error text from the VS Code developer tools, output panel, or in-product message
-
-Feedback links:
-
-- Issues: <https://github.com/LunaticLegacy/openclaw-vscode-luna/issues>
-- Repository: <https://github.com/LunaticLegacy/openclaw-vscode-luna>
+- These configuration surfaces remain separate
 
 ---
 
@@ -241,20 +211,6 @@ openclaw-vscode-luna/
 ├── resources/
 └── package.json
 ```
-
----
-
-## Status
-
-- [x] OpenClaw panel and sidebar entry points
-- [x] Agent management and preset-based creation
-- [x] Swarm workspace
-- [x] OpenClaw cron panel
-- [x] OpenClaw Config UI
-- [x] 7-day / 30-day usage dashboard
-- [x] Main-path smoke tests
-- [ ] More real host-path coverage
-- [ ] More scenario docs and demo captures
 
 ---
 

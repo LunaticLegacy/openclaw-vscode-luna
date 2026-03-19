@@ -14,6 +14,9 @@ import type { OpenClawService } from '../../services/openclawService';
 import { runWithNotificationProgress } from '../../utils/statusFeedback';
 import { delay } from './helpers';
 
+/**
+ * Context interface for runtime action operations
+ */
 interface RuntimeActionContext {
     service: OpenClawService;
     extensionPath: string;
@@ -22,14 +25,30 @@ interface RuntimeActionContext {
     setRuntimeDiagnostics(value: OpenClawRuntimeDiagnostics | null): void;
     getOpenClawConfigState(): OpenClawConfigEditorState | null;
     setOpenClawConfigState(value: OpenClawConfigEditorState | null): void;
+    getMemoryStatus(): { backend: string; root: string; ready: boolean; lastSyncAt?: string; lastError?: string; lastEvent?: string } | null;
+    refreshMemoryStatus(): Promise<void>;
     loadAgents(): Promise<void>;
     loadClusters(): Promise<void>;
     loadTasks(): Promise<void>;
 }
 
+/**
+ * Timeout for OpenClaw startup in milliseconds
+ */
 const OPENCLAW_STARTUP_TIMEOUT_MS = 30000;
+
+/**
+ * Poll interval for checking service connection during startup
+ */
 const OPENCLAW_STARTUP_POLL_INTERVAL_MS = 500;
 
+/**
+ * Waits for the service connection to become available
+ * @param service - The OpenClaw service instance
+ * @param timeoutMs - The timeout in milliseconds
+ * @returns A promise that resolves when connected
+ * @throws Error if connection is not established within timeout
+ */
 async function waitForServiceConnection(
     service: OpenClawService,
     timeoutMs: number = OPENCLAW_STARTUP_TIMEOUT_MS
@@ -47,6 +66,10 @@ async function waitForServiceConnection(
     throw new Error(`OpenClaw gateway did not become ready within ${Math.ceil(timeoutMs / 1000)}s.`);
 }
 
+/**
+ * Posts the current runtime state to the webview
+ * @param context - The runtime action context
+ */
 export function postRuntimeState(context: RuntimeActionContext): void {
     const mode = context.service.getMode();
     const capabilities = context.service.getModeCapabilities();
@@ -60,10 +83,15 @@ export function postRuntimeState(context: RuntimeActionContext): void {
         capabilities,
         capabilityMatrix: context.service.getModeCapabilityMatrix(),
         diagnostics: context.getRuntimeDiagnostics(),
-        openClawConfig: context.getOpenClawConfigState()
+        openClawConfig: context.getOpenClawConfigState(),
+        memoryStatus: context.getMemoryStatus()
     });
 }
 
+/**
+ * Refreshes the runtime state by checking connection and reloading diagnostics
+ * @param context - The runtime action context
+ */
 export async function refreshRuntimeState(context: RuntimeActionContext): Promise<void> {
     try {
         await context.service.checkConnection();
@@ -81,11 +109,21 @@ export async function refreshRuntimeState(context: RuntimeActionContext): Promis
         context.setOpenClawConfigState(await loadOpenClawConfigEditorState(context.extensionPath));
     } catch {
         // Ignore config editor failures and keep the last known values.
+    }
+
+    try {
+        await context.refreshMemoryStatus();
+    } catch {
+        // Ignore memory status failures.
     } finally {
         postRuntimeState(context);
     }
 }
 
+/**
+ * Handles retrying the connection to OpenClaw
+ * @param context - The runtime action context
+ */
 export async function handleRetryConnection(context: RuntimeActionContext): Promise<void> {
     try {
         await runWithNotificationProgress(t('progress.retryingConnection'), async () => {
@@ -107,6 +145,11 @@ export async function handleRetryConnection(context: RuntimeActionContext): Prom
     }
 }
 
+/**
+ * Handles saving connection settings
+ * @param context - The runtime action context
+ * @param settings - The connection settings to save
+ */
 export async function handleSaveConnectionSettings(
     context: RuntimeActionContext,
     settings: {
@@ -149,6 +192,11 @@ export async function handleSaveConnectionSettings(
     }
 }
 
+/**
+ * Handles saving OpenClaw configuration
+ * @param context - The runtime action context
+ * @param settings - The configuration settings to save
+ */
 export async function handleSaveOpenClawConfig(
     context: RuntimeActionContext,
     settings: {
@@ -202,6 +250,10 @@ export async function handleSaveOpenClawConfig(
     }
 }
 
+/**
+ * Handles starting the OpenClaw gateway
+ * @param context - The runtime action context
+ */
 export async function handleStartOpenClaw(context: RuntimeActionContext): Promise<void> {
     try {
         await runWithNotificationProgress(t('progress.startingOpenClaw'), async () => {

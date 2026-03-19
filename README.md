@@ -1,31 +1,31 @@
-# OpenClaw Luna for VS Code
+# LunaClaw
 
 <div align="center">
 
 <br />
 
-<img src="resources/icon.png" width="120" alt="OpenClaw Luna Logo" />
+<img src="resources/openclaw_luna_animated_1to1.webp" width="120" alt="LunaClaw Logo" />
 
-# OpenClaw Luna
+# LunaClaw
 
-### 把 OpenClaw 的 Agent、Swarm、定时任务和用量统一带回 VS Code
+### OpenClaw 的前端与控制中枢（当前仓库提供 VS Code 实现）
 
-**连上 OpenClaw，创建 Agent，发出第一条消息，然后再决定要不要深入多 Agent 协作、定时任务和诊断。**
+**连接 OpenClaw，完成 First Chat，然后再把 Swarm、Preset、导入导出、技能市场和诊断纳入你的主路径。**
 
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.80+-007ACC?logo=visualstudiocode&logoColor=white)](https://code.visualstudio.com/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Version](https://img.shields.io/badge/Version-0.7.1-111111)](package.json)
+[![Version](https://img.shields.io/badge/Version-0.8.0-111111)](package.json)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-[60 秒上手](#60-秒上手) · [核心能力](#核心能力) · [连接模式](#连接模式) · [反馈方式](#遇到问题时这样反馈) · [English](docs/README_EN.md)
+[2 分钟上手](#2-分钟上手) · [工作流能力](#工作流能力) · [当前范围](#当前范围) · [排障](#常见问题--troubleshooting) · [English](docs/README_EN.md)
 
 <br />
 
-<img src="resources/screenshot-01.png" width="88%" alt="OpenClaw Luna screenshot 1" />
+<img src="resources/screenshot-01.png" width="88%" alt="LunaClaw screenshot 1" />
 
 <p>
-  <img src="resources/screenshot-02.png" width="43.5%" alt="OpenClaw Luna screenshot 2" />
-  <img src="resources/screenshot-03.png" width="43.5%" alt="OpenClaw Luna screenshot 3" />
+  <img src="resources/screenshot-02.png" width="43.5%" alt="LunaClaw screenshot 2" />
+  <img src="resources/screenshot-03.png" width="43.5%" alt="LunaClaw screenshot 3" />
 </p>
 
 </div>
@@ -34,102 +34,104 @@
 
 ## 它是什么
 
-OpenClaw Luna 是一个 VS Code 扩展，用来把 OpenClaw 的日常控制路径收进一个面板里。
+LunaClaw 是 **OpenClaw 工作流的前端与控制面**。本仓库提供的是 **VS Code 实现**。
 
-你不需要在 CLI、浏览器、配置文件和零散命令之间来回跳。Luna 的目标很直接：
+> 命名说明：产品现在正式叫 **LunaClaw**，同时保留旧名 **OpenClaw Luna** 用于兼容历史文档、命令和生态。
 
-- 在 VS Code 里完成第一次连通和第一次对话
-- 在同一个入口管理 Agent、Swarm、Tasks 和 Usage
-- 把“能不能用、为什么这次能用下次不能用”说清楚，而不是藏在模式差异里
+它不是“另一个聊天插件”，而是把 OpenClaw 的多入口体验整理成一条可操作的主路径：
 
-它更适合这两类人：
+- 先完成 First Chat
+- 再进入 Swarm 协作与预设体系
+- 最终把导入导出、技能市场、诊断与持久记忆收进一个稳定的控制面
 
-- 已经在用 OpenClaw，想把主要操作放回 VS Code
-- 正准备试 OpenClaw，想先完成一次最小成功，而不是先啃配置体系
-
-如果你要的是“打开插件就直接替代所有 AI 助手”，那不是 Luna 的定位。它服务的是 OpenClaw 工作流，不是另一个通用聊天框。
+如果你只想要一个轻量聊天框，LunaClaw 并不是目标解法。
 
 ---
 
-## 60 秒上手
+## 2 分钟上手
 
-### 1. 安装扩展
+### First Chat（最短成功路径）
 
-从 VS Code Marketplace 安装 `OpenClaw Luna`。
+1. 安装 VS Code 扩展 `LunaClaw`。
+2. 打开面板：命令面板 `LunaClaw: Open LunaClaw`，或侧边栏 `OpenClaw`（旧名）。
+3. 启动本地 `OpenClaw gateway` 或填写远端 Gateway。
+4. 创建第一个 Agent。
+5. 发送第一条消息。
 
-### 2. 打开面板
+First Chat 的标准很简单：能连上、能建 Agent、能收到回复。
 
-任选一个入口：
+### First Swarm（最短协作路径）
 
-- 命令面板 `OpenClaw Luna: Open OpenClaw Luna`
-- 右下角状态栏 `OpenClaw`
-- 左侧 Activity Bar `OpenClaw`
+1. 进入 Swarm 工作区。
+2. 从预设创建或手动添加成员。
+3. 选择 Broadcast 或 Collaborate。
+4. 运行一次完整协作回合。
 
-### 3. 先跑通第一条主路径
+### Import / Export（最短迁移路径）
 
-第一次使用时，不要先研究所有模式。直接按这条最短路径走：
-
-- 检查本地 OpenClaw 是否已安装
-- 启动本地 `OpenClaw gateway`，或填写远端 Gateway
-- 保持默认连接模式
-- 创建第一个 Agent
-- 发送第一条消息
-
-### 4. 只有在需要时再展开能力
-
-当第一条消息已经成功返回，再看这些能力：
-
-- 需要多 Agent 协作时，进入 `Swarm`
-- 需要定时任务时，切到 `OpenClaw CLI`
-- 需要查请求量、Token 和成本时，打开 `Usage`
-- 需要精细调配置时，再编辑 `OpenClaw Config` 或本地模型配置
-
-第一次成功的标准很简单：能连上、能建 Agent、能发消息。
+1. 在 Swarm 编辑器里导出当前结构为 JSON。
+2. 通过 Import swarm config 恢复一个已导出的 Swarm。
+3. 通过 Swarm Preset 快速创建新模板。
 
 ---
 
-## 核心能力
+## 工作流能力
 
-### Agent 工作台
+### Agents
 
 - 创建、编辑、删除、刷新 Agent
-- 支持预设智能体工作流
-- 支持自定义模型、System Prompt、工作区
-- 会话历史自动持久化，支持流式回复
+- 支持 Agent 预设与批量创建
+- 支持自定义模型、System Prompt 与工作区
 
-### Swarm 工作区
+### Swarms
 
 - 在一个工作区里切换 `Broadcast / Collaborate / 成员直连`
-- 从侧边栏直接进入某个集群
-- 支持集群成员增删和协作上下文切换
-- 支持定制化集群工作流
+- Swarm 成员增删、父子拓扑与协作上下文管理
+- 拓扑视图与协作/广播模式切换
 
-### 定时任务面板
+### Presets
 
-- 查看 OpenClaw cron jobs 与运行记录
-- 支持 `every / at / cron` 三种调度方式
-- 支持创建、编辑、启停、立即执行、删除
-- 任务能力只在 `OpenClaw CLI` 模式下开放
+- Swarm Preset：用于快速搭建协作结构
+- Identity Preset：用于成员 profile 的身份模板
 
-### 用量与诊断
+### Import / Export
 
-- 7 日 / 30 日窗口切换
-- 按天查看请求数、Token、成本
-- 按模型查看分布与成本占比
-- 在一个地方排查“为什么今天的调用和昨天不一样”
+- Swarm 结构导出为 JSON
+- Swarm 配置导入恢复
+
+### Skills
+
+- Skill Market（远程 Hub）发现与安装
+- 已安装 / 已启用技能的分离视图
+
+### Memory / Persistence
+
+- 目标：持久记忆层（跨机器、跨存储的长期记忆）
+- 当前处于规划与实现中
 
 ---
 
-## 为什么有人会用它
+## 当前范围
 
-Luna 解决的不是“再加一个聊天入口”，而是 OpenClaw 用户已经遇到的这些真实摩擦：
+- VS Code 前端：可用
+- Swarm Preset / Import / Export：可用
+- Skill Market 远程 Hub：可用（持续增强）
+- 持久记忆层：进行中
+- Onboarding / Doctor：进行中
+- Tauri / 桌面端：规划中
 
-- Agent 对话在一个地方，集群管理在另一个地方
-- 定时任务要切回 CLI，排查用量又要切去别处
-- 同一个操作在不同模式下表现不同，但界面没有说清楚
-- 第一次配置成功前，用户不知道自己到底卡在连接、模式还是权限
+---
 
-如果你的日常路径里本来就包含 Agent、Swarm、cron 或 usage，Luna 的价值就是把这些入口合并成一个稳定主路径。
+## 常见问题 / Troubleshooting
+
+- `missing scope: operator.write`：检查 Gateway token 或 auth profile 是否包含 `operator.write`。
+- `gateway closed (1000)`：检查 Gateway 进程与端口；确保版本匹配并重启。
+- 无法导入 Swarm：确认 JSON 来自导出文件而非 Preset 文件。
+- Preset 解析失败：检查 JSON 是否损坏、字段是否缺失。
+- Skill Market 不加载：检查网络/代理设置或 Hub 是否可用。
+- 本地模型不可用：确认 `models.json` 与 `auth-profiles.json` 路径配置正确。
+
+反馈时请带上：连接模式、失败步骤、原始错误文本。
 
 ---
 
@@ -137,46 +139,16 @@ Luna 解决的不是“再加一个聊天入口”，而是 OpenClaw 用户已�
 
 | 模式 | 适合场景 | 数据来源 |
 | --- | --- | --- |
-| `Auto Detect` | 先让 Luna 自动判断本地最合适的连接链路 | 按本机环境解析 |
-| `Gateway` | 团队远端部署，共享 Agent 和集群 | OpenClaw Gateway |
-| `OpenClaw CLI` | 本地完整 OpenClaw 能力，含 cron 和实时会话同步 | 本地 CLI + Gateway |
-| `Local Models` | 只想在本地 provider 上跑模型 | `models.json` / `auth-profiles.json` |
+| `Auto Detect` | 自动选择本地最合适的链路 | 本机环境解析 |
+| `Gateway` | 远端部署与协作 | OpenClaw Gateway |
+| `OpenClaw CLI` | 本地完整 OpenClaw 能力 | 本地 CLI + Gateway |
+| `Local Models` | 只跑本地模型 provider | `models.json` / `auth-profiles.json` |
 
 ### 配置边界
 
 - `OpenClaw Config` 编辑的是 `openclaw.json`
-- `Local Models` 模式使用的是 `models.json` 和可选的 `auth-profiles.json`
-- 这两套配置不是一回事，Luna 会明确区分可用能力
-
----
-
-## 什么时候该用 Luna
-
-适合：
-
-- 你已经在用 OpenClaw
-- 你希望主要控制入口在 VS Code
-- 你需要 Agent、Swarm、任务和用量放在同一个工作流里
-
-不适合：
-
-- 你只是想要一个纯聊天插件
-- 你完全不打算接触 OpenClaw 运行时或配置
-
----
-
-## 遇到问题时这样反馈
-
-最有价值的反馈不是“不能用”，而是下面三项：
-
-- 你当前使用的连接模式：`Auto Detect`、`Gateway`、`OpenClaw CLI` 或 `Local Models`
-- 你卡住的步骤：安装、连接、创建 Agent、发送消息、打开 Task、查看 Usage
-- VS Code 开发者工具、输出面板或界面提示里的原始错误文本
-
-反馈入口：
-
-- Issue: <https://github.com/LunaticLegacy/openclaw-vscode-luna/issues>
-- 仓库主页: <https://github.com/LunaticLegacy/openclaw-vscode-luna>
+- `Local Models` 模式使用的是 `models.json` 与可选的 `auth-profiles.json`
+- 这两套配置是不同的能力边界
 
 ---
 
@@ -239,20 +211,6 @@ openclaw-vscode-luna/
 ├── resources/
 └── package.json
 ```
-
----
-
-## 当前状态
-
-- [x] OpenClaw 主面板与侧边栏入口
-- [x] Agent 管理与预设创建
-- [x] Swarm 工作区
-- [x] OpenClaw cron 面板
-- [x] OpenClaw Config UI
-- [x] 7 日 / 30 日用量面板
-- [x] 主路径 smoke 测试
-- [ ] 更多真实宿主链路覆盖
-- [ ] 更多场景截图与上手演示
 
 ---
 

@@ -2,14 +2,14 @@
   "name": "openclaw-vscode-luna",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "publisher": "lunaticlegacy",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/LunaticLegacy/openclaw-vscode-luna.git"
   },
-  "icon": "resources/icon.png",
+  "icon": "resources/openclaw_luna_animated_1to1.webp",
   "engines": {
     "vscode": "^1.80.0"
   },
@@ -411,6 +411,61 @@
           "default": "",
           "description": "%configuration.stateDir.description%"
         },
+        "openclaw.memoryBackend": {
+          "type": "string",
+          "default": "local",
+          "enum": [
+            "local",
+            "webdav",
+            "custom"
+          ],
+          "description": "%configuration.memoryBackend.description%"
+        },
+        "openclaw.memoryRoot": {
+          "type": "string",
+          "default": "",
+          "description": "%configuration.memoryRoot.description%"
+        },
+        "openclaw.memoryWebDavUrl": {
+          "type": "string",
+          "default": "",
+          "description": "%configuration.memoryWebDavUrl.description%"
+        },
+        "openclaw.skillHubs": {
+          "type": "array",
+          "default": [],
+          "description": "%configuration.skillHubs.description%",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "apiUrl"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "%configuration.skillHubs.id%"
+              },
+              "name": {
+                "type": "string",
+                "description": "%configuration.skillHubs.name%"
+              },
+              "url": {
+                "type": "string",
+                "description": "%configuration.skillHubs.url%"
+              },
+              "apiUrl": {
+                "type": "string",
+                "description": "%configuration.skillHubs.apiUrl%"
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "%configuration.skillHubs.enabled%"
+              }
+            }
+          }
+        },
         "openclaw.cliPath": {
           "type": "string",
           "default": "",
@@ -506,6 +561,7 @@
   },
   "dependencies": {
     "axios": "^1.6.0",
+    "vsce": "^2.15.0",
     "ws": "^8.14.0"
   }
 }

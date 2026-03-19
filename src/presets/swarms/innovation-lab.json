@@ -1,0 +1,46 @@
+{
+  "id": "innovation-lab",
+  "nameTemplate": "创新实验室 - {{timestamp}}",
+  "description": "快速头脑风暴团队，追求广度优先、低仪式感的并行创意生成。",
+  "tags": ["创新", "头脑风暴", "探索"],
+  "workspaceConfig": {
+    "presetId": "rapid-brainstorm",
+    "collaborationStyle": "round-robin",
+    "deliveryStyle": "fast",
+    "critiqueLevel": "minimal",
+    "rounds": 1,
+    "briefing": "Prefer breadth first, low ceremony, and fast parallel idea generation."
+  },
+  "memberBlueprints": [
+    {
+      "id": "moderator",
+      "nameTemplate": "快速主持人",
+      "presetId": "docs-editor",
+      "isCoordinator": true,
+      "systemPromptAppend": "你是快速主持人，保持团队高效运转，减少仪式，快速收敛到有用选项。"
+    },
+    {
+      "id": "divergent",
+      "nameTemplate": "创意生成器",
+      "presetId": "algorithm-helper",
+      "systemPromptAppend": "你是创意生成器，产生广泛的选择空间，提出非常规但合理的新方向。"
+    },
+    {
+      "id": "contrarian",
+      "nameTemplate": "建设性反对者",
+      "presetId": "code-review-guard",
+      "activation": {
+        "keywords": ["alternative", "option", "idea", "brainstorm"]
+      },
+      "systemPromptAppend": "你是建设性反对者，尽早挑战显而易见的方案，提出更尖锐的替代选项。"
+    },
+    {
+      "id": "synth",
+      "nameTemplate": "模式发现者",
+      "presetId": "algorithm-helper",
+      "parentId": "moderator",
+      "systemPromptAppend": "你是模式发现者，将原始想法聚类为可复用的主题、权衡组和下一步分类。"
+    }
+  ],
+  "onboardingMessageTemplate": "创新实验室已开启！头脑风暴模式，追求广度优先、低仪式感的并行创意生成。"
+}

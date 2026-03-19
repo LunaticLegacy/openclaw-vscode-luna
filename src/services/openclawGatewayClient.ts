@@ -46,6 +46,19 @@ interface PendingRequest {
 
 const PROTOCOL_VERSION = 3;
 
+/**
+ * OpenClaw Gateway WebSocket 客户端
+ * 
+ * 提供与 OpenClaw Gateway 的 WebSocket 连接管理、请求发送和事件处理功能
+ * 
+ * @example
+ * ```typescript
+ * const client = new OpenClawGatewayClient({ url: 'ws://localhost:3000' });
+ * await client.connect();
+ * const result = await client.request('method', params);
+ * client.dispose();
+ * ```
+ */
 export class OpenClawGatewayClient extends EventEmitter {
     private ws: WebSocket | null = null;
     private connected = false;
@@ -53,10 +66,18 @@ export class OpenClawGatewayClient extends EventEmitter {
     private pending = new Map<string, PendingRequest>();
     private intentionalClose = false;
 
+    /**
+     * 创建 Gateway 客户端实例
+     * @param options - 客户端配置选项
+     */
     constructor(private readonly options: OpenClawGatewayClientOptions) {
         super();
     }
 
+    /**
+     * 连接到 Gateway
+     * @throws Error - 连接失败时抛出
+     */
     public async connect(): Promise<void> {
         if (this.connected && this.ws?.readyState === WebSocket.OPEN) {
             return;
@@ -78,6 +99,14 @@ export class OpenClawGatewayClient extends EventEmitter {
         }
     }
 
+    /**
+     * 发送请求到 Gateway
+     * @param method - 请求方法名
+     * @param params - 请求参数
+     * @param options - 请求选项
+     * @returns 请求结果
+     * @throws Error - 请求失败或超时时抛出
+     */
     public async request<T = Record<string, unknown>>(
         method: string,
         params?: unknown,
@@ -134,6 +163,9 @@ export class OpenClawGatewayClient extends EventEmitter {
         return promise;
     }
 
+    /**
+     * 释放客户端资源，断开连接
+     */
     public dispose(): void {
         this.intentionalClose = true;
         this.connected = false;
@@ -159,6 +191,10 @@ export class OpenClawGatewayClient extends EventEmitter {
         this.removeAllListeners();
     }
 
+    /**
+     * 创建 WebSocket 连接
+     * @returns 连接完成的 Promise
+     */
     private createConnection(): Promise<void> {
         return new Promise((resolve, reject) => {
             const url = toWebSocketUrl(this.options.url);
@@ -234,6 +270,11 @@ export class OpenClawGatewayClient extends EventEmitter {
         });
     }
 
+    /**
+     * 处理收到的 WebSocket 消息
+     * @param raw - 原始消息数据
+     * @param settleConnect - 连接完成的回调函数
+     */
     private handleMessage(raw: RawData, settleConnect: (error?: Error) => void): void {
         const text = typeof raw === 'string'
             ? raw
@@ -301,6 +342,11 @@ export class OpenClawGatewayClient extends EventEmitter {
         pending.reject(new Error(parsed.error?.message || 'Gateway request failed'));
     }
 
+    /**
+     * 构建连接认证参数
+     * @param nonce - 服务器提供的随机数
+     * @returns 连接参数对象
+     */
     private buildConnectParams(nonce: string): Record<string, unknown> {
         const token = this.options.token?.trim() || undefined;
 
@@ -321,6 +367,10 @@ export class OpenClawGatewayClient extends EventEmitter {
         };
     }
 
+    /**
+     * 拒绝所有待处理的请求
+     * @param error - 拒绝原因错误
+     */
     private rejectAllPending(error: Error): void {
         for (const [id, pending] of this.pending) {
             clearTimeout(pending.timer);

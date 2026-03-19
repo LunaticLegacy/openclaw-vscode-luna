@@ -66,21 +66,31 @@ export async function resolveLocalConfig(
     };
 }
 
+/**
+ * 解析openclaw cli配置。
+ * 根据用户设置和环境变量，寻找stateDir和cliEntryPath，进而读取openclaw.json获取更多信息。
+ * 
+ * @param config vscode工作控件设置
+ * @param extensionPath 插件路径，用于解析相对路径配置项
+ * @returns async，如果找到有效的cli配置，则返回完整的OpenClawCliServiceConfig；否则返回null
+ */
 export async function resolveOpenClawCliConfig(
     config: vscode.WorkspaceConfiguration,
     extensionPath: string
 ): Promise<OpenClawCliServiceConfig | null> {
-    const stateDir = await findFirstExistingPath(getStateDirCandidates(config, extensionPath));
+    // 在读取配置文件时，这个内容会在每次读取配置文件时进行磁盘IO操作。
+    const stateDir = await findFirstExistingPath(getStateDirCandidates(config, extensionPath)); // 找到第一个路径。
     if (!stateDir) {
         return null;
     }
 
-    const configPath = path.join(stateDir, 'openclaw.json');
-    const openClawConfig = await readJsonFile<OpenClawConfigFile>(configPath);
-    if (!openClawConfig) {
+    const configPath = path.join(stateDir, 'openclaw.json');    // openclaw本体的配置文件路径
+    const openClawConfig = await readJsonFile<OpenClawConfigFile>(configPath);  // 阅读JSON文件，以openclaw本体的设置格式。
+    if (!openClawConfig) {  // 保证读到
         return null;
     }
 
+    // 
     const cliEntryPath = await resolveCliEntryPath(config);
     if (!cliEntryPath) {
         return null;
@@ -145,6 +155,11 @@ export async function resolveDetectedGatewayConfig(
     };
 }
 
+/**
+ * 
+ * @param config vscode工作控件设置，
+ * @returns 返回一个dict
+ */
 export function getExplicitModeHints(config: vscode.WorkspaceConfiguration): {
     gateway: boolean;
     local: boolean;
@@ -159,22 +174,31 @@ export function getExplicitModeHints(config: vscode.WorkspaceConfiguration): {
     };
 }
 
+/**
+ * 解析openclaw配置的核心函数。
+ * 根据用户设置的configMode和实际环境中可用的配置，决定最终使用哪个配置。
+ * @param config vscode工作控件设置
+ * @param extensionPath 插件路径，用于解析相对路径配置项
+ * @returns sync，返回解析好的配置集
+ */
 export function getStateDirCandidates(
     config: vscode.WorkspaceConfiguration,
     extensionPath: string
 ): string[] {
-    const configuredPath = trimConfigPath(config.get<string>('stateDir', '') || process.env.OPENCLAW_STATE_DIR);
-    const candidates = new Set<string>();
+    const configuredPath = trimConfigPath(config.get<string>('stateDir', '') || process.env.OPENCLAW_STATE_DIR);    // 优先级：stateDir，或读取环境变量配置“OPENCLAW_STATE_DIR”
+    const candidates = new Set<string>();   // 创建集合，保证没有重复项
 
+    // 加入内容
     if (configuredPath) {
         candidates.add(configuredPath);
     }
 
-    candidates.add(path.join(os.homedir(), '.openclaw'));
+    candidates.add(path.join(os.homedir(), '.openclaw'));   // 默认加入HOME的openclaw文件夹里的东西
     for (const candidate of getWellKnownStateDirCandidates()) {
         candidates.add(candidate);
     }
 
+    // 这个搜索方式……保留吧，getSearchBases的逻辑和当前找.openclaw的逻辑有所重复
     for (const base of getSearchBases(extensionPath)) {
         candidates.add(path.join(base, '.openclaw'));
     }
@@ -182,6 +206,11 @@ export function getStateDirCandidates(
     return Array.from(candidates);
 }
 
+/**
+ * 解析cli入口路径。
+ * @param config 
+ * @returns 
+ */
 export async function resolveCliEntryPath(config: vscode.WorkspaceConfiguration): Promise<string | null> {
     const configuredPath = trimConfigPath(config.get<string>('cliPath', '') || process.env.OPENCLAW_CLI_PATH || process.env.OPENCLAW_CLI);
     if (configuredPath) {
@@ -334,17 +363,25 @@ function getModelsCandidates(
     return Array.from(candidates);
 }
 
+/**
+ * 检查是否有某一选项的显式设置。
+ * @param extensionPath 
+ * @returns 
+ */
 function getSearchBases(extensionPath: string): string[] {
     const bases = new Set<string>();
 
+    // 对工作空间内所有文件夹，查询递归深度为2。
     for (const folder of vscode.workspace.workspaceFolders ?? []) {
         addBaseAndParents(bases, folder.uri.fsPath, 2);
     }
 
+    // 在os path、os home还有os的openclaw文件夹里找
     addBaseAndParents(bases, extensionPath, 3);
     addBaseAndParents(bases, os.homedir(), 1);
     addBaseAndParents(bases, path.join(os.homedir(), '.openclaw'), 0);
 
+    // 在可能的环境变量里也找。
     for (const envBase of getEnvironmentSearchBases()) {
         addBaseAndParents(bases, envBase, 1);
     }
@@ -352,6 +389,11 @@ function getSearchBases(extensionPath: string): string[] {
     return Array.from(bases);
 }
 
+/**
+ * 获取CLI入口文件的路径。
+ * @param candidatePath 
+ * @returns 
+ */
 function normalizeCliEntryPath(candidatePath: string): string | null {
     const resolvedPath = path.resolve(candidatePath);
     if (!fsSync.existsSync(resolvedPath)) {
@@ -405,6 +447,13 @@ function getCliCandidates(): string[] {
     return Array.from(candidates);
 }
 
+/**
+ * 检查是否有某一选项的显式设置。
+ * 
+ * @param config vscode工作控件设置
+ * @param key 要检查的配置项键
+ * @returns 如果在任何层级（全局、工作区、语言特定等）有设置，则返回true；否则返回false
+ */
 function hasExplicitSetting(config: vscode.WorkspaceConfiguration, key: string): boolean {
     const inspection = config.inspect(key) as Record<string, unknown> | undefined;
     if (!inspection) {
@@ -427,6 +476,10 @@ function hasExplicitSetting(config: vscode.WorkspaceConfiguration, key: string):
     return false;
 }
 
+/**
+ * 获取一些可能的环境变量路径。
+ * @returns 一个包含一些可能环境变量路径的数组。
+ */
 function getEnvironmentSearchBases(): string[] {
     const bases = new Set<string>();
 
@@ -448,6 +501,10 @@ function getEnvironmentSearchBases(): string[] {
     return Array.from(bases);
 }
 
+/**
+ * 获取一些可能的状态目录。
+ * @returns 一个包含一些可能状态目录的数组。
+ */
 function getWellKnownStateDirCandidates(): string[] {
     const candidates = new Set<string>();
 

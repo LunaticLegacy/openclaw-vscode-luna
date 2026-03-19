@@ -7,6 +7,11 @@ import {
     getAgentPresets
 } from '../config/agentPresets';
 
+/**
+ * 解析 Agent ID
+ * @param agentArg - Agent 参数（可以是字符串、对象或包含 agent 的对象）
+ * @returns Agent ID 或 undefined
+ */
 export function resolveAgentId(agentArg: any): string | undefined {
     if (!agentArg) {
         return undefined;
@@ -27,6 +32,11 @@ export function resolveAgentId(agentArg: any): string | undefined {
     return undefined;
 }
 
+/**
+ * 解析集群 ID
+ * @param clusterArg - 集群参数（可以是字符串、对象或包含 cluster 的对象）
+ * @returns 集群 ID 或 undefined
+ */
 export function resolveClusterId(clusterArg: any): string | undefined {
     if (!clusterArg) {
         return undefined;
@@ -47,6 +57,11 @@ export function resolveClusterId(clusterArg: any): string | undefined {
     return undefined;
 }
 
+/**
+ * 解析任务 ID
+ * @param taskArg - 任务参数（可以是字符串、对象或包含 task 的对象）
+ * @returns 任务 ID 或 undefined
+ */
 export function resolveTaskId(taskArg: any): string | undefined {
     if (!taskArg) {
         return undefined;
@@ -67,6 +82,10 @@ export function resolveTaskId(taskArg: any): string | undefined {
     return undefined;
 }
 
+/**
+ * 选择 Agent 预设配置
+ * @returns 选中的 Agent 预设配置，或 null/undefined（用户取消）
+ */
 export async function pickAgentPreset(): Promise<AgentPresetOption | null | undefined> {
     const items = [
         {

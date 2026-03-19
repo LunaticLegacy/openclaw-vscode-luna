@@ -31,8 +31,72 @@
     max-width: 1080px;
 }
 
-#modal-new-agent .modal-content > h2 {
-    margin-left: 8px;
+.modal-shell {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.modal-shell-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 92%, white 8%), var(--bg-secondary));
+}
+
+.modal-shell-title h2 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.modal-shell-subtitle {
+    margin: 6px 0 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.modal-shell-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.modal-shell-body {
+    padding: 18px 22px 24px;
+}
+
+form.modal-shell-body {
+    padding: 18px 22px 24px;
+}
+
+.cluster-editor-shell {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.cluster-editor-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 92%, white 8%), var(--bg-secondary));
+}
+
+.cluster-editor-header-title h2 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.cluster-editor-form {
+    padding: 18px 22px 24px;
 }
 
 .modal-header {
@@ -53,6 +117,19 @@
 
 .modal-close:hover {
     color: var(--text-primary);
+}
+
+.new-agent-body {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.new-agent-panel {
+    padding: 18px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 94%, white 6%), var(--bg-secondary));
 }
 
 form {
@@ -138,15 +215,17 @@ form {
 }
 
 .cluster-rounds-toggle {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 10px;
-    margin-bottom: 8px;
-    padding: 10px 12px;
+    gap: 8px;
+    margin: 8px 0 0;
+    padding: 4px 10px;
+    min-height: 28px;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 999px;
     background: var(--bg-secondary);
     cursor: pointer;
+    white-space: nowrap;
 }
 
 .cluster-rounds-toggle input[type="checkbox"] {
@@ -157,11 +236,14 @@ form {
 .cluster-rounds-toggle span {
     font-size: 13px;
     font-weight: 600;
+    line-height: 1.2;
 }
 
 .cluster-rounds-group {
-    align-self: start;
-    margin-top: -6px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    align-content: start;
 }
 
 .form-actions {
@@ -204,6 +286,14 @@ form {
     gap: 20px;
 }
 
+.cluster-editor-main {
+    padding: 18px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 95%, white 5%), var(--bg-secondary));
+    box-shadow: 0 12px 30px -26px rgba(0, 0, 0, 0.6);
+}
+
 .cluster-editor-bottom {
     margin-top: 20px;
     padding: 18px;
@@ -215,7 +305,8 @@ form {
 .cluster-form-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0 16px;
+    gap: 12px 16px;
+    align-items: start;
 }
 
 .cluster-editor-side {
@@ -351,12 +442,35 @@ form {
     padding: 12px;
     border: 1px solid var(--border);
     border-radius: 10px;
-    background: var(--bg-secondary);
+    background: color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary));
+    cursor: pointer;
+    transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.cluster-agent-option:hover {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    background: color-mix(in srgb, var(--accent) 8%, var(--bg-primary));
+    transform: translateY(-1px);
+}
+
+.cluster-agent-option.is-selected {
+    border-color: color-mix(in srgb, var(--accent) 65%, var(--border));
+    background: color-mix(in srgb, var(--accent) 14%, var(--bg-primary));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.cluster-agent-option:focus-within {
+    outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+    outline-offset: 2px;
 }
 
 .cluster-agent-option input[type="checkbox"] {
-    width: auto;
-    margin-top: 3px;
+    width: 16px;
+    height: 16px;
+    margin-top: 2px;
+    accent-color: var(--accent);
+    flex-shrink: 0;
+    opacity: 0.85;
 }
 
 .cluster-agent-option-title {
@@ -364,7 +478,7 @@ form {
     font-weight: 600;
 }
 
-.cluster-agent-option > div {
+.cluster-agent-option-body {
     flex: 1;
     min-width: 0;
 }
@@ -1380,4 +1494,433 @@ form {
         padding-left: 14px;
         padding-right: 14px;
     }
+}
+/* ... existing content ... */
+
+/* New Skill Market Styles */
+.skill-market-shell-header .modal-shell-title {
+    display: flex;
+    flex-direction: column;
+}
+
+.skill-market-body {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.skill-market-panel {
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 94%, white 6%), var(--bg-secondary));
+}
+
+.skill-market-panel-content {
+    padding: 16px;
+}
+
+.skill-market-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+    padding: 4px;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
+}
+
+.skill-market-tab {
+    padding: 8px 16px;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.skill-market-tab:hover {
+    color: var(--text-primary);
+    border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.skill-market-tab.is-active {
+    background: color-mix(in srgb, var(--bg-primary) 92%, white 8%);
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    color: var(--accent);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+}
+
+.skill-market-hubs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.skill-market-hub {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.skill-market-hub:hover {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    color: var(--text-primary);
+}
+
+.skill-market-hub.is-active {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+}
+
+.skill-market-hub-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--accent) 75%, transparent);
+}
+
+.skill-market-hub.is-error .skill-market-hub-dot {
+    background: #f87171;
+}
+
+.skill-market-search-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 190px;
+    gap: 12px;
+    margin-bottom: 12px;
+    align-items: stretch;
+}
+
+.skill-market-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--bg-primary) 92%, var(--bg-secondary));
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.skill-market-search:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.skill-market-search-input {
+    flex: 1;
+    height: 38px;
+    border: none;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 13px;
+    outline: none;
+    padding: 0 30px 0 4px;
+}
+
+.skill-market-search-input::placeholder {
+    color: var(--text-secondary);
+}
+
+.skill-market-search-clear {
+    position: absolute;
+    right: 8px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 1px solid transparent;
+    background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.2s ease;
+}
+
+.skill-market-search-clear.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.skill-market-search-clear:hover {
+    color: var(--text-primary);
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.skill-market-sort {
+    flex-shrink: 0;
+}
+
+.skill-market-sort-select {
+    width: 100%;
+    min-width: 170px;
+    height: 40px;
+    padding: 0 14px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--bg-primary) 92%, var(--bg-secondary));
+    color: var(--text-primary);
+    font-size: 13px;
+    cursor: pointer;
+    outline: none;
+}
+
+.skill-market-sort-select:focus {
+    border-color: var(--accent);
+}
+
+@media (max-width: 960px) {
+    .skill-market-search-row {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+.skill-market-categories,
+.skill-market-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.skill-market-chip,
+.skill-market-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.skill-market-chip:hover,
+.skill-market-tag:hover {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    color: var(--text-primary);
+}
+
+.skill-market-chip.is-active,
+.skill-market-tag.is-active {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+}
+
+.skill-market-chip-count {
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bg-primary) 90%, white 10%);
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.skill-market-status {
+    margin-top: 8px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, #f87171 35%, var(--border));
+    background: color-mix(in srgb, #f87171 10%, transparent);
+    color: #fca5a5;
+    font-size: 12px;
+}
+
+.skill-market-status-label {
+    font-weight: 600;
+    margin-right: 8px;
+}
+
+.skill-market-status-details {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.skill-market-content {
+    min-height: 200px;
+}
+
+.skill-market-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 16px;
+}
+
+.skill-market-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px;
+    gap: 16px;
+    color: var(--text-secondary);
+}
+
+.skill-market-card {
+    display: flex;
+    flex-direction: column;
+    padding: 18px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 94%, white 6%), color-mix(in srgb, var(--bg-secondary) 92%, transparent));
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.skill-market-card:hover {
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+    box-shadow: 0 10px 28px rgba(0,0,0,0.18);
+    transform: translateY(-2px);
+}
+
+.skill-market-card-title-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.skill-market-card-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.skill-market-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.skill-market-card-category {
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.skill-market-card-source,
+.skill-market-card-version,
+.skill-market-card-updated {
+    color: var(--text-secondary);
+}
+
+.skill-market-card-badges {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.skill-market-badge {
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg-secondary) 80%, transparent);
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.skill-market-badge.is-installed {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    color: var(--accent);
+}
+
+.skill-market-badge.is-built-in {
+    border-color: color-mix(in srgb, #a855f7 45%, var(--border));
+    color: #a855f7;
+}
+
+.skill-market-badge.is-custom {
+    border-color: color-mix(in srgb, #f59e0b 45%, var(--border));
+    color: #f59e0b;
+}
+
+.skill-market-badge.is-remote {
+    border-color: color-mix(in srgb, #38bdf8 45%, var(--border));
+    color: #38bdf8;
+}
+
+.skill-market-badge.is-enabled {
+    border-color: color-mix(in srgb, #22c55e 45%, var(--border));
+    color: #22c55e;
+}
+
+.skill-market-badge.is-update {
+    border-color: color-mix(in srgb, #38bdf8 45%, var(--border));
+    color: #38bdf8;
+}
+
+.skill-market-card-description {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    margin-bottom: 14px;
+    min-height: 54px;
+}
+
+.skill-market-card-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.skill-market-card-tag {
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bg-secondary) 85%, var(--accent) 12%);
+    color: var(--text-secondary);
+    font-size: 11px;
+}
+
+.skill-market-card-metrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+}
+
+.skill-market-card-rating {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.skill-market-card-rating-star {
+    color: #fbbf24;
+}
+
+.skill-market-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.skill-market-card-actions .btn {
+    flex: 1;
 }

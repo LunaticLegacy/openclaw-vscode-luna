@@ -28,6 +28,14 @@ interface OpenClawRuntimeStreamContext {
     waitForAssistantMessage(sessionKey: string, knownIds: Set<string>, timeoutMs: number): Promise<ChatMessage | null>;
 }
 
+/**
+ * Streams a message response via the OpenClaw gateway.
+ * @param context - The stream context
+ * @param sessionKey - The session key
+ * @param message - The message to send
+ * @param knownIds - Set of already known message IDs
+ * @returns Async generator of stream chunks
+ */
 export async function *streamMessageViaGateway(
     context: OpenClawRuntimeStreamContext,
     sessionKey: string,
@@ -43,7 +51,6 @@ export async function *streamMessageViaGateway(
         token: context.config.gatewayToken,
         timeoutMs: 30000,
         caps: ['tool-events'],
-        clientId: 'openclaw-luna-gateway-client',
         clientDisplayName: 'OpenClaw Luna',
         clientVersion: 'vscode-plugin'
     });
@@ -307,6 +314,15 @@ export async function *streamMessageViaGateway(
     }
 }
 
+/**
+ * Streams a message response by polling the session log.
+ * Fallback method when gateway streaming is unavailable.
+ * @param context - The stream context
+ * @param sessionKey - The session key
+ * @param message - The message to send
+ * @param knownIds - Set of already known message IDs
+ * @returns Async generator of stream chunks
+ */
 export async function *streamMessageFromSessionLog(
     context: OpenClawRuntimeStreamContext,
     sessionKey: string,

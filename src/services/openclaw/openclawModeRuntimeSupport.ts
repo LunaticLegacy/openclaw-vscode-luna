@@ -9,6 +9,9 @@ const OPENCLAW_AGENT_SETTINGS_FILE = '.openclaw-vscode-agent.json';
 const OPENCLAW_SYSTEM_PROMPT_FILE = 'SYSTEM.md';
 const OPENCLAW_IDENTITY_FILE = 'IDENTITY.md';
 
+/**
+ * Represents stored agent settings in workspace.
+ */
 export interface OpenClawAgentSettingsRecord {
     name?: string;
     model?: string;
@@ -18,6 +21,11 @@ export interface OpenClawAgentSettingsRecord {
     enabledSkills?: string[];
 }
 
+/**
+ * Maps OpenClaw channels list result to discovered channels.
+ * @param result - The channels list result from OpenClaw
+ * @returns Array of discovered channels
+ */
 export function mapDiscoveredChannels(result: OpenClawChannelsListResult | null): DiscoveredChannel[] {
     if (!result?.chat || typeof result.chat !== 'object') {
         return [];
@@ -49,6 +57,11 @@ export function mapDiscoveredChannels(result: OpenClawChannelsListResult | null)
     return channels.sort((left, right) => left.name.localeCompare(right.name));
 }
 
+/**
+ * Reads agent settings from workspace.
+ * @param workspacePath - The workspace path
+ * @returns The agent settings record
+ */
 export async function readOpenClawAgentSettings(workspacePath: string): Promise<OpenClawAgentSettingsRecord> {
     try {
         const content = await fs.readFile(path.join(workspacePath, OPENCLAW_AGENT_SETTINGS_FILE), 'utf8');
@@ -66,6 +79,11 @@ export async function readOpenClawAgentSettings(workspacePath: string): Promise<
     }
 }
 
+/**
+ * Writes agent settings to workspace.
+ * @param workspacePath - The workspace path
+ * @param settings - The agent settings to write
+ */
 export async function writeOpenClawAgentSettings(
     workspacePath: string,
     settings: OpenClawAgentSettingsRecord
@@ -98,6 +116,11 @@ export async function writeOpenClawAgentSettings(
     );
 }
 
+/**
+ * Reads system prompt from workspace.
+ * @param workspacePath - The workspace path
+ * @returns The system prompt or undefined
+ */
 export async function readOpenClawSystemPrompt(workspacePath: string): Promise<string | undefined> {
     try {
         return await fs.readFile(path.join(workspacePath, OPENCLAW_SYSTEM_PROMPT_FILE), 'utf8');
@@ -106,14 +129,30 @@ export async function readOpenClawSystemPrompt(workspacePath: string): Promise<s
     }
 }
 
+/**
+ * Writes system prompt to workspace.
+ * @param workspacePath - The workspace path
+ * @param content - The system prompt content
+ */
 export async function writeOpenClawSystemPrompt(workspacePath: string, content: string): Promise<void> {
     await fs.writeFile(path.join(workspacePath, OPENCLAW_SYSTEM_PROMPT_FILE), content, 'utf8');
 }
 
+/**
+ * Composes the full system prompt with skill appendix.
+ * @param systemPrompt - Base system prompt
+ * @param enabledSkills - Enabled skills for the agent
+ * @returns The composed system prompt
+ */
 export function composeAgentSystemPrompt(systemPrompt: string | undefined, enabledSkills: unknown): string {
     return `${systemPrompt || ''}${buildSkillPromptAppendix(enabledSkills)}`.trim();
 }
 
+/**
+ * Updates the agent identity file in workspace.
+ * @param workspacePath - The workspace path
+ * @param values - The identity values to update
+ */
 export async function updateOpenClawIdentityFile(
     workspacePath: string,
     values: { agentId: string; name: string; model: string }
@@ -156,6 +195,11 @@ export async function updateOpenClawIdentityFile(
     }
 }
 
+/**
+ * Normalizes an optional string value.
+ * @param value - The value to normalize
+ * @returns The normalized string or undefined
+ */
 export function normalizeOptionalString(value: unknown): string | undefined {
     if (typeof value !== 'string') {
         return undefined;
@@ -165,6 +209,11 @@ export function normalizeOptionalString(value: unknown): string | undefined {
     return trimmed ? trimmed : undefined;
 }
 
+/**
+ * Normalizes an optional number value.
+ * @param value - The value to normalize
+ * @returns The normalized number or undefined
+ */
 export function normalizeOptionalNumber(value: unknown): number | undefined {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
         return undefined;
@@ -173,6 +222,11 @@ export function normalizeOptionalNumber(value: unknown): number | undefined {
     return value;
 }
 
+/**
+ * Normalizes an optional integer value.
+ * @param value - The value to normalize
+ * @returns The normalized integer or undefined
+ */
 export function normalizeOptionalInteger(value: unknown): number | undefined {
     const normalized = normalizeOptionalNumber(value);
     if (normalized === undefined) {
@@ -182,6 +236,12 @@ export function normalizeOptionalInteger(value: unknown): number | undefined {
     return Math.max(1, Math.round(normalized));
 }
 
+/**
+ * Formats a discovered channel name from provider and account IDs.
+ * @param providerId - The provider ID
+ * @param accountId - The account ID
+ * @returns The formatted channel name
+ */
 function formatDiscoveredChannelName(providerId: string, accountId: string): string {
     const normalizedProvider = String(providerId || '').trim();
     const normalizedAccount = String(accountId || '').trim();

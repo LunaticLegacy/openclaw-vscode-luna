@@ -84,6 +84,10 @@ interface CachedOpenClawAgentsSnapshot {
     value: OpenClawAgentsSnapshot;
 }
 
+/**
+ * Runtime implementation for OpenClaw mode operation.
+ * Manages agents, chat sessions, and communication with the OpenClaw CLI.
+ */
 export class OpenClawModeRuntime {
     private readonly runner: OpenClawCliRunner;
     private readonly activeGatewayRuns = new Map<string, { runId: string; abortPromise?: Promise<void> }>();
@@ -103,6 +107,11 @@ export class OpenClawModeRuntime {
     private activityGatewayReconnectTimer: NodeJS.Timeout | null = null;
     private disposed = false;
 
+    /**
+     * Creates a new OpenClawModeRuntime instance.
+     * @param config - OpenClaw CLI service configuration
+     * @param emitEvent - Event sink for service events
+     */
     constructor(
         private readonly config: OpenClawCliServiceConfig,
         private readonly emitEvent: ServiceEventSink
@@ -111,6 +120,10 @@ export class OpenClawModeRuntime {
         void this.ensureActivityGatewayConnection();
     }
 
+    /**
+     * Checks if the OpenClaw CLI connection is healthy.
+     * @returns True if connection is successful
+     */
     public async checkConnection(): Promise<boolean> {
         try {
             await this.runner.health();
@@ -121,16 +134,29 @@ export class OpenClawModeRuntime {
         }
     }
 
+    /**
+     * Gets the preferred (default) agent ID.
+     * @returns The default agent ID or null
+     */
     public async getPreferredAgentId(): Promise<string | null> {
         const snapshot = await this.loadAgentsSnapshot();
         return snapshot.defaultAgentId;
     }
 
+    /**
+     * Gets all available agents.
+     * @returns Array of agents
+     */
     public async getAgents(): Promise<Agent[]> {
         const snapshot = await this.loadAgentsSnapshot();
         return snapshot.agents;
     }
 
+    /**
+     * Gets unique model names from agents.
+     * @param agents - Optional agent list to extract models from
+     * @returns Array of unique model names
+     */
     public async getAvailableModels(agents?: Agent[]): Promise<string[]> {
         const sourceAgents = agents || (await this.loadAgentsSnapshot()).agents;
         return uniqueModelNames([
@@ -139,11 +165,21 @@ export class OpenClawModeRuntime {
         ]);
     }
 
+    /**
+     * Gets a specific agent by ID.
+     * @param agentId - The agent ID to look up
+     * @returns The agent or null if not found
+     */
     public async getAgent(agentId: string): Promise<Agent | null> {
         const agents = await this.getAgents();
         return agents.find(agent => agent.id === agentId) || null;
     }
 
+    /**
+     * Resolves the workspace folder path for an agent.
+     * @param agentOrId - Agent ID or agent object
+     * @returns The workspace path or undefined
+     */
     public async resolveAgentFolderPath(agentOrId: string | Agent): Promise<string | undefined> {
         const agent = typeof agentOrId === 'string'
             ? await this.getAgent(agentOrId)
@@ -156,6 +192,11 @@ export class OpenClawModeRuntime {
         return agent.workspacePath?.trim() || inferOpenClawWorkspacePath(agent.id, this.config);
     }
 
+    /**
+     * Creates a new agent.
+     * @param params - Agent creation parameters
+     * @returns The created agent
+     */
     public async createAgent(params: CreateAgentParams): Promise<Agent> {
         const created = await this.runner.createAgent(params.name, params.model);
         this.invalidateSnapshotCache();
@@ -176,6 +217,12 @@ export class OpenClawModeRuntime {
         return agent;
     }
 
+    /**
+     * Updates an existing agent.
+     * @param agentId - The agent ID to update
+     * @param params - Update parameters
+     * @returns The updated agent
+     */
     public async updateAgent(agentId: string, params: UpdateAgentParams): Promise<Agent> {
         const agent = await this.getAgent(agentId);
         if (!agent) {
@@ -235,6 +282,10 @@ export class OpenClawModeRuntime {
         return updatedAgent;
     }
 
+    /**
+     * Deletes an agent.
+     * @param agentId - The agent ID to delete
+     */
     public async deleteAgent(agentId: string): Promise<void> {
         await this.runner.deleteAgent(agentId);
         this.invalidateSnapshotCache();
@@ -245,6 +296,12 @@ export class OpenClawModeRuntime {
         this.emitEvent('agentDeleted', agentId);
     }
 
+    /**
+     * Creates a new chat session for an agent.
+     * @param agentId - The agent ID
+     * @param options - Optional session creation options
+     * @returns The chat session
+     */
     public async createChatSession(agentId: string, options: CreateChatSessionOptions = {}): Promise<ChatSession> {
         const sessionKey = String(options.sessionId || '').trim() || await this.resolveSessionKey(agentId);
         const history = await this.getChatHistory(sessionKey).catch(() => []);
@@ -258,6 +315,13 @@ export class OpenClawModeRuntime {
         };
     }
 
+    /**
+     * Sends a message and returns the complete response.
+     * @param sessionId - The session ID
+     * @param message - The message content
+     * @param _options - Optional send options (unused)
+     * @returns The assistant's response message
+     */
     public async sendMessage(
         sessionId: string,
         message: string,
@@ -280,6 +344,12 @@ export class OpenClawModeRuntime {
         });
     }
 
+    /**
+     * Sends a message and streams the response.
+     * @param sessionId - The session ID
+     * @param message - The message content
+     * @returns Async generator of stream chunks
+     */
     public async *streamMessage(
         sessionId: string,
         message: string
@@ -317,6 +387,11 @@ export class OpenClawModeRuntime {
         }
     }
 
+    /**
+     * Gets the chat history for a session.
+     * @param sessionId - The session ID
+     * @returns Array of chat messages
+     */
     public async getChatHistory(sessionId: string): Promise<ChatMessage[]> {
         const fileMessages = await this.readSessionMessages(sessionId);
         if (fileMessages.length > 0) {
@@ -327,14 +402,27 @@ export class OpenClawModeRuntime {
         return normalizeOpenClawChatHistory(response.messages || [], sessionId);
     }
 
+    /**
+     * Gets the live chat history for a session.
+     * @param sessionId - The session ID
+     * @returns Array of chat messages
+     */
     public async getLiveChatHistory(sessionId: string): Promise<ChatMessage[]> {
         return this.readSessionMessages(sessionId).catch(() => []);
     }
 
+    /**
+     * Clears the chat history for a session.
+     * @returns Empty promise (no-op for OpenClaw mode)
+     */
     public clearChatHistory(): Promise<void> {
         return Promise.resolve();
     }
 
+    /**
+     * Aborts any active run for a session.
+     * @param sessionId - The session ID to abort
+     */
     public async abortSessionRun(sessionId: string): Promise<void> {
         const normalizedSessionId = sessionId.trim();
         if (!normalizedSessionId) {
@@ -369,6 +457,11 @@ export class OpenClawModeRuntime {
         }
     }
 
+    /**
+     * Checks if a session has an active run.
+     * @param sessionId - The session ID to check
+     * @returns True if an active run exists
+     */
     public hasActiveRun(sessionId: string): boolean {
         const normalizedSessionId = sessionId.trim();
         return normalizedSessionId
@@ -377,10 +470,18 @@ export class OpenClawModeRuntime {
             : false;
     }
 
+    /**
+     * Gets overall API usage statistics.
+     * @returns API usage data
+     */
     public async getUsage(): Promise<APIUsage> {
         return this.getOpenClawUsage();
     }
 
+    /**
+     * Gets real-time usage snapshot.
+     * @returns Realtime usage statistics
+     */
     public async getRealtimeUsage(): Promise<RealtimeUsageSnapshot> {
         const sessions = (await this.runner.listSessions()).sessions || [];
         const now = Date.now();
@@ -396,19 +497,35 @@ export class OpenClawModeRuntime {
         };
     }
 
+    /**
+     * Gets usage statistics for a specific agent.
+     * @param agentId - The agent ID
+     * @returns API usage data for the agent
+     */
     public async getUsageByAgent(agentId: string): Promise<APIUsage> {
         return this.getOpenClawUsage(agentId);
     }
 
+    /**
+     * Gets the current runtime configuration.
+     * @returns The OpenClaw CLI service configuration
+     */
     public getConfig(): OpenClawCliServiceConfig {
         return this.config;
     }
 
+    /**
+     * Gets discovered channels from OpenClaw.
+     * @returns Array of discovered channels
+     */
     public async getDiscoveredChannels(): Promise<DiscoveredChannel[]> {
         const result = await this.runner.listChannels().catch(() => null);
         return mapDiscoveredChannels(result);
     }
 
+    /**
+     * Disposes of the runtime and cleans up resources.
+     */
     public dispose(): void {
         this.disposed = true;
         this.activeGatewayRuns.clear();
@@ -431,6 +548,11 @@ export class OpenClawModeRuntime {
         this.invalidateSnapshotCache();
     }
 
+    /**
+     * Loads the agents snapshot, using cache if available.
+     * @param options - Optional loading options
+     * @returns The agents snapshot
+     */
     private async loadAgentsSnapshot(
         options: { forceRefresh?: boolean; metadataTimeoutMs?: number } = {}
     ): Promise<OpenClawAgentsSnapshot> {
@@ -458,6 +580,11 @@ export class OpenClawModeRuntime {
         return loadPromise;
     }
 
+    /**
+     * Loads the agents snapshot from scratch.
+     * @param metadataTimeoutMs - Timeout for metadata requests
+     * @returns The agents snapshot
+     */
     private async loadAgentsSnapshotUncached(metadataTimeoutMs: number): Promise<OpenClawAgentsSnapshot> {
         const [records, gatewayAgents, sessionsResult] = await Promise.all([
             this.runner.listAgents(),
@@ -541,6 +668,15 @@ export class OpenClawModeRuntime {
         return snapshot;
     }
 
+    /**
+     * Maps an OpenClaw agent record to an Agent object.
+     * @param record - The OpenClaw agent record
+     * @param gatewayNames - Map of gateway agent names
+     * @param defaultAgentId - The default agent ID
+     * @param sessionKeysByAgent - Map of session keys by agent
+     * @param now - Current timestamp string
+     * @returns The mapped Agent
+     */
     private async mapAgentRecord(
         record: OpenClawAgentRecord,
         gatewayNames: Map<string, string>,
@@ -560,6 +696,11 @@ export class OpenClawModeRuntime {
         });
     }
 
+    /**
+     * Applies stored agent settings from workspace files.
+     * @param agent - The agent to apply settings to
+     * @returns The agent with applied settings
+     */
     private async applyStoredAgentSettings(agent: Agent): Promise<Agent> {
         const workspacePath = agent.workspacePath?.trim();
         if (!workspacePath) {
@@ -582,6 +723,11 @@ export class OpenClawModeRuntime {
         };
     }
 
+    /**
+     * Resolves the session key for an agent.
+     * @param agentId - The agent ID
+     * @returns The session key
+     */
     private async resolveSessionKey(agentId: string): Promise<string> {
         const cached = this.sessionKeysByAgent.get(agentId);
         if (cached) {
@@ -599,6 +745,12 @@ export class OpenClawModeRuntime {
         return sessionKey;
     }
 
+    /**
+     * Reads messages from a session log file.
+     * @param sessionKey - The session key
+     * @param limit - Maximum number of messages to read
+     * @returns Array of chat messages
+     */
     private async readSessionMessages(sessionKey: string, limit: number = 200): Promise<ChatMessage[]> {
         const sessionEntry = await this.resolveSessionEntry(sessionKey);
         if (!sessionEntry?.sessionId) {
@@ -631,6 +783,11 @@ export class OpenClawModeRuntime {
         }
     }
 
+    /**
+     * Resolves the session entry for a session key.
+     * @param sessionKey - The session key
+     * @returns The session entry or null
+     */
     private async resolveSessionEntry(sessionKey: string): Promise<OpenClawSessionsListEntry | null> {
         const cached = this.sessionEntriesByKey.get(sessionKey);
         if (cached) {
@@ -653,6 +810,13 @@ export class OpenClawModeRuntime {
         return this.sessionEntriesByKey.get(sessionKey) || null;
     }
 
+    /**
+     * Waits for a new assistant message to appear in the session.
+     * @param sessionKey - The session key
+     * @param knownIds - Set of already known message IDs
+     * @param timeoutMs - Timeout in milliseconds
+     * @returns The assistant message or null if timeout
+     */
     private async waitForAssistantMessage(
         sessionKey: string,
         knownIds: Set<string>,
@@ -676,6 +840,11 @@ export class OpenClawModeRuntime {
         return null;
     }
 
+    /**
+     * Gets OpenClaw usage statistics.
+     * @param agentId - Optional agent ID to filter by
+     * @returns API usage data
+     */
     private async getOpenClawUsage(agentId?: string): Promise<APIUsage> {
         const sessionsUsagePromise = this.runner.getSessionsUsage({
             limit: 1000,
@@ -706,6 +875,9 @@ export class OpenClawModeRuntime {
         });
     }
 
+    /**
+     * Ensures connection to the activity gateway.
+     */
     private async ensureActivityGatewayConnection(): Promise<void> {
         if (this.disposed || !this.config.gatewayUrl) {
             return;
@@ -723,7 +895,6 @@ export class OpenClawModeRuntime {
             url: this.config.gatewayUrl,
             token: this.config.gatewayToken,
             timeoutMs: 30000,
-            clientId: 'openclaw-luna-activity-monitor',
             clientDisplayName: 'OpenClaw Luna Activity Monitor',
             clientVersion: 'vscode-plugin',
             caps: ['tool-events']
@@ -762,6 +933,9 @@ export class OpenClawModeRuntime {
         await connectPromise;
     }
 
+    /**
+     * Schedules a reconnection to the activity gateway.
+     */
     private scheduleActivityGatewayReconnect(): void {
         if (this.disposed || !this.config.gatewayUrl || this.activityGatewayReconnectTimer) {
             return;
@@ -775,6 +949,10 @@ export class OpenClawModeRuntime {
         }, 3000);
     }
 
+    /**
+     * Handles events from the activity gateway.
+     * @param event - The gateway event frame
+     */
     private handleActivityGatewayEvent(event: GatewayEventFrame): void {
         if (event.event !== 'agent' && event.event !== 'chat') {
             return;
@@ -815,6 +993,12 @@ export class OpenClawModeRuntime {
         }
     }
 
+    /**
+     * Extracts the agent ID from an activity event payload.
+     * @param payload - The event payload
+     * @param sessionKey - The session key
+     * @returns The agent ID or null
+     */
     private extractActivityAgentId(payload: Record<string, unknown>, sessionKey: string): string | null {
         const directAgentId = this.extractActivityValue(payload, 'agentId');
         if (directAgentId) {
@@ -842,18 +1026,41 @@ export class OpenClawModeRuntime {
         return null;
     }
 
+    /**
+     * Extracts the session key from an activity event payload.
+     * @param payload - The event payload
+     * @returns The session key
+     */
     private extractActivitySessionKey(payload: Record<string, unknown>): string {
         return this.extractActivityValue(payload, 'sessionKey');
     }
 
+    /**
+     * Extracts the run ID from an activity event payload.
+     * @param payload - The event payload
+     * @param sessionKey - The session key
+     * @param agentId - The agent ID
+     * @returns The run ID
+     */
     private extractActivityRunId(payload: Record<string, unknown>, sessionKey: string, agentId: string): string {
         return this.extractActivityValue(payload, 'runId') || `${sessionKey || agentId}:backend-run`;
     }
 
+    /**
+     * Extracts the activity state from an event payload.
+     * @param payload - The event payload
+     * @returns The activity state
+     */
     private extractActivityState(payload: Record<string, unknown>): string {
         return (this.extractActivityNestedValue(payload, 'state') || this.extractActivityNestedValue(payload, 'phase')).toLowerCase();
     }
 
+    /**
+     * Extracts a value from an activity event payload.
+     * @param payload - The event payload
+     * @param key - The key to extract
+     * @returns The extracted value
+     */
     private extractActivityValue(payload: Record<string, unknown>, key: string): string {
         const direct = payload[key];
         if (typeof direct === 'string' && direct.trim()) {
@@ -871,6 +1078,12 @@ export class OpenClawModeRuntime {
         return '';
     }
 
+    /**
+     * Extracts a nested value from an activity event payload.
+     * @param payload - The event payload
+     * @param key - The key to extract
+     * @returns The extracted value
+     */
     private extractActivityNestedValue(payload: Record<string, unknown>, key: string): string {
         const direct = payload[key];
         if (typeof direct === 'string' && direct.trim()) {
@@ -888,6 +1101,12 @@ export class OpenClawModeRuntime {
         return '';
     }
 
+    /**
+     * Marks a backend run as active.
+     * @param agentId - The agent ID
+     * @param sessionKey - The session key
+     * @param runId - The run ID
+     */
     private markBackendRunActive(agentId: string, sessionKey: string, runId: string): void {
         const wasActive = this.isAgentCurrentlyActive(agentId);
         this.backendRunIds.set(runId, { agentId, sessionKey });
@@ -901,6 +1120,12 @@ export class OpenClawModeRuntime {
         }
     }
 
+    /**
+     * Marks a backend run as inactive.
+     * @param agentId - The agent ID
+     * @param sessionKey - The session key
+     * @param runId - The run ID
+     */
     private markBackendRunInactive(agentId: string, sessionKey: string, runId: string): void {
         const cached = this.backendRunIds.get(runId);
         const resolvedAgentId = cached?.agentId || agentId;
@@ -918,12 +1143,24 @@ export class OpenClawModeRuntime {
         }
     }
 
+    /**
+     * Adds an active run to the tracking map.
+     * @param target - The tracking map
+     * @param key - The key to add under
+     * @param runId - The run ID to add
+     */
     private addActiveRun(target: Map<string, Set<string>>, key: string, runId: string): void {
         const runs = target.get(key) || new Set<string>();
         runs.add(runId);
         target.set(key, runs);
     }
 
+    /**
+     * Removes an active run from the tracking map.
+     * @param target - The tracking map
+     * @param key - The key to remove from
+     * @param runId - The run ID to remove
+     */
     private removeActiveRun(target: Map<string, Set<string>>, key: string, runId: string): void {
         const runs = target.get(key);
         if (!runs) {
@@ -936,10 +1173,20 @@ export class OpenClawModeRuntime {
         }
     }
 
+    /**
+     * Resolves the runtime status for an agent.
+     * @param agentId - The agent ID
+     * @returns The agent status
+     */
     private resolveRuntimeAgentStatus(agentId: string): Agent['status'] {
         return this.isAgentCurrentlyActive(agentId) ? 'active' : 'idle';
     }
 
+    /**
+     * Checks if an agent is currently active.
+     * @param agentId - The agent ID
+     * @returns True if the agent is active
+     */
     private isAgentCurrentlyActive(agentId: string): boolean {
         if ((this.backendActiveRunsByAgent.get(agentId)?.size || 0) > 0) {
             return true;
@@ -954,6 +1201,10 @@ export class OpenClawModeRuntime {
         return false;
     }
 
+    /**
+     * Publishes an agent status change event.
+     * @param agentId - The agent ID
+     */
     private publishAgentStatusChange(agentId: string): void {
         this.invalidateSnapshotCache();
         const existingAgent = this.lastKnownAgents.get(agentId);
@@ -974,6 +1225,11 @@ export class OpenClawModeRuntime {
         this.emitEvent('agentUpdated', updatedAgent);
     }
 
+    /**
+     * Handles the start of an observed run.
+     * @param sessionKey - The session key
+     * @param runId - The run ID
+     */
     private handleObservedRunStart(sessionKey: string, runId: string): void {
         const agentId = parseAgentIdFromSessionKey(sessionKey);
         if (!agentId) {
@@ -983,6 +1239,11 @@ export class OpenClawModeRuntime {
         this.markBackendRunActive(agentId, sessionKey, runId);
     }
 
+    /**
+     * Handles the stop of an observed run.
+     * @param sessionKey - The session key
+     * @param runId - The run ID
+     */
     private handleObservedRunStop(sessionKey: string, runId: string): void {
         const agentId = parseAgentIdFromSessionKey(sessionKey);
         if (!agentId) {
@@ -992,6 +1253,12 @@ export class OpenClawModeRuntime {
         this.markBackendRunInactive(agentId, sessionKey, runId);
     }
 
+    /**
+     * Wraps an operation with observed run tracking.
+     * @param sessionKey - The session key
+     * @param operation - The operation to wrap
+     * @returns The operation result
+     */
     private async withObservedFallbackRun<T>(sessionKey: string, operation: () => Promise<T>): Promise<T> {
         const agentId = parseAgentIdFromSessionKey(sessionKey);
         if (!agentId) {
@@ -1008,16 +1275,29 @@ export class OpenClawModeRuntime {
         }
     }
 
+    /**
+     * Invalidates the agents snapshot cache.
+     */
     private invalidateSnapshotCache(): void {
         this.snapshotCache = null;
         this.snapshotPromise = null;
     }
 
+    /**
+     * Publishes runtime notices from a lifecycle payload.
+     * @param sessionKey - The session key
+     * @param payload - The lifecycle payload
+     */
     private publishRuntimeNoticeFromLifecyclePayload(sessionKey: string, payload: Record<string, unknown>): void {
         const lifecycleMessage = normalizeOpenClawGatewayLifecycleEvent(sessionKey, payload);
         this.publishRuntimeNoticeFromMessage(lifecycleMessage, sessionKey);
     }
 
+    /**
+     * Publishes runtime notices from a message.
+     * @param message - The message to publish from
+     * @param sessionId - The session ID
+     */
     private publishRuntimeNoticeFromMessage(message: ChatMessage | undefined | null, sessionId?: string): void {
         if (!message || message.metadata?.noticeType !== 'lifecycle') {
             return;
@@ -1047,6 +1327,11 @@ export class OpenClawModeRuntime {
     }
 }
 
+/**
+ * Checks if a state represents an active activity.
+ * @param value - The state value to check
+ * @returns True if the state is active
+ */
 export function isActiveActivityState(value: string): boolean {
     return [
         'accepted',
@@ -1075,6 +1360,11 @@ export function isActiveActivityState(value: string): boolean {
     ].includes(value);
 }
 
+/**
+ * Checks if a state represents an inactive activity.
+ * @param value - The state value to check
+ * @returns True if the state is inactive
+ */
 export function isInactiveActivityState(value: string): boolean {
     return ['abort', 'aborted', 'cancelled', 'complete', 'completed', 'done', 'end', 'ended', 'error', 'failed', 'stop', 'stopped', 'timeout'].includes(value);
 }

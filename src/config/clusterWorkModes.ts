@@ -15,7 +15,14 @@ export interface ClusterWorkModePreset extends ClusterWorkspaceConfig {
     memberBlueprints: ClusterWorkModePresetMemberBlueprint[];
 }
 
+/**
+ * 默认集群工作模式预设ID
+ */
 export const DEFAULT_CLUSTER_WORK_MODE_PRESET_ID = 'implementation-squad';
+
+/**
+ * 集群工作模式最大轮次数
+ */
 export const MAX_CLUSTER_WORK_MODE_ROUNDS = 12;
 
 const CLUSTER_WORK_MODE_PRESETS: ClusterWorkModePreset[] = [
@@ -141,10 +148,19 @@ const CLUSTER_WORK_MODE_PRESETS: ClusterWorkModePreset[] = [
     }
 ];
 
+/**
+ * 获取所有集群工作模式预设列表
+ * @returns 集群工作模式预设数组的深拷贝
+ */
 export function getClusterWorkModePresets(): ClusterWorkModePreset[] {
     return CLUSTER_WORK_MODE_PRESETS.map(cloneClusterWorkModePreset);
 }
 
+/**
+ * 解析集群工作模式预设，如指定ID不存在则返回默认预设
+ * @param presetId - 预设标识符
+ * @returns 集群工作模式预设
+ */
 export function resolveClusterWorkModePreset(
     presetId?: string | null
 ): ClusterWorkModePreset {
@@ -156,6 +172,10 @@ export function resolveClusterWorkModePreset(
     );
 }
 
+/**
+ * 创建默认的集群工作区配置
+ * @returns 默认集群工作区配置对象
+ */
 export function createDefaultClusterWorkspaceConfig(): ClusterWorkspaceConfig {
     const preset = resolveClusterWorkModePreset(DEFAULT_CLUSTER_WORK_MODE_PRESET_ID);
     return {
@@ -172,6 +192,11 @@ export function createDefaultClusterWorkspaceConfig(): ClusterWorkspaceConfig {
     };
 }
 
+/**
+ * 规范化集群工作区配置
+ * @param config - 部分配置对象
+ * @returns 完整的规范化配置对象
+ */
 export function normalizeClusterWorkspaceConfig(
     config?: Partial<ClusterWorkspaceConfig> | null
 ): ClusterWorkspaceConfig {
@@ -230,8 +255,11 @@ function normalizeMemberProfiles(
         const identity = typeof profile.identity === 'string' ? profile.identity.trim() : '';
         const stance = typeof profile.stance === 'string' ? profile.stance.trim() : '';
         const parentAgentId = typeof profile.parentAgentId === 'string' ? profile.parentAgentId.trim() : '';
+        const presetIdentityId = typeof (profile as any).presetIdentityId === 'string'
+            ? (profile as any).presetIdentityId.trim()
+            : '';
         const activation = normalizeMemberActivation(profile.activation);
-        if (!identity && !stance && !parentAgentId && !activation) {
+        if (!identity && !stance && !parentAgentId && !presetIdentityId && !activation) {
             continue;
         }
 
@@ -239,6 +267,7 @@ function normalizeMemberProfiles(
             ...(identity ? { identity } : {}),
             ...(stance ? { stance } : {}),
             ...(parentAgentId ? { parentAgentId } : {}),
+            ...(presetIdentityId ? { presetIdentityId } : {}),
             ...(activation ? { activation } : {})
         };
     }

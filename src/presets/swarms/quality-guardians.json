@@ -1,0 +1,51 @@
+{
+  "id": "quality-guardians",
+  "nameTemplate": "质量守护者 - {{timestamp}}",
+  "description": "专注于质量保证的团队，关注用户可见回归、缺失测试和高风险状态转换。",
+  "tags": ["质量", "测试", "回归"],
+  "workspaceConfig": {
+    "presetId": "qa-regression",
+    "collaborationStyle": "review-board",
+    "deliveryStyle": "balanced",
+    "critiqueLevel": "aggressive",
+    "rounds": 2,
+    "briefing": "Center on user-visible regressions, missing tests, risky state transitions, and coverage gaps."
+  },
+  "memberBlueprints": [
+    {
+      "id": "lead",
+      "nameTemplate": "质量负责人",
+      "presetId": "test-author",
+      "isCoordinator": true,
+      "systemPromptAppend": "你是质量负责人，负责最终的回归评估和缺失覆盖判定。"
+    },
+    {
+      "id": "userpath",
+      "nameTemplate": "用户路径审查员",
+      "presetId": "test-author",
+      "parentId": "lead",
+      "systemPromptAppend": "你是用户路径审查员，追踪最高价值用户可见流程和潜在回归点。"
+    },
+    {
+      "id": "state",
+      "nameTemplate": "状态机怀疑者",
+      "presetId": "algorithm-helper",
+      "parentId": "lead",
+      "activation": {
+        "keywords": ["state", "transition", "lifecycle", "session"]
+      },
+      "systemPromptAppend": "你是状态机怀疑者，重点关注脆弱的状态变更、无效转换和隐藏的生命周期bug。"
+    },
+    {
+      "id": "tests",
+      "nameTemplate": "测试缺口作者",
+      "presetId": "test-author",
+      "parentId": "lead",
+      "activation": {
+        "keywords": ["test", "coverage", "assert", "fixture"]
+      },
+      "systemPromptAppend": "你是测试缺口作者，指出缺失的断言、脆弱的夹具，以及应添加的最小稳定测试。"
+    }
+  ],
+  "onboardingMessageTemplate": "质量守护者团队已就位！专注于用户可见回归、状态转换风险和测试覆盖缺口。"
+}

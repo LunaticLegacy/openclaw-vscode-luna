@@ -20,6 +20,11 @@ const CAPABILITY_TITLE_KEYS: Record<OpenClawBooleanCapabilityId, string> = {
     usageInsights: 'capability.row.usageInsights.title'
 };
 
+/**
+ * 获取功能不可用时的错误消息
+ * @param capabilityId - 功能标识符
+ * @returns 本地化的错误消息
+ */
 export function getCapabilityUnavailableMessage(capabilityId: OpenClawBooleanCapabilityId): string {
     const errorKey = CAPABILITY_ERROR_KEYS[capabilityId];
     if (errorKey === 'capability.unavailable.generic') {
@@ -31,6 +36,12 @@ export function getCapabilityUnavailableMessage(capabilityId: OpenClawBooleanCap
     return t(errorKey);
 }
 
+/**
+ * 检查服务功能是否可用
+ * @param service - OpenClaw服务实例
+ * @param capabilityId - 功能标识符
+ * @returns 如果功能可用则返回 true
+ */
 export function isServiceCapabilityAvailable(
     service: OpenClawService,
     capabilityId: OpenClawBooleanCapabilityId

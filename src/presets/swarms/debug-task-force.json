@@ -1,0 +1,51 @@
+{
+  "id": "debug-task-force",
+  "nameTemplate": "调试特遣队 - {{timestamp}}",
+  "description": "快速响应的调试团队，专注于快速定位问题、复现bug和实施最小安全修复。",
+  "tags": ["调试", "问题排查", "紧急"],
+  "workspaceConfig": {
+    "presetId": "debug-war-room",
+    "collaborationStyle": "leader-draft",
+    "deliveryStyle": "balanced",
+    "critiqueLevel": "aggressive",
+    "rounds": 2,
+    "briefing": "Prioritize the fastest reproducer, strongest signal, and smallest safe fix."
+  },
+  "memberBlueprints": [
+    {
+      "id": "commander",
+      "nameTemplate": "事件指挥官",
+      "presetId": "bug-hunter",
+      "isCoordinator": true,
+      "systemPromptAppend": "你是事件指挥官，保持调查纪律，推动找到最小安全修复方案。"
+    },
+    {
+      "id": "repro",
+      "nameTemplate": "复现专家",
+      "presetId": "bug-hunter",
+      "parentId": "commander",
+      "activation": {
+        "keywords": ["repro", "steps", "trace", "logs"]
+      },
+      "systemPromptAppend": "你是复现专家，负责隔离最小可靠复现步骤，精确定位触发条件。"
+    },
+    {
+      "id": "rootcause",
+      "nameTemplate": "根因分析师",
+      "presetId": "algorithm-helper",
+      "parentId": "commander",
+      "systemPromptAppend": "你是根因分析师，追踪最强信号找到底层故障原因，而非表面症状。"
+    },
+    {
+      "id": "fixguard",
+      "nameTemplate": "修复验证员",
+      "presetId": "test-author",
+      "parentId": "commander",
+      "activation": {
+        "keywords": ["fix", "patch", "regression", "verify"]
+      },
+      "systemPromptAppend": "你是修复验证员，检查补丁影响范围、回归风险，以及发布前必须验证的内容。"
+    }
+  ],
+  "onboardingMessageTemplate": "调试特遣队已集结！专注于最快复现、最强信号定位和最小安全修复。"
+}

@@ -1,6 +1,7 @@
 import * as assert from 'assert/strict';
 import * as vscode from 'vscode';
 import {
+    handleBroadcast,
     handleCollaborate,
     handleClusterAgentMessage,
     handleClusterAgentSessionCommand,
@@ -258,6 +259,40 @@ suite('clusterActions', () => {
         ));
     });
 
+    test('appends the final assistant result when swarm trace only contains tool activity', async () => {
+        const clusterManager = new FakeClusterManager();
+        const sessionManager = new FakeClusterSessionManager();
+        const posted: Array<Record<string, unknown>> = [];
+        const context = createClusterActionContext(clusterManager, sessionManager, posted);
+
+        clusterManager.cluster = {
+            id: 'cluster-1',
+            name: 'Swarm',
+            agentIds: ['alpha'],
+            status: 'active',
+            createdAt: '2026-03-12T00:00:00.000Z'
+        };
+        clusterManager.broadcastResult = {
+            alpha: {
+                agentId: 'alpha',
+                ok: true,
+                trace: [
+                    createMessage('tool-1', 'tool', 'Tool still running...')
+                ],
+                message: createMessage('assistant-final', 'assistant', 'Actual final answer')
+            }
+        };
+
+        await handleBroadcast(context, 'cluster-1', 'ship it');
+
+        const finalReplace = [...posted]
+            .reverse()
+            .find(message => message.type === 'replaceSwarmMessages' && message.keepPending !== true);
+        assert.ok(finalReplace);
+        assert.ok(Array.isArray(finalReplace.messages));
+        assert.ok(finalReplace.messages.some((entry: any) => entry.content === 'Actual final answer'));
+    });
+
     test('creates new agents before saving a cluster when quick-create members are provided', async () => {
         const clusterManager = new FakeClusterManager();
         const sessionManager = new FakeClusterSessionManager();
@@ -338,6 +373,7 @@ class FakeClusterManager {
         createdAt: '2026-03-12T00:00:00.000Z'
     };
     public collaborationResult: any = null;
+    public broadcastResult: Record<string, any> = {};
     public progressEvents: ClusterCollaborationProgressEvent[] = [];
     public clusterList: AgentCluster[] = [];
     private readonly messagesByKey = new Map<string, ChatMessage[]>();
@@ -468,6 +504,10 @@ class FakeClusterManager {
             await options?.onProgress?.(event);
         }
         return this.collaborationResult;
+    }
+
+    public async broadcastToCluster(): Promise<Record<string, any>> {
+        return this.broadcastResult;
     }
 
     private key(clusterId: string, agentId: string): string {

@@ -24,6 +24,11 @@ interface OpenClawSessionLogEntry {
     message?: OpenClawChatHistoryMessage;
 }
 
+/**
+ * Extracts assistant text from an OpenClaw response payload.
+ * @param payload - The response payload
+ * @returns The extracted assistant text
+ */
 export function extractAssistantText(payload: unknown): string {
     if (!payload || typeof payload !== 'object') {
         return '';
@@ -39,6 +44,11 @@ export function extractAssistantText(payload: unknown): string {
     return extractTextContent(data.choices?.[0]?.message?.content);
 }
 
+/**
+ * Extracts text content from various formats.
+ * @param value - The value to extract text from
+ * @returns The extracted text
+ */
 export function extractTextContent(value: unknown): string {
     if (typeof value === 'string') {
         return value;
@@ -68,6 +78,12 @@ export function extractTextContent(value: unknown): string {
     return '';
 }
 
+/**
+ * Normalizes a gateway tool event to a chat message.
+ * @param sessionKey - The session key
+ * @param payload - The event payload
+ * @returns The normalized chat message or null
+ */
 export function normalizeOpenClawGatewayToolEvent(
     sessionKey: string,
     payload: Record<string, unknown>
@@ -150,6 +166,12 @@ export function normalizeOpenClawGatewayToolEvent(
     return null;
 }
 
+/**
+ * Normalizes a gateway lifecycle event to a chat message.
+ * @param sessionKey - The session key
+ * @param payload - The event payload
+ * @returns The normalized chat message or null
+ */
 export function normalizeOpenClawGatewayLifecycleEvent(
     sessionKey: string,
     payload: Record<string, unknown>
@@ -194,6 +216,11 @@ export function normalizeOpenClawGatewayLifecycleEvent(
     };
 }
 
+/**
+ * Builds a session key map from sessions list.
+ * @param sessions - Array of session entries
+ * @returns Map of agent IDs to session keys
+ */
 export function buildSessionKeyMap(sessions: OpenClawSessionsListEntry[]): Map<string, string> {
     const map = new Map<string, string>();
 
@@ -209,6 +236,13 @@ export function buildSessionKeyMap(sessions: OpenClawSessionsListEntry[]): Map<s
     return map;
 }
 
+/**
+ * Resolves the preferred (default) agent ID.
+ * @param records - Array of agent records
+ * @param gatewayAgents - Gateway agents result
+ * @param sessionKeysByAgent - Map of session keys by agent
+ * @returns The preferred agent ID or null
+ */
 export function resolvePreferredAgentId(
     records: OpenClawAgentRecord[],
     gatewayAgents: OpenClawGatewayAgentsResult,
@@ -231,6 +265,11 @@ export function resolvePreferredAgentId(
     return records[0]?.id || null;
 }
 
+/**
+ * Parses the agent ID from a session key.
+ * @param sessionKey - The session key
+ * @returns The agent ID or null
+ */
 export function parseAgentIdFromSessionKey(sessionKey: string): string | null {
     const normalized = sessionKey.trim();
     if (!normalized) {
@@ -256,6 +295,12 @@ export function parseAgentIdFromSessionKey(sessionKey: string): string | null {
     return null;
 }
 
+/**
+ * Normalizes OpenClaw chat history to chat messages.
+ * @param messages - Array of OpenClaw chat messages
+ * @param sessionKey - The session key
+ * @returns Array of normalized chat messages
+ */
 export function normalizeOpenClawChatHistory(messages: OpenClawChatHistoryMessage[], sessionKey: string): ChatMessage[] {
     const agentId = parseAgentIdFromSessionKey(sessionKey) || undefined;
     const toolCalls = new Map<string, OpenClawToolCallInfo>();
@@ -271,6 +316,15 @@ export function normalizeOpenClawChatHistory(messages: OpenClawChatHistoryMessag
         .filter((message): message is ChatMessage => Boolean(message));
 }
 
+/**
+ * Normalizes a single OpenClaw chat message.
+ * @param message - The OpenClaw chat message
+ * @param fallbackId - Fallback ID for the message
+ * @param agentId - The agent ID
+ * @param toolCalls - Map of tool calls
+ * @param sequenceIndex - Sequence index for timestamp
+ * @returns The normalized chat message or null
+ */
 export function normalizeOpenClawChatMessage(
     message: OpenClawChatHistoryMessage,
     fallbackId: string,
@@ -336,6 +390,12 @@ export function normalizeOpenClawChatMessage(
     };
 }
 
+/**
+ * Extracts an assistant message from a response payload.
+ * @param payload - The response payload
+ * @param sessionKey - The session key
+ * @returns The assistant message or null
+ */
 export function extractAssistantMessageFromPayload(payload: unknown, sessionKey: string): ChatMessage | null {
     if (!payload || typeof payload !== 'object') {
         return null;
@@ -402,6 +462,14 @@ export function extractAssistantMessageFromPayload(payload: unknown, sessionKey:
     return null;
 }
 
+/**
+ * Normalizes an OpenClaw session log to chat messages.
+ * @param content - The session log content
+ * @param sessionKey - The session key
+ * @param agentId - The agent ID
+ * @param limit - Maximum number of messages
+ * @returns Array of chat messages
+ */
 export function normalizeOpenClawSessionLog(
     content: string,
     sessionKey: string,
@@ -463,6 +531,11 @@ export function normalizeOpenClawSessionLog(
     return messages.slice(-limit);
 }
 
+/**
+ * Checks if a message is a final assistant message.
+ * @param message - The chat message
+ * @returns True if the message is final
+ */
 export function isFinalOpenClawAssistantMessage(message: ChatMessage): boolean {
     if (message.role !== 'assistant') {
         return false;
@@ -475,6 +548,13 @@ export function isFinalOpenClawAssistantMessage(message: ChatMessage): boolean {
     return true;
 }
 
+/**
+ * Wraps a promise with a timeout.
+ * @param promise - The promise to wrap
+ * @param timeoutMs - Timeout in milliseconds
+ * @param fallback - Fallback value on timeout
+ * @returns The promise result or fallback
+ */
 export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
     if (timeoutMs <= 0) {
         return Promise.resolve(fallback);
@@ -495,20 +575,54 @@ export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback:
     });
 }
 
+/**
+ * Delays execution for a specified time.
+ * @param timeoutMs - Time to delay in milliseconds
+ * @returns Promise that resolves after the delay
+ */
 export function delay(timeoutMs: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, timeoutMs));
 }
 
+/**
+ * Sanitizes an agent name for use in paths.
+ * @param value - The name to sanitize
+ * @returns The sanitized name
+ */
 export function sanitizeAgentName(value: string): string {
     const normalized = value.trim().toLowerCase().replace(/[^a-z0-9-_]+/g, '-').replace(/-+/g, '-');
-    return normalized.replace(/^-|-$/g, '') || 'agent';
+    const sanitized = normalized.replace(/^-|-$/g, '') || 'agent';
+    
+    // Ensure the agent name doesn't exceed reasonable length to prevent path issues on Windows
+    // Keep it under 100 characters to avoid path length issues when combined with other path elements
+    return sanitized.length > 100 ? sanitized.substring(0, 100) : sanitized;
 }
 
+/**
+ * Normalizes an optional path value.
+ * @param value - The path value
+ * @returns The normalized path or undefined
+ */
 export function normalizeOptionalPath(value: string | undefined): string | undefined {
     const trimmed = value?.trim();
-    return trimmed ? trimmed : undefined;
+    if (!trimmed) {
+        return undefined;
+    }
+    
+    // Check if the path is too long and warn if it is
+    if (trimmed.length > 255) {
+        console.warn(`Potentially long path detected: ${trimmed.substring(0, 100)}... (${trimmed.length} chars)`);
+    }
+    
+    return trimmed;
 }
 
+/**
+ * Resolves the workspace path for an OpenClaw agent record.
+ * @param record - The agent record
+ * @param config - The service configuration
+ * @returns The workspace path or undefined
+ */
 export function resolveOpenClawRecordWorkspacePath(
     record: OpenClawAgentRecord,
     config: OpenClawCliServiceConfig | null
@@ -518,6 +632,12 @@ export function resolveOpenClawRecordWorkspacePath(
         || inferOpenClawWorkspacePath(record.id, config);
 }
 
+/**
+ * Infers the workspace path for an agent.
+ * @param agentId - The agent ID
+ * @param config - The service configuration
+ * @returns The inferred workspace path or undefined
+ */
 export function inferOpenClawWorkspacePath(
     agentId: string | undefined,
     config: OpenClawCliServiceConfig | null
@@ -528,13 +648,28 @@ export function inferOpenClawWorkspacePath(
     }
 
     const safeAgentId = sanitizeAgentName(normalizedAgentId);
+    let workspacePath: string;
+    
     if (!config.defaultWorkspacePath) {
-        return path.join(config.stateDir, 'workspace', safeAgentId);
+        workspacePath = path.join(config.stateDir, 'workspace', safeAgentId);
+    } else {
+        workspacePath = path.join(path.dirname(config.defaultWorkspacePath), 'agents', safeAgentId);
     }
-
-    return path.join(path.dirname(config.defaultWorkspacePath), 'agents', safeAgentId);
+    
+    // Check if the resulting path is too long
+    if (workspacePath.length > 255) {
+        console.warn(`Potentially long workspace path detected: ${workspacePath.substring(0, 100)}... (${workspacePath.length} chars)`);
+    }
+    
+    return workspacePath;
 }
 
+/**
+ * Extracts a string value from a payload.
+ * @param payload - The payload to extract from
+ * @param keys - Keys to try
+ * @returns The extracted string or undefined
+ */
 export function extractString(payload: unknown, keys: string[]): string | undefined {
     if (!payload || typeof payload !== 'object') {
         return undefined;
@@ -551,6 +686,11 @@ export function extractString(payload: unknown, keys: string[]): string | undefi
     return undefined;
 }
 
+/**
+ * Normalizes OpenClaw message content to message parts.
+ * @param content - The message content
+ * @returns Array of message parts
+ */
 function normalizeOpenClawMessageParts(content: unknown): ChatMessagePart[] {
     const values = Array.isArray(content) ? content : [content];
     const parts: ChatMessagePart[] = [];
@@ -609,6 +749,12 @@ function normalizeOpenClawMessageParts(content: unknown): ChatMessagePart[] {
     return parts;
 }
 
+/**
+ * Builds display content from message parts.
+ * @param parts - Array of message parts
+ * @param message - The original message record
+ * @returns The display content string
+ */
 function buildDisplayContentFromParts(parts: ChatMessagePart[], message: Record<string, unknown>): string {
     const text = parts
         .filter((part): part is Extract<ChatMessagePart, { type: 'text' }> => part.type === 'text')
@@ -629,11 +775,21 @@ function buildDisplayContentFromParts(parts: ChatMessagePart[], message: Record<
     return extractTextContent(message.content) || (typeof message.text === 'string' ? message.text : '');
 }
 
+/**
+ * Extracts metadata from a message.
+ * @param message - The chat message
+ * @returns The metadata object or undefined
+ */
 function extractMessageMetadata(message: OpenClawChatHistoryMessage): Record<string, unknown> | undefined {
     const metadata = extractRecordMetadata(message as Record<string, unknown>);
     return Object.keys(metadata).length > 0 ? metadata : undefined;
 }
 
+/**
+ * Extracts metadata from a record.
+ * @param record - The record to extract from
+ * @returns The metadata object
+ */
 function extractRecordMetadata(record: Record<string, unknown>): Record<string, unknown> {
     const metadata: Record<string, unknown> = {};
 
@@ -646,6 +802,11 @@ function extractRecordMetadata(record: Record<string, unknown>): Record<string, 
     return metadata;
 }
 
+/**
+ * Normalizes a role value.
+ * @param value - The role value
+ * @returns The normalized role or null
+ */
 function normalizeRole(value: unknown): ChatMessage['role'] | null {
     if (typeof value !== 'string') {
         return null;
@@ -663,6 +824,12 @@ function normalizeRole(value: unknown): ChatMessage['role'] | null {
     return null;
 }
 
+/**
+ * Normalizes a timestamp value.
+ * @param value - The timestamp value
+ * @param sequenceIndex - Sequence index for fallback
+ * @returns The normalized ISO timestamp
+ */
 function normalizeTimestamp(value: unknown, sequenceIndex: number = 0): string {
     if (typeof value === 'number' && Number.isFinite(value)) {
         return new Date(value).toISOString();
@@ -681,6 +848,14 @@ function normalizeTimestamp(value: unknown, sequenceIndex: number = 0): string {
     return new Date(stableIndex).toISOString();
 }
 
+/**
+ * Normalizes a lifecycle entry to a chat message.
+ * @param entry - The log entry
+ * @param sessionKey - The session key
+ * @param agentId - The agent ID
+ * @param index - The entry index
+ * @returns The chat message or null
+ */
 function normalizeOpenClawLifecycleEntry(
     entry: Record<string, unknown>,
     sessionKey: string,
@@ -716,6 +891,11 @@ function normalizeOpenClawLifecycleEntry(
     };
 }
 
+/**
+ * Builds a lifecycle notice from data.
+ * @param data - The lifecycle data
+ * @returns The notice string or empty
+ */
 function buildOpenClawLifecycleNotice(data: Record<string, unknown>): string {
     const textFields = [
         data.message,
@@ -748,6 +928,11 @@ function buildOpenClawLifecycleNotice(data: Record<string, unknown>): string {
     return '';
 }
 
+/**
+ * Resolves the lifecycle notice kind.
+ * @param notice - The notice string
+ * @returns The notice kind
+ */
 function resolveLifecycleNoticeKind(notice: string): 'fallback' | 'compression' | 'notice' {
     const normalized = notice.trim().toLowerCase();
     if (/fallback|downgrade|rollback|roll back|rolling back|rolling-back|rolled back|rewind|revert/.test(normalized)) {

@@ -1,3 +1,6 @@
+/**
+ * Represents an AI agent with its configuration and state.
+ */
 export interface Agent {
     id: string;
     name: string;
@@ -17,6 +20,9 @@ export interface Agent {
     maxTokens?: number;
 }
 
+/**
+ * Represents a cluster of agents working together.
+ */
 export interface AgentCluster {
     id: string;
     name: string;
@@ -26,16 +32,23 @@ export interface AgentCluster {
     workspaceConfig?: ClusterWorkspaceConfig;
 }
 
+/**
+ * Profile configuration for a cluster member.
+ */
 export interface ClusterMemberProfile {
     identity?: string;
     stance?: string;
     parentAgentId?: string;
+    presetIdentityId?: string;
     activation?: {
         swarmModes?: Array<'broadcast' | 'collaborate'>;
         keywords?: string[];
     };
 }
 
+/**
+ * Workspace configuration for a cluster.
+ */
 export interface ClusterWorkspaceConfig {
     presetId: string;
     collaborationStyle: 'debate' | 'round-robin' | 'review-board' | 'leader-draft';
@@ -49,6 +62,9 @@ export interface ClusterWorkspaceConfig {
     memberProfiles?: Record<string, ClusterMemberProfile>;
 }
 
+/**
+ * Represents a chat message in a conversation.
+ */
 export interface ChatMessage {
     id: string;
     role: 'user' | 'assistant' | 'system' | 'tool';
@@ -67,6 +83,9 @@ export interface ChatMessage {
     metadata?: Record<string, unknown>;
 }
 
+/**
+ * Represents a runtime notice for model fallback or compression.
+ */
 export interface RuntimeNotice {
     kind: 'fallback' | 'compression';
     message: string;
@@ -75,6 +94,9 @@ export interface RuntimeNotice {
     phase?: string;
 }
 
+/**
+ * Union type for chat message parts.
+ */
 export type ChatMessagePart =
     | {
         type: 'text';
@@ -101,6 +123,9 @@ export type ChatMessagePart =
         isError?: boolean;
     };
 
+/**
+ * Represents a chat session.
+ */
 export interface ChatSession {
     id: string;
     agentId: string;
@@ -109,10 +134,16 @@ export interface ChatSession {
     updatedAt: string;
 }
 
+/**
+ * Options for creating a chat session.
+ */
 export interface CreateChatSessionOptions {
     sessionId?: string;
 }
 
+/**
+ * Represents a discovered external channel.
+ */
 export interface DiscoveredChannel {
     id: string;
     name: string;
@@ -122,6 +153,9 @@ export interface DiscoveredChannel {
     description?: string;
 }
 
+/**
+ * API usage statistics.
+ */
 export interface APIUsage {
     totalRequests: number;
     totalTokens: number;
@@ -157,6 +191,9 @@ export interface APIUsage {
     }>;
 }
 
+/**
+ * Chunk of a streaming response.
+ */
 export interface StreamChunk {
     content: string;
     done: boolean;
@@ -164,12 +201,18 @@ export interface StreamChunk {
     message?: ChatMessage;
 }
 
+/**
+ * Real-time usage snapshot.
+ */
 export interface RealtimeUsageSnapshot {
     activeSessions: number;
     requestsPerMinute: number;
     tokensPerMinute: number;
 }
 
+/**
+ * Parameters for creating an agent.
+ */
 export interface CreateAgentParams {
     name: string;
     model: string;
@@ -177,6 +220,9 @@ export interface CreateAgentParams {
     enabledSkills?: string[];
 }
 
+/**
+ * Parameters for updating an agent.
+ */
 export interface UpdateAgentParams {
     name?: string;
     systemPrompt?: string;
@@ -186,29 +232,68 @@ export interface UpdateAgentParams {
     enabledSkills?: string[];
 }
 
+/**
+ * Options for sending a message.
+ */
 export interface SendMessageOptions {
     stream?: boolean;
     temperature?: number;
     maxTokens?: number;
+    delivery?: SwarmDeliveryContext;
+    timeoutMs?: number;
+    ttlMs?: number;
+    idempotencyKey?: string;
+    laneKey?: string;
 }
 
+/**
+ * Swarm-aware delivery context for outbound messages.
+ */
+export interface SwarmDeliveryContext {
+    swarmRunId: string;
+    clusterId: string;
+    mode: 'broadcast' | 'collaborate' | 'agent';
+    round?: number;
+    phase?: string;
+    sourceAgentId?: string;
+    targetAgentId?: string;
+    messageKind?: string;
+    dependencyKey?: string;
+    transactionGroupId?: string;
+    expectedGroupSize?: number;
+    groupCompletionPolicy?: 'all' | 'any';
+    requiresDeliveryForProgress?: boolean;
+}
+
+/**
+ * Options for streaming a message.
+ */
 export interface StreamMessageOptions {
     temperature?: number;
     maxTokens?: number;
 }
 
+/**
+ * Parameters for creating a cluster.
+ */
 export interface CreateClusterParams {
     name: string;
     agentIds: string[];
     workspaceConfig?: ClusterWorkspaceConfig;
 }
 
+/**
+ * Parameters for updating a cluster.
+ */
 export interface UpdateClusterParams {
     name?: string;
     agentIds?: string[];
     workspaceConfig?: ClusterWorkspaceConfig;
 }
 
+/**
+ * Local agent with provider-specific configuration.
+ */
 export interface LocalAgent extends Agent {
     providerId: string;
     baseUrl: string;
@@ -216,4 +301,7 @@ export interface LocalAgent extends Agent {
     apiKey: string;
 }
 
+/**
+ * Event sink function type for service events.
+ */
 export type ServiceEventSink = (eventName: string, ...args: unknown[]) => unknown;

@@ -4,8 +4,14 @@ import { t } from '../../i18n';
 import { runWithNotificationProgress } from '../../utils/statusFeedback';
 import type { ClusterContextExportKind } from './contextExport';
 
+/**
+ * Type for panel view modes
+ */
 type PanelViewMode = 'chat' | 'clusters' | 'usage' | 'channel' | 'tasks';
 
+/**
+ * Context interface for message routing operations
+ */
 interface MessageRouterContext {
     issueTrackerUrl: string;
     setWebviewReady(ready: boolean): void;
@@ -20,7 +26,7 @@ interface MessageRouterContext {
     loadTasks(): Promise<void>;
     loadUsage(): Promise<void>;
     handleSendMessage(content: string, agentId?: string, options?: { optimisticEcho?: boolean }): Promise<void>;
-    handleStopActiveRun(scope: unknown): void;
+    handleStopActiveRun(message: any): void;
     activateAgent(agentId: string): Promise<void>;
     loadClusterSwarmMessages(clusterId: string, mode: 'broadcast' | 'collaborate'): Promise<void>;
     loadClusterAgentMessages(clusterId: string, agentId: string): Promise<void>;
@@ -33,6 +39,8 @@ interface MessageRouterContext {
         agentId?: string;
         agentViewMode?: 'chat' | 'broadcast' | 'collaborate';
     }): Promise<void>;
+    exportClusterSwarm(options: { clusterId: string }): Promise<void>;
+    importClusterSwarm(): Promise<void>;
     importClusterReplay(): Promise<void>;
     exportRuntimeLogs(): Promise<void>;
     clearChat(): void;
@@ -41,6 +49,11 @@ interface MessageRouterContext {
     handleCreateAgentsBatch(data: any): Promise<void>;
     showClusterEditor(clusterId?: string): void;
     handleSaveCluster(clusterId: string | undefined, data: any): Promise<void>;
+    handleCreateClusterFromMemberPreset(params: {
+        memberPresetId: string;
+        customName?: string;
+        model?: string;
+    }): Promise<void>;
     activateChannel(channelId: string | null | undefined): Promise<void>;
     refreshActiveChannelMessages(channelId?: string): Promise<void>;
     handleCreateChannel(data: any): Promise<void>;
@@ -77,8 +90,22 @@ interface MessageRouterContext {
     handleStartOpenClaw(): Promise<void>;
     handleSaveConnectionSettings(settings: any): Promise<void>;
     handleSaveOpenClawConfig(settings: any): Promise<void>;
+    loadSkillMarket(filters: any): Promise<void>;
+    refreshSkillMarket(): Promise<void>;
+    installSkill(skillId: string, hubId?: string | null): Promise<void>;
+    uninstallSkill(skillId: string): Promise<void>;
+    toggleSkillForAgent(agentId: string, skillId: string, enable: boolean): Promise<void>;
+    refreshMemoryStatus(): Promise<void>;
+    openMemoryRoot(): Promise<void>;
+    exportMemoryBundle(): Promise<void>;
+    importMemoryBundle(): Promise<void>;
 }
 
+/**
+ * Handles incoming panel messages and routes them to the appropriate handlers
+ * @param context - The message router context
+ * @param message - The incoming message from the webview
+ */
 export async function handlePanelMessage(context: MessageRouterContext, message: any): Promise<void> {
     switch (message.type) {
         case 'webviewReady':
@@ -104,7 +131,7 @@ export async function handlePanelMessage(context: MessageRouterContext, message:
             break;
 
         case 'stopActiveRun':
-            context.handleStopActiveRun(message.scope);
+            context.handleStopActiveRun(message);
             break;
 
         case 'selectAgent':
@@ -140,6 +167,16 @@ export async function handlePanelMessage(context: MessageRouterContext, message:
                         ? 'collaborate'
                         : 'chat'
             });
+            break;
+
+        case 'exportClusterSwarm':
+            await context.exportClusterSwarm({
+                clusterId: message.clusterId
+            });
+            break;
+
+        case 'importClusterSwarm':
+            await context.importClusterSwarm();
             break;
 
         case 'importClusterReplay':
@@ -200,6 +237,14 @@ export async function handlePanelMessage(context: MessageRouterContext, message:
 
         case 'saveCluster':
             await context.handleSaveCluster(message.clusterId, message.data);
+            break;
+
+        case 'createClusterFromMemberPreset':
+            await context.handleCreateClusterFromMemberPreset({
+                memberPresetId: message.memberPresetId,
+                customName: message.customName,
+                model: message.model
+            });
             break;
 
         case 'selectChannel':
@@ -387,6 +432,42 @@ export async function handlePanelMessage(context: MessageRouterContext, message:
 
         case 'saveOpenClawConfig':
             await context.handleSaveOpenClawConfig(message.settings);
+            break;
+
+        case 'loadSkillMarket':
+            await context.loadSkillMarket(message.filters || {});
+            break;
+
+        case 'refreshSkillMarket':
+            await context.refreshSkillMarket();
+            break;
+
+        case 'installSkill':
+            await context.installSkill(message.skillId, message.hubId || null);
+            break;
+
+        case 'uninstallSkill':
+            await context.uninstallSkill(message.skillId);
+            break;
+
+        case 'toggleSkillForAgent':
+            await context.toggleSkillForAgent(message.agentId, message.skillId, Boolean(message.enable));
+            break;
+
+        case 'refreshMemoryStatus':
+            await context.refreshMemoryStatus();
+            break;
+
+        case 'openMemoryRoot':
+            await context.openMemoryRoot();
+            break;
+
+        case 'exportMemoryBundle':
+            await context.exportMemoryBundle();
+            break;
+
+        case 'importMemoryBundle':
+            await context.importMemoryBundle();
             break;
     }
 }

@@ -12,15 +12,23 @@ import {
     AgentCluster,
     ChatMessage,
     ClusterWorkspaceConfig,
-    OpenClawService
+    OpenClawService,
+    SwarmDeliveryContext
 } from '../services/openclawService';
+import { OutboundDeliveryError, type FailureClass, type OutboundDeliveryStatus } from '../services/outbound';
 
+/**
+ * 创建集群参数
+ */
 export interface CreateClusterParams {
     name: string;
     agentIds: string[];
     workspaceConfig?: ClusterWorkspaceConfig;
 }
 
+/**
+ * 更新集群参数
+ */
 export interface UpdateClusterParams {
     name?: string;
     agentIds?: string[];
@@ -28,6 +36,9 @@ export interface UpdateClusterParams {
     workspaceConfig?: ClusterWorkspaceConfig;
 }
 
+/**
+ * 集群统计信息
+ */
 export interface ClusterStats {
     totalClusters: number;
     activeClusters: number;
@@ -35,12 +46,18 @@ export interface ClusterStats {
     avgAgentsPerCluster: number;
 }
 
+/**
+ * 集群广播结果
+ */
 export interface ClusterBroadcastResult {
     agentId: string;
     ok: boolean;
     message?: ChatMessage;
     trace?: ChatMessage[];
     error?: string;
+    deliveryStatus?: OutboundDeliveryStatus;
+    failureClass?: FailureClass;
+    deliveryId?: string;
     timing?: {
         startedAt: string;
         completedAt: string;
@@ -48,10 +65,29 @@ export interface ClusterBroadcastResult {
     };
 }
 
+/**
+ * 广播集群选项
+ */
 export interface BroadcastClusterOptions {
     onAgentResult?: (agentId: string, result: ClusterBroadcastResult) => Promise<void> | void;
 }
 
+interface SwarmSendContext {
+    swarmRunId: string;
+    phase: string;
+    round?: number;
+    sourceAgentId?: string;
+    targetAgentId?: string;
+    transactionGroupId?: string;
+    expectedGroupSize?: number;
+    groupCompletionPolicy?: 'all' | 'any';
+    requiresDeliveryForProgress?: boolean;
+    messageKind?: string;
+}
+
+/**
+ * 集群协作进度事件
+ */
 export type ClusterCollaborationProgressEvent =
     | {
         kind: 'round-entry';
@@ -65,21 +101,33 @@ export type ClusterCollaborationProgressEvent =
         entry: ClusterBroadcastResult | null;
     };
 
+/**
+ * 协作集群选项
+ */
 export interface CollaborateClusterOptions {
     coordinatorAgentId?: string;
     onProgress?: (event: ClusterCollaborationProgressEvent) => Promise<void> | void;
 }
 
+/**
+ * 集群协作轮次类型
+ */
 export type ClusterCollaborationRoundKind =
     | 'opening'
     | `critique-${number}`
     | `revision-${number}`;
 
+/**
+ * 集群协作轮次
+ */
 export interface ClusterCollaborationRound {
     kind: ClusterCollaborationRoundKind;
     entries: Record<string, ClusterBroadcastResult>;
 }
 
+/**
+ * 集群协作结果
+ */
 export interface ClusterCollaborationResult {
     clusterId: string;
     clusterName: string;
@@ -90,12 +138,18 @@ export interface ClusterCollaborationResult {
     synthesis: ClusterBroadcastResult | null;
 }
 
+/**
+ * 集群智能体上下文快照
+ */
 export interface ClusterAgentContextSnapshot {
     directMessages: ChatMessage[];
     broadcastMessages: ChatMessage[];
     collaborateMessages: ChatMessage[];
 }
 
+/**
+ * 持久化集群文件结构
+ */
 interface PersistedClustersFile {
     version: number;
     clusters: AgentCluster[];
@@ -106,6 +160,9 @@ interface PersistedClustersFile {
     clusterSwarmMessages?: Record<string, ChatMessage[]>;
 }
 
+/**
+ * Swarm 激活节点
+ */
 interface SwarmActivationNode {
     agentId: string;
     parentAgentId: string | null;
@@ -113,17 +170,26 @@ interface SwarmActivationNode {
     children: SwarmActivationNode[];
 }
 
+/**
+ * Swarm 激活计划
+ */
 interface SwarmActivationPlan {
     rootNodes: SwarmActivationNode[];
     orderedAgentIds: string[];
 }
 
+/**
+ * Swarm 路由上下文
+ */
 interface SwarmRoutingContext {
     ancestorAgentIds: string[];
     parentNode: SwarmActivationNode | null;
     parentResult: ClusterBroadcastResult | null;
 }
 
+/**
+ * 集群停止条件评估
+ */
 interface ClusterStopConditionEvaluation {
     shouldStop: boolean;
     judgeAgentId: string | null;
@@ -135,6 +201,20 @@ interface ClusterStopConditionEvaluation {
 const CLUSTER_AGENT_RESPONSE_TIMEOUT_MS = 45000;
 const MAX_UNLIMITED_CLUSTER_REVIEW_ROUNDS = 48;
 
+/**
+ * 集群管理器，负责管理智能体集群的创建、广播、协作和状态持久化
+ * 
+ * @emits clusterCreated - 当集群被创建时触发
+ * @emits clusterUpdated - 当集群被更新时触发
+ * @emits clusterDeleted - 当集群被删除时触发
+ * 
+ * @example
+ * ```typescript
+ * const manager = new ClusterManager(service, storageFilePath);
+ * const cluster = await manager.createCluster({ name: 'Dev Team', agentIds: ['agent-1', 'agent-2'] });
+ * const results = await manager.broadcastToCluster(cluster.id, 'Hello team!');
+ * ```
+ */
 export class ClusterManager extends EventEmitter {
     private service: OpenClawService;
     private clusters: Map<string, AgentCluster> = new Map();
@@ -147,6 +227,11 @@ export class ClusterManager extends EventEmitter {
     private persistedStateLoadPromise: Promise<void> | null = null;
     private swarmSessionIds: Map<string, string> = new Map();
 
+    /**
+     * 创建 ClusterManager 实例
+     * @param service - OpenClaw 服务实例
+     * @param storageFilePath - 存储文件路径
+     */
     constructor(service: OpenClawService, storageFilePath: string) {
         super();
         this.service = service;
@@ -154,6 +239,9 @@ export class ClusterManager extends EventEmitter {
         this.setupListeners();
     }
 
+    /**
+     * 设置服务事件监听器
+     */
     private setupListeners() {
         this.service.on('clusterCreated', (cluster: AgentCluster) => {
             if (!this.service.supportsRemoteClusters()) {
@@ -181,8 +269,20 @@ export class ClusterManager extends EventEmitter {
             this.clusters.delete(clusterId);
             this.emit('clusterDeleted', clusterId);
         });
+
+        this.service.on('deliveryEvent', event => {
+            if (event?.entry?.swarm?.clusterId) {
+                this.emit('deliveryEvent', event);
+            }
+        });
     }
 
+    /**
+     * 获取所有集群
+     * 
+     * @param refresh - 是否强制刷新
+     * @returns 集群列表
+     */
     public async getClusters(refresh: boolean = false): Promise<AgentCluster[]> {
         await this.ensurePersistedStateLoaded(refresh);
 
@@ -198,6 +298,12 @@ export class ClusterManager extends EventEmitter {
         return Array.from(this.clusters.values()).map(cluster => this.applyWorkspaceConfig(cluster));
     }
 
+    /**
+     * 获取指定集群
+     * 
+     * @param clusterId - 集群ID
+     * @returns 集群对象或 null
+     */
     public async getCluster(clusterId: string): Promise<AgentCluster | null> {
         await this.ensurePersistedStateLoaded();
 
@@ -217,6 +323,12 @@ export class ClusterManager extends EventEmitter {
         return cluster ? this.applyWorkspaceConfig(cluster) : null;
     }
 
+    /**
+     * 创建新集群
+     * 
+     * @param params - 创建集群参数
+     * @returns 创建的集群
+     */
     public async createCluster(params: CreateClusterParams): Promise<AgentCluster> {
         await this.ensurePersistedStateLoaded();
         const workspaceConfig = normalizeClusterWorkspaceConfig(params.workspaceConfig);
@@ -251,6 +363,14 @@ export class ClusterManager extends EventEmitter {
         return resolvedCluster;
     }
 
+    /**
+     * 更新集群
+     * 
+     * @param clusterId - 集群ID
+     * @param params - 更新参数
+     * @returns 更新后的集群
+     * @throws Error - 当集群不存在时抛出
+     */
     public async updateCluster(clusterId: string, params: UpdateClusterParams): Promise<AgentCluster> {
         if (this.service.supportsRemoteClusters()) {
             const cluster = await this.service.updateCluster(clusterId, {
@@ -294,6 +414,12 @@ export class ClusterManager extends EventEmitter {
         return updatedCluster;
     }
 
+    /**
+     * 删除集群
+     * 
+     * @param clusterId - 集群ID
+     * @returns Promise<void>
+     */
     public async deleteCluster(clusterId: string): Promise<void> {
         if (this.service.supportsRemoteClusters()) {
             await this.service.deleteCluster(clusterId);
@@ -318,6 +444,15 @@ export class ClusterManager extends EventEmitter {
         this.emit('clusterDeleted', clusterId);
     }
 
+    /**
+     * 向集群广播消息
+     * 
+     * @param clusterId - 集群ID
+     * @param message - 消息内容
+     * @param options - 广播选项
+     * @returns 各智能体的响应结果
+     * @throws Error - 当集群不存在或没有可用智能体时抛出
+     */
     public async broadcastToCluster(
         clusterId: string,
         message: string,
@@ -352,6 +487,9 @@ export class ClusterManager extends EventEmitter {
             throw new Error(t('clusterManager.noEligibleAgents'));
         }
 
+        const swarmRunId = buildSwarmRunId(cluster.id, 'broadcast');
+        const broadcastGroupId = buildSwarmTransactionGroupId(swarmRunId, 'broadcast');
+
         const results = await this.sendHierarchicalMessages(
             activationPlan,
             async (node, routing) => routing.parentNode
@@ -364,6 +502,16 @@ export class ClusterManager extends EventEmitter {
             {
             clusterId,
             mode: 'broadcast',
+            swarm: {
+                swarmRunId,
+                phase: 'broadcast',
+                round: 1,
+                transactionGroupId: broadcastGroupId,
+                expectedGroupSize: activationPlan.orderedAgentIds.length,
+                groupCompletionPolicy: 'all',
+                requiresDeliveryForProgress: true,
+                messageKind: 'broadcast'
+            },
             onAgentResult: options.onAgentResult
             }
         );
@@ -372,6 +520,15 @@ export class ClusterManager extends EventEmitter {
         return results;
     }
 
+    /**
+     * 在集群上进行协作
+     * 
+     * @param clusterId - 集群ID
+     * @param message - 用户消息
+     * @param options - 协作选项
+     * @returns 协作结果
+     * @throws Error - 当集群不存在或没有可用智能体时抛出
+     */
     public async collaborateOnCluster(
         clusterId: string,
         message: string,
@@ -392,10 +549,12 @@ export class ClusterManager extends EventEmitter {
             throw new Error(t('clusterManager.noEligibleAgents'));
         }
         const initialParticipantAgentIds = [...activationPlan.orderedAgentIds];
+        const swarmRunId = buildSwarmRunId(cluster.id, 'collaborate');
 
         const debateSessionIds = new Map<string, string>();
         const rounds: ClusterCollaborationRound[] = [];
 
+        const openingGroupId = buildSwarmTransactionGroupId(swarmRunId, 'opening');
         const openingEntries = await this.sendHierarchicalMessages(
             activationPlan,
             async (node, routing) => buildOpeningContributionPrompt(
@@ -415,6 +574,16 @@ export class ClusterManager extends EventEmitter {
             clusterId: cluster.id,
             mode: 'collaborate',
             debateSessionIds,
+            swarm: {
+                swarmRunId,
+                phase: 'opening',
+                round: 1,
+                transactionGroupId: openingGroupId,
+                expectedGroupSize: activationPlan.orderedAgentIds.length,
+                groupCompletionPolicy: 'all',
+                requiresDeliveryForProgress: true,
+                messageKind: 'opening'
+            },
             onAgentResult: (agentId, entry) => options.onProgress?.({
                 kind: 'round-entry',
                 roundKind: 'opening',
@@ -441,6 +610,7 @@ export class ClusterManager extends EventEmitter {
                 }
 
                 const debateRound = buildCollaborationDebateRound(reviewRound);
+                const critiqueGroupId = buildSwarmTransactionGroupId(swarmRunId, debateRound.critiqueKind);
                 const critiqueEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildPeerReviewPrompt(
                     cluster.name,
                     message,
@@ -453,6 +623,16 @@ export class ClusterManager extends EventEmitter {
                     clusterId: cluster.id,
                     mode: 'collaborate',
                     debateSessionIds,
+                    swarm: {
+                        swarmRunId,
+                        phase: debateRound.critiqueKind,
+                        round: debateRound.reviewRound,
+                        transactionGroupId: critiqueGroupId,
+                        expectedGroupSize: successfulAgentIds.length,
+                        groupCompletionPolicy: 'all',
+                        requiresDeliveryForProgress: true,
+                        messageKind: 'critique'
+                    },
                     onAgentResult: (agentId, entry) => options.onProgress?.({
                         kind: 'round-entry',
                         roundKind: debateRound.critiqueKind,
@@ -465,6 +645,7 @@ export class ClusterManager extends EventEmitter {
                     entries: critiqueEntries
                 });
 
+                const revisionGroupId = buildSwarmTransactionGroupId(swarmRunId, debateRound.revisionKind);
                 const revisionEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildRevisionPrompt(
                     cluster.name,
                     message,
@@ -478,6 +659,16 @@ export class ClusterManager extends EventEmitter {
                     clusterId: cluster.id,
                     mode: 'collaborate',
                     debateSessionIds,
+                    swarm: {
+                        swarmRunId,
+                        phase: debateRound.revisionKind,
+                        round: debateRound.reviewRound,
+                        transactionGroupId: revisionGroupId,
+                        expectedGroupSize: successfulAgentIds.length,
+                        groupCompletionPolicy: 'all',
+                        requiresDeliveryForProgress: true,
+                        messageKind: 'revision'
+                    },
                     onAgentResult: (agentId, entry) => options.onProgress?.({
                         kind: 'round-entry',
                         roundKind: debateRound.revisionKind,
@@ -519,6 +710,7 @@ export class ClusterManager extends EventEmitter {
                     successfulAgentIds,
                     latestUsableContributions,
                     rounds,
+                    swarmRunId,
                     reviewRound,
                     stopConditionSessionIds
                 );
@@ -542,6 +734,7 @@ export class ClusterManager extends EventEmitter {
                     break;
                 }
 
+                const critiqueGroupId = buildSwarmTransactionGroupId(swarmRunId, debateRound.critiqueKind);
                 const critiqueEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildPeerReviewPrompt(
                     cluster.name,
                     message,
@@ -554,6 +747,16 @@ export class ClusterManager extends EventEmitter {
                     clusterId: cluster.id,
                     mode: 'collaborate',
                     debateSessionIds,
+                    swarm: {
+                        swarmRunId,
+                        phase: debateRound.critiqueKind,
+                        round: debateRound.reviewRound,
+                        transactionGroupId: critiqueGroupId,
+                        expectedGroupSize: successfulAgentIds.length,
+                        groupCompletionPolicy: 'all',
+                        requiresDeliveryForProgress: true,
+                        messageKind: 'critique'
+                    },
                     onAgentResult: (agentId, entry) => options.onProgress?.({
                         kind: 'round-entry',
                         roundKind: debateRound.critiqueKind,
@@ -566,6 +769,7 @@ export class ClusterManager extends EventEmitter {
                     entries: critiqueEntries
                 });
 
+                const revisionGroupId = buildSwarmTransactionGroupId(swarmRunId, debateRound.revisionKind);
                 const revisionEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildRevisionPrompt(
                     cluster.name,
                     message,
@@ -579,6 +783,16 @@ export class ClusterManager extends EventEmitter {
                     clusterId: cluster.id,
                     mode: 'collaborate',
                     debateSessionIds,
+                    swarm: {
+                        swarmRunId,
+                        phase: debateRound.revisionKind,
+                        round: debateRound.reviewRound,
+                        transactionGroupId: revisionGroupId,
+                        expectedGroupSize: successfulAgentIds.length,
+                        groupCompletionPolicy: 'all',
+                        requiresDeliveryForProgress: true,
+                        messageKind: 'revision'
+                    },
                     onAgentResult: (agentId, entry) => options.onProgress?.({
                         kind: 'round-entry',
                         roundKind: debateRound.revisionKind,
@@ -619,10 +833,23 @@ export class ClusterManager extends EventEmitter {
                 rounds,
                 buildStopConditionSummary(workspaceConfig, lastStopConditionEvaluation)
             );
+            const synthesisGroupId = buildSwarmTransactionGroupId(swarmRunId, 'synthesis');
             synthesis = await this.sendMessageToAgent(coordinatorAgentId, synthesisPrompt, {
                 clusterId: cluster.id,
                 mode: 'collaborate',
-                debateSessionIds
+                debateSessionIds,
+                swarm: {
+                    swarmRunId,
+                    phase: 'synthesis',
+                    round: rounds.length + 1,
+                    transactionGroupId: synthesisGroupId,
+                    expectedGroupSize: 1,
+                    groupCompletionPolicy: 'all',
+                    requiresDeliveryForProgress: true,
+                    messageKind: 'synthesis',
+                    sourceAgentId: coordinatorAgentId,
+                    targetAgentId: coordinatorAgentId
+                }
             });
             await options.onProgress?.({
                 kind: 'synthesis',
@@ -644,6 +871,11 @@ export class ClusterManager extends EventEmitter {
         };
     }
 
+    /**
+     * 获取集群统计信息
+     * 
+     * @returns 集群统计信息
+     */
     public getClusterStats(): ClusterStats {
         const clusters = Array.from(this.clusters.values());
         const totalAgents = clusters.reduce((sum, cluster) => sum + cluster.agentIds.length, 0);
@@ -656,12 +888,26 @@ export class ClusterManager extends EventEmitter {
         };
     }
 
+    /**
+     * 获取包含指定智能体的所有集群
+     * 
+     * @param agentId - 智能体ID
+     * @returns 集群列表
+     */
     public getClustersByAgent(agentId: string): AgentCluster[] {
         return Array.from(this.clusters.values()).filter(cluster =>
             cluster.agentIds.includes(agentId)
         );
     }
 
+    /**
+     * 向集群添加智能体
+     * 
+     * @param clusterId - 集群ID
+     * @param agentId - 智能体ID
+     * @returns Promise<void>
+     * @throws Error - 当集群不存在时抛出
+     */
     public async addAgentToCluster(clusterId: string, agentId: string): Promise<void> {
         const cluster = await this.getCluster(clusterId);
         if (!cluster) {
@@ -675,6 +921,14 @@ export class ClusterManager extends EventEmitter {
         }
     }
 
+    /**
+     * 从集群移除智能体
+     * 
+     * @param clusterId - 集群ID
+     * @param agentId - 智能体ID
+     * @returns Promise<void>
+     * @throws Error - 当集群不存在时抛出
+     */
     public async removeAgentFromCluster(clusterId: string, agentId: string): Promise<void> {
         const cluster = await this.getCluster(clusterId);
         if (!cluster) {
@@ -686,6 +940,13 @@ export class ClusterManager extends EventEmitter {
         });
     }
 
+    /**
+     * 确保集群智能体会话ID存在
+     * 
+     * @param clusterId - 集群ID
+     * @param agentId - 智能体ID
+     * @returns 会话ID
+     */
     public async ensureClusterAgentSessionId(clusterId: string, agentId: string): Promise<string> {
         await this.ensurePersistedStateLoaded();
         const key = this.buildClusterAgentSessionStorageKey(clusterId, agentId);
@@ -700,6 +961,13 @@ export class ClusterManager extends EventEmitter {
         return sessionId;
     }
 
+    /**
+     * 重置集群智能体会话ID
+     * 
+     * @param clusterId - 集群ID
+     * @param agentId - 智能体ID
+     * @returns 新的会话ID
+     */
     public async resetClusterAgentSessionId(clusterId: string, agentId: string): Promise<string> {
         await this.ensurePersistedStateLoaded();
         const key = this.buildClusterAgentSessionStorageKey(clusterId, agentId);
@@ -709,6 +977,13 @@ export class ClusterManager extends EventEmitter {
         return sessionId;
     }
 
+    /**
+     * 获取集群智能体的消息
+     * 
+     * @param clusterId - 集群ID
+     * @param agentId - 智能体ID
+     * @returns 消息列表
+     */
     public async getClusterAgentMessages(clusterId: string, agentId: string): Promise<ChatMessage[]> {
         await this.ensurePersistedStateLoaded();
         return cloneChatMessages(
@@ -716,6 +991,14 @@ export class ClusterManager extends EventEmitter {
         );
     }
 
+    /**
+     * 替换集群智能体的消息
+     * 
+     * @param clusterId - 集群ID
+     * @param agentId - 智能体ID
+     * @param messages - 新消息列表
+     * @returns Promise<void>
+     */
     public async replaceClusterAgentMessages(clusterId: string, agentId: string, messages: ChatMessage[]): Promise<void> {
         await this.ensurePersistedStateLoaded();
         const key = this.buildClusterAgentSessionStorageKey(clusterId, agentId);
@@ -730,6 +1013,13 @@ export class ClusterManager extends EventEmitter {
         await this.persistState();
     }
 
+    /**
+     * 清除集群智能体的消息
+     * 
+     * @param clusterId - 集群ID
+     * @param agentId - 智能体ID
+     * @returns Promise<void>
+     */
     public async clearClusterAgentMessages(clusterId: string, agentId: string): Promise<void> {
         await this.ensurePersistedStateLoaded();
         const key = this.buildClusterAgentSessionStorageKey(clusterId, agentId);
@@ -740,6 +1030,14 @@ export class ClusterManager extends EventEmitter {
         await this.persistState();
     }
 
+    /**
+     * 获取集群智能体的 Swarm 消息
+     * 
+     * @param clusterId - 集群ID
+     * @param agentId - 智能体ID
+     * @param mode - 模式（广播或协作）
+     * @returns 消息列表
+     */
     public async getClusterAgentSwarmMessages(
         clusterId: string,
         agentId: string,
@@ -755,6 +1053,13 @@ export class ClusterManager extends EventEmitter {
         return cloneChatMessages(messages);
     }
 
+    /**
+     * 获取集群智能体上下文快照
+     * 
+     * @param clusterId - 集群ID
+     * @param agentId - 智能体ID
+     * @returns 上下文快照
+     */
     public async getClusterAgentContextSnapshot(
         clusterId: string,
         agentId: string
@@ -772,6 +1077,13 @@ export class ClusterManager extends EventEmitter {
         };
     }
 
+    /**
+     * 获取集群 Swarm 消息
+     * 
+     * @param clusterId - 集群ID
+     * @param mode - 模式（广播或协作）
+     * @returns 消息列表
+     */
     public async getClusterSwarmMessages(
         clusterId: string,
         mode: 'broadcast' | 'collaborate'
@@ -782,6 +1094,41 @@ export class ClusterManager extends EventEmitter {
         );
     }
 
+    /**
+     * 中止集群 Swarm 运行（对该集群指定模式的所有会话发起 abort）
+     *
+     * @param clusterId - 集群ID
+     * @param mode - 模式（广播或协作）
+     * @returns Promise<void>
+     */
+    public async abortClusterSwarmRun(
+        clusterId: string,
+        mode: 'broadcast' | 'collaborate'
+    ): Promise<void> {
+        await this.ensurePersistedStateLoaded();
+        const prefix = `cluster:${clusterId}:swarm:${mode}:agent:`;
+        const sessionIds = new Set<string>();
+        for (const [key, sessionId] of this.swarmSessionIds.entries()) {
+            if (key.startsWith(prefix) && sessionId) {
+                sessionIds.add(sessionId);
+            }
+        }
+
+        await Promise.allSettled(
+            Array.from(sessionIds.values()).map(sessionId =>
+                this.service.abortSessionRun(sessionId).catch(() => undefined)
+            )
+        );
+    }
+
+    /**
+     * 替换集群 Swarm 消息
+     * 
+     * @param clusterId - 集群ID
+     * @param mode - 模式（广播或协作）
+     * @param messages - 新消息列表
+     * @returns Promise<void>
+     */
     public async replaceClusterSwarmMessages(
         clusterId: string,
         mode: 'broadcast' | 'collaborate',
@@ -800,10 +1147,18 @@ export class ClusterManager extends EventEmitter {
         await this.persistState();
     }
 
+    /**
+     * 刷新集群列表
+     * 
+     * @returns 刷新后的集群列表
+     */
     public async refresh(): Promise<AgentCluster[]> {
         return this.getClusters(true);
     }
 
+    /**
+     * 释放资源
+     */
     public dispose() {
         this.removeAllListeners();
         this.clusters.clear();
@@ -816,6 +1171,10 @@ export class ClusterManager extends EventEmitter {
         this.swarmSessionIds.clear();
     }
 
+    /**
+     * 确保持久化状态已加载
+     * @param forceRefresh - 是否强制刷新
+     */
     private async ensurePersistedStateLoaded(forceRefresh: boolean = false): Promise<void> {
         if (forceRefresh) {
             this.persistedStateLoaded = false;
@@ -935,6 +1294,9 @@ export class ClusterManager extends EventEmitter {
         }
     }
 
+    /**
+     * 持久化状态到磁盘
+     */
     private async persistState(): Promise<void> {
         const payload: PersistedClustersFile = {
             version: 5,
@@ -960,6 +1322,13 @@ export class ClusterManager extends EventEmitter {
         await fs.writeFile(this.storageFilePath, JSON.stringify(payload, null, 2), 'utf8');
     }
 
+    /**
+     * 向多个智能体发送消息
+     * @param agentIds - 智能体ID列表
+     * @param message - 消息内容或消息生成函数
+     * @param options - 发送选项
+     * @returns 各智能体的响应结果
+     */
     private async sendMessageToAgents(
         agentIds: string[],
         message: string | ((agentId: string) => string | Promise<string>),
@@ -967,6 +1336,7 @@ export class ClusterManager extends EventEmitter {
             clusterId: string;
             mode: 'broadcast' | 'collaborate';
             debateSessionIds?: Map<string, string>;
+            swarm?: SwarmSendContext;
             onAgentResult?: (agentId: string, result: ClusterBroadcastResult) => Promise<void> | void;
         }
     ): Promise<Record<string, ClusterBroadcastResult>> {
@@ -984,6 +1354,13 @@ export class ClusterManager extends EventEmitter {
         return Object.fromEntries(entries);
     }
 
+    /**
+     * 发送层级消息
+     * @param plan - Swarm 激活计划
+     * @param message - 消息生成函数
+     * @param options - 发送选项
+     * @returns 各智能体的响应结果
+     */
     private async sendHierarchicalMessages(
         plan: SwarmActivationPlan,
         message: (
@@ -994,6 +1371,7 @@ export class ClusterManager extends EventEmitter {
             clusterId: string;
             mode: 'broadcast' | 'collaborate';
             debateSessionIds?: Map<string, string>;
+            swarm?: SwarmSendContext;
             onAgentResult?: (agentId: string, result: ClusterBroadcastResult) => Promise<void> | void;
         }
     ): Promise<Record<string, ClusterBroadcastResult>> {
@@ -1004,7 +1382,16 @@ export class ClusterManager extends EventEmitter {
             routing: SwarmRoutingContext
         ): Promise<void> => {
             const resolvedMessage = await message(node, routing);
-            const result = await this.sendMessageToAgent(node.agentId, resolvedMessage, options);
+            const swarmContext = options.swarm
+                ? {
+                    ...options.swarm,
+                    sourceAgentId: routing.parentNode?.agentId || options.swarm.sourceAgentId
+                }
+                : undefined;
+            const result = await this.sendMessageToAgent(node.agentId, resolvedMessage, {
+                ...options,
+                swarm: swarmContext
+            });
             results[node.agentId] = result;
             await options.onAgentResult?.(node.agentId, result);
 
@@ -1032,6 +1419,13 @@ export class ClusterManager extends EventEmitter {
         return results;
     }
 
+    /**
+     * 向单个智能体发送消息
+     * @param agentId - 智能体ID
+     * @param message - 消息内容
+     * @param options - 发送选项
+     * @returns 发送结果
+     */
     private async sendMessageToAgent(
         agentId: string,
         message: string,
@@ -1039,6 +1433,7 @@ export class ClusterManager extends EventEmitter {
             clusterId: string;
             mode: 'broadcast' | 'collaborate';
             debateSessionIds?: Map<string, string>;
+            swarm?: SwarmSendContext;
         }
     ): Promise<ClusterBroadcastResult> {
         const startedAtMs = Date.now();
@@ -1047,15 +1442,22 @@ export class ClusterManager extends EventEmitter {
             const sessionId = options.debateSessionIds
                 ? await this.ensureDebateSession(agentId, options.debateSessionIds, options.clusterId, options.mode)
                 : await this.ensureSwarmSession(agentId, options.clusterId, options.mode);
-            const traceResult = await this.sendMessageWithTrace(sessionId, message, CLUSTER_AGENT_RESPONSE_TIMEOUT_MS);
+            const swarmDelivery = buildSwarmDeliveryContext(options, agentId);
+            const traceResult = await this.sendMessageWithTrace(sessionId, message, {
+                timeoutMs: CLUSTER_AGENT_RESPONSE_TIMEOUT_MS,
+                delivery: swarmDelivery
+            });
             const timing = buildClusterResultTiming(startedAtMs, startedAt);
-            if (traceResult.timedOut) {
+            if (traceResult.errorMessage || traceResult.timedOut) {
                 return {
                     agentId,
                     ok: false,
                     message: traceResult.message || undefined,
                     trace: traceResult.trace,
-                    error: `Timed out after ${Math.round(CLUSTER_AGENT_RESPONSE_TIMEOUT_MS / 1000)}s`,
+                    error: traceResult.errorMessage || `Timed out after ${Math.round(CLUSTER_AGENT_RESPONSE_TIMEOUT_MS / 1000)}s`,
+                    deliveryStatus: traceResult.deliveryStatus,
+                    failureClass: traceResult.failureClass,
+                    deliveryId: traceResult.deliveryId,
                     timing
                 };
             }
@@ -1065,6 +1467,9 @@ export class ClusterManager extends EventEmitter {
                 ok: true,
                 message: traceResult.message || undefined,
                 trace: traceResult.trace,
+                deliveryStatus: traceResult.deliveryStatus,
+                failureClass: traceResult.failureClass,
+                deliveryId: traceResult.deliveryId,
                 timing
             };
         } catch (error) {
@@ -1072,11 +1477,22 @@ export class ClusterManager extends EventEmitter {
                 agentId,
                 ok: false,
                 error: String(error),
+                deliveryStatus: error instanceof OutboundDeliveryError ? error.status : undefined,
+                failureClass: error instanceof OutboundDeliveryError ? error.failureClass : undefined,
+                deliveryId: error instanceof OutboundDeliveryError ? error.entryId : undefined,
                 timing: buildClusterResultTiming(startedAtMs, startedAt)
             };
         }
     }
 
+    /**
+     * 确保辩论会话存在
+     * @param agentId - 智能体ID
+     * @param debateSessionIds - 辩论会话ID映射
+     * @param clusterId - 集群ID
+     * @param mode - 模式
+     * @returns 会话ID
+     */
     private async ensureDebateSession(
         agentId: string,
         debateSessionIds: Map<string, string>,
@@ -1093,6 +1509,13 @@ export class ClusterManager extends EventEmitter {
         return sessionId;
     }
 
+    /**
+     * 确保 Swarm 会话存在
+     * @param agentId - 智能体ID
+     * @param clusterId - 集群ID
+     * @param mode - 模式
+     * @returns 会话ID
+     */
     private async ensureSwarmSession(
         agentId: string,
         clusterId: string,
@@ -1110,10 +1533,21 @@ export class ClusterManager extends EventEmitter {
         return session.id;
     }
 
+    /**
+     * 构建 Swarm 会话键
+     * @param clusterId - 集群ID
+     * @param mode - 模式
+     * @param agentId - 智能体ID
+     * @returns 会话键
+     */
     private buildSwarmSessionKey(clusterId: string, mode: 'broadcast' | 'collaborate', agentId: string): string {
         return `cluster:${clusterId}:swarm:${mode}:agent:${agentId}`;
     }
 
+    /**
+     * 清除集群的所有 Swarm 会话
+     * @param clusterId - 集群ID
+     */
     private clearSwarmSessionsForCluster(clusterId: string): void {
         const prefix = `cluster:${clusterId}:`;
         for (const key of this.swarmSessionIds.keys()) {
@@ -1123,14 +1557,30 @@ export class ClusterManager extends EventEmitter {
         }
     }
 
+    /**
+     * 构建集群 Swarm 存储键
+     * @param clusterId - 集群ID
+     * @param mode - 模式
+     * @returns 存储键
+     */
     private buildClusterSwarmStorageKey(clusterId: string, mode: 'broadcast' | 'collaborate'): string {
         return `${clusterId.trim()}::swarm::${mode}`;
     }
 
+    /**
+     * 构建集群智能体会话存储键
+     * @param clusterId - 集群ID
+     * @param agentId - 智能体ID
+     * @returns 存储键
+     */
     private buildClusterAgentSessionStorageKey(clusterId: string, agentId: string): string {
         return `${clusterId.trim()}::${agentId.trim()}`;
     }
 
+    /**
+     * 清除集群的所有智能体会话
+     * @param clusterId - 集群ID
+     */
     private clearClusterAgentSessionsForCluster(clusterId: string): void {
         const prefix = `${clusterId.trim()}::`;
         for (const key of this.clusterAgentSessionIds.keys()) {
@@ -1140,6 +1590,10 @@ export class ClusterManager extends EventEmitter {
         }
     }
 
+    /**
+     * 清除集群的所有智能体消息
+     * @param clusterId - 集群ID
+     */
     private clearClusterAgentMessagesForCluster(clusterId: string): void {
         const prefix = `${clusterId.trim()}::`;
         for (const key of this.clusterAgentMessages.keys()) {
@@ -1149,6 +1603,10 @@ export class ClusterManager extends EventEmitter {
         }
     }
 
+    /**
+     * 清除集群的所有 Swarm 消息
+     * @param clusterId - 集群ID
+     */
     private clearClusterSwarmMessagesForCluster(clusterId: string): void {
         const prefix = `${clusterId.trim()}::swarm::`;
         for (const key of this.clusterSwarmMessages.keys()) {
@@ -1158,6 +1616,11 @@ export class ClusterManager extends EventEmitter {
         }
     }
 
+    /**
+     * 协调集群智能体会话
+     * @param clusterId - 集群ID
+     * @param agentIds - 智能体ID列表
+     */
     private reconcileClusterAgentSessions(clusterId: string, agentIds: string[]): void {
         const allowed = new Set(agentIds.map(agentId => this.buildClusterAgentSessionStorageKey(clusterId, agentId)));
         const prefix = `${clusterId.trim()}::`;
@@ -1187,47 +1650,84 @@ export class ClusterManager extends EventEmitter {
         }
     }
 
+    /**
+     * 发送带追踪的消息
+     * @param sessionId - 会话ID
+     * @param message - 消息内容
+     * @param timeoutMs - 超时毫秒
+     * @returns 发送结果
+     */
     private async sendMessageWithTrace(
         sessionId: string,
         message: string,
-        timeoutMs: number
-    ): Promise<{ message: ChatMessage | null; trace: ChatMessage[]; timedOut: boolean }> {
+        options: { timeoutMs: number; delivery?: SwarmDeliveryContext }
+    ): Promise<{
+        message: ChatMessage | null;
+        trace: ChatMessage[];
+        timedOut: boolean;
+        errorMessage?: string;
+        deliveryStatus?: OutboundDeliveryStatus;
+        failureClass?: FailureClass;
+        deliveryId?: string;
+    }> {
         const before = await this.service.getChatHistory(sessionId).catch(() => []);
         const knownIds = new Set(before.map(item => item.id));
-        const responseResult = await raceWithTimeout(this.service.sendMessage(sessionId, message), timeoutMs);
-        const after = await this.service.getChatHistory(sessionId).catch(() => []);
 
-        const trace = this.normalizeTraceMessages(
-            after.filter(item => !knownIds.has(item.id))
-        );
+        let response: ChatMessage | null = null;
+        try {
+            response = await this.service.sendMessage(sessionId, message, {
+                delivery: options.delivery,
+                timeoutMs: options.timeoutMs
+            });
+        } catch (error) {
+            if (error instanceof OutboundDeliveryError) {
+                return {
+                    message: null,
+                    trace: [],
+                    timedOut: error.status === 'expired',
+                    errorMessage: error.message,
+                    deliveryStatus: error.status,
+                    failureClass: error.failureClass,
+                    deliveryId: error.entryId
+                };
+            }
 
-        const finalTraceMessage = findLastAssistantMessage(trace);
-
-        if (responseResult.timedOut) {
             return {
-                message: finalTraceMessage,
-                trace,
-                timedOut: true
+                message: null,
+                trace: [],
+                timedOut: false,
+                errorMessage: String(error)
             };
         }
 
-        const response = responseResult.value;
+        const after = await this.service.getChatHistory(sessionId).catch(() => []);
+        const trace = this.normalizeTraceMessages(
+            after.filter(item => !knownIds.has(item.id))
+        );
+        const finalTraceMessage = findLastAssistantMessage(trace);
 
         if (trace.length === 0) {
             return {
                 message: response,
                 trace: response ? [response] : [],
-                timedOut: false
+                timedOut: false,
+                deliveryStatus: 'sent'
             };
         }
 
         return {
             message: finalTraceMessage || response,
             trace,
-            timedOut: false
+            timedOut: false,
+            deliveryStatus: 'sent'
         };
     }
 
+    /**
+     * 规范化追踪消息
+     * @param messages - 消息列表
+     * @returns 规范化后的消息列表
+     */
     private normalizeTraceMessages(messages: ChatMessage[]): ChatMessage[] {
         const deduped = new Map<string, ChatMessage>();
         for (const message of messages) {
@@ -1247,6 +1747,18 @@ export class ClusterManager extends EventEmitter {
         return Array.from(deduped.values());
     }
 
+    /**
+     * 构建合成提示词
+     * @param cluster - 集群
+     * @param userMessage - 用户消息
+     * @param workspaceConfig - 工作区配置
+     * @param coordinatorAgentId - 协调者智能体ID
+     * @param successfulAgentIds - 成功的智能体ID列表
+     * @param contributions - 贡献记录
+     * @param rounds - 协作轮次
+     * @param stopConditionSummary - 停止条件摘要
+     * @returns 合成提示词
+     */
     private async buildSynthesisPrompt(
         cluster: AgentCluster,
         userMessage: string,
@@ -1309,6 +1821,19 @@ export class ClusterManager extends EventEmitter {
         ].join('\n');
     }
 
+    /**
+     * 评估停止条件
+     * @param cluster - 集群
+     * @param userMessage - 用户消息
+     * @param workspaceConfig - 工作区配置
+     * @param judgeAgentId - 评估智能体ID
+     * @param successfulAgentIds - 成功的智能体ID列表
+     * @param contributions - 贡献记录
+     * @param rounds - 协作轮次
+     * @param reviewRound - 评审轮次
+     * @param stopConditionSessionIds - 停止条件会话ID映射
+     * @returns 停止条件评估结果
+     */
     private async evaluateStopCondition(
         cluster: AgentCluster,
         userMessage: string,
@@ -1317,6 +1842,7 @@ export class ClusterManager extends EventEmitter {
         successfulAgentIds: string[],
         contributions: Record<string, ClusterBroadcastResult>,
         rounds: ClusterCollaborationRound[],
+        swarmRunId: string,
         reviewRound: number,
         stopConditionSessionIds: Map<string, string>
     ): Promise<ClusterStopConditionEvaluation> {
@@ -1330,14 +1856,39 @@ export class ClusterManager extends EventEmitter {
             rounds,
             reviewRound
         );
+        const stopConditionGroupId = buildSwarmTransactionGroupId(swarmRunId, `stop-condition-${reviewRound}`);
         const evaluation = await this.sendMessageToAgent(judgeAgentId, prompt, {
             clusterId: cluster.id,
             mode: 'collaborate',
-            debateSessionIds: stopConditionSessionIds
+            debateSessionIds: stopConditionSessionIds,
+            swarm: {
+                swarmRunId,
+                phase: `stop-condition-${reviewRound}`,
+                round: reviewRound,
+                transactionGroupId: stopConditionGroupId,
+                expectedGroupSize: 1,
+                groupCompletionPolicy: 'all',
+                requiresDeliveryForProgress: true,
+                messageKind: 'stop-condition',
+                sourceAgentId: judgeAgentId,
+                targetAgentId: judgeAgentId
+            }
         });
         return parseStopConditionEvaluation(evaluation, judgeAgentId, reviewRound);
     }
 
+    /**
+     * 构建停止条件提示词
+     * @param cluster - 集群
+     * @param userMessage - 用户消息
+     * @param workspaceConfig - 工作区配置
+     * @param judgeAgentId - 评估智能体ID
+     * @param successfulAgentIds - 成功的智能体ID列表
+     * @param contributions - 贡献记录
+     * @param rounds - 协作轮次
+     * @param reviewRound - 评审轮次
+     * @returns 停止条件提示词
+     */
     private async buildStopConditionPrompt(
         cluster: AgentCluster,
         userMessage: string,
@@ -1389,6 +1940,11 @@ export class ClusterManager extends EventEmitter {
         ].join('\n');
     }
 
+    /**
+     * 应用工作区配置
+     * @param cluster - 集群
+     * @returns 应用配置后的集群
+     */
     private applyWorkspaceConfig(cluster: AgentCluster): AgentCluster {
         const workspaceConfig = normalizeClusterWorkspaceConfig(
             cluster.workspaceConfig || this.workspaceConfigs.get(cluster.id) || createDefaultClusterWorkspaceConfig()
@@ -1401,10 +1957,21 @@ export class ClusterManager extends EventEmitter {
     }
 }
 
+/**
+ * 构建集群智能体会话ID
+ * @param clusterId - 集群ID
+ * @param agentId - 智能体ID
+ * @returns 会话ID
+ */
 function buildClusterAgentSessionId(clusterId: string, agentId: string): string {
     return `cluster:${clusterId.trim()}:agent:${agentId.trim()}:session:${buildUniqueTimestampSuffix()}`;
 }
 
+/**
+ * 规范化持久化的聊天消息
+ * @param messages - 消息列表
+ * @returns 规范化后的消息列表
+ */
 function normalizePersistedChatMessages(messages: ChatMessage[] | undefined | null): ChatMessage[] {
     if (!Array.isArray(messages)) {
         return [];
@@ -1441,10 +2008,20 @@ function normalizePersistedChatMessages(messages: ChatMessage[] | undefined | nu
     return normalized;
 }
 
+/**
+ * 克隆聊天消息
+ * @param messages - 消息列表
+ * @returns 克隆后的消息列表
+ */
 function cloneChatMessages(messages: ChatMessage[]): ChatMessage[] {
     return normalizePersistedChatMessages(messages);
 }
 
+/**
+ * 查找最后一条助手消息
+ * @param messages - 消息列表
+ * @returns 最后一条助手消息或 null
+ */
 function findLastAssistantMessage(messages: ChatMessage[]): ChatMessage | null {
     let fallbackAssistant: ChatMessage | null = null;
     for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -1465,40 +2042,30 @@ function findLastAssistantMessage(messages: ChatMessage[]): ChatMessage | null {
     return fallbackAssistant;
 }
 
-async function raceWithTimeout<T>(
-    promise: Promise<T>,
-    timeoutMs: number
-): Promise<{ timedOut: true } | { timedOut: false; value: T }> {
-    if (timeoutMs <= 0) {
-        return {
-            timedOut: false,
-            value: await promise
-        };
-    }
 
-    let timer: NodeJS.Timeout | null = null;
-    try {
-        return await Promise.race([
-            promise.then(value => ({ timedOut: false, value } as const)),
-            new Promise<{ timedOut: true }>(resolve => {
-                timer = setTimeout(() => resolve({ timedOut: true } as const), timeoutMs);
-            })
-        ]);
-    } finally {
-        if (timer) {
-            clearTimeout(timer);
-        }
-    }
-}
-
+/**
+ * 检查是否为聊天消息角色
+ * @param value - 输入值
+ * @returns 是否为聊天消息角色
+ */
 function isChatMessageRole(value: unknown): value is ChatMessage['role'] {
     return value === 'user' || value === 'assistant' || value === 'system' || value === 'tool';
 }
 
+/**
+ * 检查是否为记录对象
+ * @param value - 输入值
+ * @returns 是否为记录对象
+ */
 function isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+/**
+ * 检查消息是否有可渲染内容
+ * @param message - 消息对象
+ * @returns 是否有可渲染内容
+ */
 function hasRenderableMessageBody(message: ChatMessage): boolean {
     if (message.content.trim()) {
         return true;
@@ -1525,6 +2092,12 @@ function hasRenderableMessageBody(message: ChatMessage): boolean {
     });
 }
 
+/**
+ * 构建集群结果时间信息
+ * @param startedAtMs - 开始时间毫秒
+ * @param startedAt - 开始时间ISO字符串
+ * @returns 时间信息
+ */
 function buildClusterResultTiming(startedAtMs: number, startedAt: string): ClusterBroadcastResult['timing'] {
     const completedAtMs = Date.now();
     return {
@@ -1534,6 +2107,11 @@ function buildClusterResultTiming(startedAtMs: number, startedAt: string): Clust
     };
 }
 
+/**
+ * 构建集群ID
+ * @param name - 集群名称
+ * @returns 集群ID
+ */
 function buildClusterId(name: string): string {
     const normalized = name.trim().toLowerCase().replace(/[^a-z0-9-_]+/g, '-').replace(/-+/g, '-');
     const safeName = normalized.replace(/^-|-$/g, '') || 'cluster';
@@ -1543,6 +2121,10 @@ function buildClusterId(name: string): string {
 let lastGeneratedTimestamp = 0;
 let generatedTimestampCounter = 0;
 
+/**
+ * 构建唯一时间戳后缀
+ * @returns 唯一时间戳后缀
+ */
 function buildUniqueTimestampSuffix(): string {
     const now = Date.now();
     if (now === lastGeneratedTimestamp) {
@@ -1557,6 +2139,11 @@ function buildUniqueTimestampSuffix(): string {
         : String(now);
 }
 
+/**
+ * 获取唯一的智能体ID列表
+ * @param agentIds - 智能体ID列表
+ * @returns 去重后的智能体ID列表
+ */
 function uniqueAgentIds(agentIds: string[]): string[] {
     const seen = new Set<string>();
     const result: string[] = [];
@@ -1574,6 +2161,14 @@ function uniqueAgentIds(agentIds: string[]): string[] {
     return result;
 }
 
+/**
+ * 解析协调者智能体ID
+ * @param clusterAgentIds - 集群智能体ID列表
+ * @param successfulAgentIds - 成功的智能体ID列表
+ * @param configuredAgentId - 配置的协调者ID
+ * @param preferredAgentId - 优先的协调者ID
+ * @returns 协调者智能体ID或 null
+ */
 function resolveCoordinatorAgentId(
     clusterAgentIds: string[],
     successfulAgentIds: string[],
@@ -1601,10 +2196,23 @@ function resolveCoordinatorAgentId(
     return clusterAgentIds[0] || null;
 }
 
+/**
+ * 获取默认工作区配置或传入配置
+ * @param config - 可选的工作区配置
+ * @returns 工作区配置
+ */
 function workspaceConfigOrDefault(config?: ClusterWorkspaceConfig): ClusterWorkspaceConfig {
     return normalizeClusterWorkspaceConfig(config || createDefaultClusterWorkspaceConfig());
 }
 
+/**
+ * 解析 Swarm 激活计划
+ * @param agentIds - 智能体ID列表
+ * @param workspaceConfig - 工作区配置
+ * @param mode - 模式
+ * @param userMessage - 用户消息
+ * @returns Swarm 激活计划
+ */
 function resolveSwarmActivationPlan(
     agentIds: string[],
     workspaceConfig: ClusterWorkspaceConfig,
@@ -1661,6 +2269,12 @@ function resolveSwarmActivationPlan(
     };
 }
 
+/**
+ * 解析集群成员父级映射
+ * @param agentIds - 智能体ID列表
+ * @param workspaceConfig - 工作区配置
+ * @returns 父级映射
+ */
 function resolveClusterMemberParentMap(
     agentIds: string[],
     workspaceConfig: ClusterWorkspaceConfig
@@ -1690,6 +2304,13 @@ function resolveClusterMemberParentMap(
     return sanitizedParentMap;
 }
 
+/**
+ * 检查是否引入父级循环
+ * @param agentId - 智能体ID
+ * @param candidateParentId - 候选父级ID
+ * @param parentMap - 父级映射
+ * @returns 是否引入循环
+ */
 function introducesParentCycle(
     agentId: string,
     candidateParentId: string,
@@ -1710,6 +2331,14 @@ function introducesParentCycle(
     return false;
 }
 
+/**
+ * 检查智能体是否有资格参与 Swarm
+ * @param workspaceConfig - 工作区配置
+ * @param agentId - 智能体ID
+ * @param mode - 模式
+ * @param userMessage - 用户消息
+ * @returns 是否有资格
+ */
 function isClusterAgentEligibleForSwarm(
     workspaceConfig: ClusterWorkspaceConfig,
     agentId: string,
@@ -1737,6 +2366,11 @@ function isClusterAgentEligibleForSwarm(
     return true;
 }
 
+/**
+ * 构建协作辩论轮次
+ * @param maxRounds - 最大轮次
+ * @returns 辩论轮次列表
+ */
 function buildCollaborationDebateRounds(maxRounds: number): Array<{
     reviewRound: number;
     critiqueKind: Extract<ClusterCollaborationRoundKind, `critique-${number}`>;
@@ -1746,6 +2380,11 @@ function buildCollaborationDebateRounds(maxRounds: number): Array<{
     return Array.from({ length: rounds }, (_, index) => buildCollaborationDebateRound(index + 1));
 }
 
+/**
+ * 构建单个协作辩论轮次
+ * @param reviewRound - 评审轮次
+ * @returns 辩论轮次
+ */
 function buildCollaborationDebateRound(reviewRound: number): {
     reviewRound: number;
     critiqueKind: Extract<ClusterCollaborationRoundKind, `critique-${number}`>;
@@ -1758,6 +2397,15 @@ function buildCollaborationDebateRound(reviewRound: number): {
     };
 }
 
+/**
+ * 构建开场贡献提示词
+ * @param clusterName - 集群名称
+ * @param userMessage - 用户消息
+ * @param workspaceConfig - 工作区配置
+ * @param agentId - 智能体ID
+ * @param delegatedContext - 委托上下文
+ * @returns 开场提示词
+ */
 function buildOpeningContributionPrompt(
     clusterName: string,
     userMessage: string,
@@ -1791,6 +2439,17 @@ function buildOpeningContributionPrompt(
     ].join('\n');
 }
 
+/**
+ * 构建同行评审提示词
+ * @param clusterName - 集群名称
+ * @param userMessage - 用户消息
+ * @param workspaceConfig - 工作区配置
+ * @param agentId - 智能体ID
+ * @param activeAgentIds - 活跃智能体ID列表
+ * @param contributions - 贡献记录
+ * @param reviewRound - 评审轮次
+ * @returns 同行评审提示词
+ */
 function buildPeerReviewPrompt(
     clusterName: string,
     userMessage: string,
@@ -1827,6 +2486,18 @@ function buildPeerReviewPrompt(
     ].join('\n');
 }
 
+/**
+ * 构建修订提示词
+ * @param clusterName - 集群名称
+ * @param userMessage - 用户消息
+ * @param workspaceConfig - 工作区配置
+ * @param agentId - 智能体ID
+ * @param activeAgentIds - 活跃智能体ID列表
+ * @param contributions - 贡献记录
+ * @param critiques - 评审记录
+ * @param reviewRound - 评审轮次
+ * @returns 修订提示词
+ */
 function buildRevisionPrompt(
     clusterName: string,
     userMessage: string,
@@ -1861,6 +2532,13 @@ function buildRevisionPrompt(
     ].join('\n');
 }
 
+/**
+ * 格式化智能体贡献
+ * @param agentId - 智能体ID
+ * @param agent - 智能体对象
+ * @param contribution - 贡献记录
+ * @returns 格式化的贡献字符串
+ */
 function formatAgentContribution(
     agentId: string,
     agent: Agent | null,
@@ -1877,6 +2555,12 @@ function formatAgentContribution(
     return `### ${label}\n${contribution.message.content}`;
 }
 
+/**
+ * 获取成功的智能体ID列表
+ * @param agentIds - 智能体ID列表
+ * @param entries - 记录条目
+ * @returns 成功的智能体ID列表
+ */
 function getSuccessfulAgentIds(
     agentIds: string[],
     entries: Record<string, ClusterBroadcastResult>
@@ -1884,6 +2568,13 @@ function getSuccessfulAgentIds(
     return agentIds.filter(agentId => entries[agentId]?.ok);
 }
 
+/**
+ * 合并最新的成功条目
+ * @param agentIds - 智能体ID列表
+ * @param nextEntries - 新条目
+ * @param fallbackEntries - 回退条目
+ * @returns 合并后的条目
+ */
 function mergeLatestSuccessfulEntries(
     agentIds: string[],
     nextEntries: Record<string, ClusterBroadcastResult>,
@@ -1915,6 +2606,13 @@ function mergeLatestSuccessfulEntries(
     return merged;
 }
 
+/**
+ * 格式化轮次条目
+ * @param agentIds - 智能体ID列表
+ * @param entries - 记录条目
+ * @param agentMap - 智能体映射
+ * @returns 格式化的条目字符串
+ */
 function formatRoundEntries(
     agentIds: string[],
     entries: Record<string, ClusterBroadcastResult>,
@@ -1925,6 +2623,11 @@ function formatRoundEntries(
         .join('\n\n');
 }
 
+/**
+ * 获取协作文档轮次提示词标题
+ * @param kind - 轮次类型
+ * @returns 标题
+ */
 function getCollaborationRoundPromptTitle(kind: ClusterCollaborationRoundKind): string {
     switch (kind) {
         case 'opening':
@@ -1940,6 +2643,11 @@ function getCollaborationRoundPromptTitle(kind: ClusterCollaborationRoundKind): 
     }
 }
 
+/**
+ * 构建开场风格指令
+ * @param style - 协作风格
+ * @returns 风格指令
+ */
 function buildOpeningStyleInstruction(style: ClusterWorkspaceConfig['collaborationStyle']): string {
     switch (style) {
         case 'round-robin':
@@ -1954,6 +2662,13 @@ function buildOpeningStyleInstruction(style: ClusterWorkspaceConfig['collaborati
     }
 }
 
+/**
+ * 获取同行评审指令
+ * @param style - 协作风格
+ * @param critiqueLevel - 评审级别
+ * @param participantCount - 参与者数量
+ * @returns 同行评审指令
+ */
 function getPeerReviewInstruction(
     style: ClusterWorkspaceConfig['collaborationStyle'],
     critiqueLevel: ClusterWorkspaceConfig['critiqueLevel'],
@@ -1982,6 +2697,11 @@ function getPeerReviewInstruction(
     return baseline;
 }
 
+/**
+ * 构建修订指令
+ * @param style - 协作风格
+ * @returns 修订指令
+ */
 function buildRevisionInstruction(style: ClusterWorkspaceConfig['collaborationStyle']): string {
     switch (style) {
         case 'review-board':
@@ -1996,6 +2716,11 @@ function buildRevisionInstruction(style: ClusterWorkspaceConfig['collaborationSt
     }
 }
 
+/**
+ * 构建交付指令
+ * @param style - 交付风格
+ * @returns 交付指令
+ */
 function buildDeliveryInstruction(style: ClusterWorkspaceConfig['deliveryStyle']): string {
     switch (style) {
         case 'fast':
@@ -2008,6 +2733,11 @@ function buildDeliveryInstruction(style: ClusterWorkspaceConfig['deliveryStyle']
     }
 }
 
+/**
+ * 构建风险指令
+ * @param level - 评审级别
+ * @returns 风险指令
+ */
 function buildRiskInstruction(level: ClusterWorkspaceConfig['critiqueLevel']): string {
     switch (level) {
         case 'minimal':
@@ -2020,6 +2750,11 @@ function buildRiskInstruction(level: ClusterWorkspaceConfig['critiqueLevel']): s
     }
 }
 
+/**
+ * 构建协调者风格指令
+ * @param style - 协作风格
+ * @returns 协调者风格指令
+ */
 function buildCoordinatorStyleInstruction(style: ClusterWorkspaceConfig['collaborationStyle']): string {
     switch (style) {
         case 'review-board':
@@ -2034,12 +2769,19 @@ function buildCoordinatorStyleInstruction(style: ClusterWorkspaceConfig['collabo
     }
 }
 
+/**
+ * 解析停止条件评估
+ * @param evaluation - 评估结果
+ * @param judgeAgentId - 评估智能体ID
+ * @param reviewRound - 评审轮次
+ * @returns 停止条件评估
+ */
 function parseStopConditionEvaluation(
     evaluation: ClusterBroadcastResult,
     judgeAgentId: string,
     reviewRound: number
 ): ClusterStopConditionEvaluation {
-    const rawContent = evaluation.message?.content || evaluation.error || '';
+    const rawContent = extractStopConditionText(evaluation) || evaluation.error || '';
     const decisionMatch = rawContent.match(/Decision:\s*(STOP|CONTINUE)/i);
     const reasonMatch = rawContent.match(/Reason:\s*([\s\S]+)/i);
     const decision = (decisionMatch?.[1] || '').toUpperCase();
@@ -2053,6 +2795,75 @@ function parseStopConditionEvaluation(
     };
 }
 
+function extractStopConditionText(evaluation: ClusterBroadcastResult): string {
+    const fromMessage = extractChatMessageText(evaluation.message);
+    if (fromMessage) {
+        return fromMessage;
+    }
+
+    const trace = Array.isArray(evaluation.trace) ? evaluation.trace : [];
+    for (let index = trace.length - 1; index >= 0; index -= 1) {
+        const message = trace[index];
+        if (message?.role !== 'assistant') {
+            continue;
+        }
+
+        const text = extractChatMessageText(message);
+        if (text) {
+            return text;
+        }
+    }
+
+    return '';
+}
+
+function extractChatMessageText(message?: ChatMessage | null): string {
+    if (!message) {
+        return '';
+    }
+
+    const content = String(message.content || '').trim();
+    if (content) {
+        return content;
+    }
+
+    if (!Array.isArray(message.parts) || message.parts.length === 0) {
+        return '';
+    }
+
+    const partsText = message.parts
+        .map(part => {
+            if (!part || typeof part !== 'object') {
+                return '';
+            }
+
+            if (part.type === 'text') {
+                return String(part.text || '');
+            }
+
+            if (part.type === 'thinking') {
+                return String(part.thinking || '');
+            }
+
+            if (part.type === 'toolResult') {
+                return String(part.result || '');
+            }
+
+            return '';
+        })
+        .filter(Boolean)
+        .join('\n')
+        .trim();
+
+    return partsText;
+}
+
+/**
+ * 构建停止条件摘要
+ * @param workspaceConfig - 工作区配置
+ * @param evaluation - 停止条件评估
+ * @returns 停止条件摘要
+ */
 function buildStopConditionSummary(
     workspaceConfig: ClusterWorkspaceConfig,
     evaluation: ClusterStopConditionEvaluation | null
@@ -2076,11 +2887,23 @@ function buildStopConditionSummary(
     return `Stop condition was enabled: ${workspaceConfig.stopCondition.trim()}\nLatest judge note after round ${evaluation.reviewRound}: ${evaluation.reason}`;
 }
 
+/**
+ * 集群简介行
+ * @param workspaceConfig - 工作区配置
+ * @returns 简介行
+ */
 function clusterBriefingLine(workspaceConfig: ClusterWorkspaceConfig): string {
     const briefing = workspaceConfig.briefing?.trim();
     return briefing ? `Cluster briefing: ${briefing}` : 'Cluster briefing: keep the result coherent and user-facing.';
 }
 
+/**
+ * 构建委托广播提示词
+ * @param clusterName - 集群名称
+ * @param userMessage - 用户消息
+ * @param delegatedContext - 委托上下文
+ * @returns 委托广播提示词
+ */
 function buildDelegatedBroadcastPrompt(
     clusterName: string,
     userMessage: string,
@@ -2102,6 +2925,11 @@ function buildDelegatedBroadcastPrompt(
     ].join('\n');
 }
 
+/**
+ * 构建委托唤醒上下文行
+ * @param delegatedContext - 委托上下文
+ * @returns 上下文行列表
+ */
 function buildDelegatedWakeContextLines(delegatedContext: {
     delegatedByAgentId: string;
     routeAgentIds: string[];
@@ -2117,8 +2945,17 @@ function buildDelegatedWakeContextLines(delegatedContext: {
     ];
 }
 
+/**
+ * 提取 Swarm 结果上下文
+ * @param result - Swarm 结果
+ * @returns 上下文内容
+ */
 function extractSwarmResultContext(result: ClusterBroadcastResult | null): string {
     if (!result) {
+        return '';
+    }
+
+    if (!result.ok || (result.deliveryStatus && result.deliveryStatus !== 'sent')) {
         return '';
     }
 
@@ -2126,10 +2963,66 @@ function extractSwarmResultContext(result: ClusterBroadcastResult | null): strin
     if (messageContent) {
         return messageContent;
     }
-
-    return result.error || '';
+    return '';
 }
 
+function buildSwarmDeliveryContext(
+    options: {
+        clusterId: string;
+        mode: 'broadcast' | 'collaborate';
+        swarm?: SwarmSendContext;
+    },
+    agentId: string
+): SwarmDeliveryContext | undefined {
+    if (!options.swarm) {
+        return undefined;
+    }
+
+    const base = options.swarm;
+    const phase = base.phase || 'unknown';
+    const dependencyKey = `${base.swarmRunId}:${sanitizeSegment(phase)}:${agentId}`;
+
+    return {
+        swarmRunId: base.swarmRunId,
+        clusterId: options.clusterId,
+        mode: options.mode,
+        round: base.round,
+        phase,
+        sourceAgentId: base.sourceAgentId,
+        targetAgentId: base.targetAgentId || agentId,
+        messageKind: base.messageKind,
+        dependencyKey,
+        transactionGroupId: base.transactionGroupId,
+        expectedGroupSize: base.expectedGroupSize,
+        groupCompletionPolicy: base.groupCompletionPolicy,
+        requiresDeliveryForProgress: base.requiresDeliveryForProgress ?? true
+    };
+}
+
+function buildSwarmRunId(clusterId: string, mode: 'broadcast' | 'collaborate'): string {
+    const base = sanitizeSegment(clusterId) || 'cluster';
+    const suffix = Math.random().toString(36).slice(2, 8);
+    return `${base}-${mode}-${Date.now().toString(36)}-${suffix}`;
+}
+
+function buildSwarmTransactionGroupId(swarmRunId: string, phase: string): string {
+    const phaseKey = sanitizeSegment(phase) || 'phase';
+    return `${swarmRunId}:${phaseKey}`;
+}
+
+function sanitizeSegment(value: string): string {
+    return String(value || '')
+        .replace(/[^a-zA-Z0-9_-]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/(^-|-$)/g, '');
+}
+
+/**
+ * 构建成员档案提示词行
+ * @param workspaceConfig - 工作区配置
+ * @param agentId - 智能体ID
+ * @returns 提示词行列表
+ */
 function buildMemberProfilePromptLines(
     workspaceConfig: ClusterWorkspaceConfig,
     agentId: string
@@ -2149,6 +3042,12 @@ function buildMemberProfilePromptLines(
     return lines;
 }
 
+/**
+ * 构建协调者档案提示词行
+ * @param workspaceConfig - 工作区配置
+ * @param agentId - 智能体ID
+ * @returns 提示词行列表
+ */
 function buildCoordinatorProfilePromptLines(
     workspaceConfig: ClusterWorkspaceConfig,
     agentId: string
