@@ -7,27 +7,27 @@ import { getCurrentLocale, MESSAGES } from '../../i18n';
  * List of panel script files to include in the webview
  */
 const PANEL_SCRIPT_FILES = [
-    'i18n.js',
-    'markdownRenderer.js',
-    'panelCommon.js',
-    'panelFeedback.js',
-    'panelCore.js',
-    'panelView.js',
-    'panelConsole.js',
-    'panelChat.js',
-    'panelMessageRender.js',
-    'panelMessageEnvelope.js',
-    'panelMessageTools.js',
-    'panelFormat.js',
-    'panelAgents.js',
-    'panelChannels.js',
-    'panelAgentForms.js',
-    'panelModals.js',
-    'panelClusters.js',
-    'panelClusterWorkspace.js',
-    'panelClusterConversation.js',
-    'panelTasksUsage.js',
-    'panel.js'
+    'js/i18n.js',
+    'js/markdownRenderer.js',
+    'js/panelCommon.js',
+    'js/panelFeedback.js',
+    'js/panelCore.js',
+    'js/panelView.js',
+    'js/panelConsole.js',
+    'js/panelChat.js',
+    'js/panelMessageRender.js',
+    'js/panelMessageEnvelope.js',
+    'js/panelMessageTools.js',
+    'js/panelFormat.js',
+    'js/panelAgents.js',
+    'js/panelChannels.js',
+    'js/panelAgentForms.js',
+    'js/panelModals.js',
+    'js/panelClusters.js',
+    'js/panelClusterWorkspace.js',
+    'js/panelClusterConversation.js',
+    'js/panelTasksUsage.js',
+    'js/panel.js'
 ] as const;
 
 /**
