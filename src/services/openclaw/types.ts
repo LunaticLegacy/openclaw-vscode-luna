@@ -265,6 +265,53 @@ export interface SwarmDeliveryContext {
     requiresDeliveryForProgress?: boolean;
 }
 
+export type SwarmMode = 'broadcast' | 'collaborate';
+
+export type SwarmRunLifecycleStatus =
+    | 'running'
+    | 'stopping'
+    | 'stopped'
+    | 'completed'
+    | 'failed';
+
+export type SwarmRunPhase =
+    | 'broadcast'
+    | 'opening'
+    | 'critique'
+    | 'revision'
+    | 'stop-condition'
+    | 'synthesis';
+
+export interface SwarmRoundSnapshotEntry {
+    agentId: string;
+    ok: boolean;
+    content?: string;
+    error?: string;
+}
+
+export interface SwarmRoundSnapshot {
+    runId: string;
+    round: number;
+    phase: 'opening' | 'critique' | 'revision';
+    entries: Record<string, SwarmRoundSnapshotEntry>;
+    createdAt: string;
+}
+
+export interface SwarmRunState {
+    runId: string;
+    clusterId: string;
+    mode: SwarmMode;
+    status: SwarmRunLifecycleStatus;
+    phase: SwarmRunPhase;
+    currentRound: number;
+    coordinatorAgentId: string | null;
+    startedAt: string;
+    stoppedAt?: string;
+    stopReason?: string;
+    cancellationRequested: boolean;
+    snapshots?: SwarmRoundSnapshot[];
+}
+
 /**
  * Options for streaming a message.
  */

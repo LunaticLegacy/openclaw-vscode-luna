@@ -45,6 +45,9 @@ export function classifySendFailure(error: unknown): { failureClass: FailureClas
     if (message.includes('unauthorized') || message.includes('forbidden')) {
         return { failureClass: 'permanent', retryable: false, reason: 'auth' };
     }
+    if (message.includes('missing scope')) {
+        return { failureClass: 'permanent', retryable: false, reason: 'auth-scope' };
+    }
     if (message.includes('not found') || message.includes('invalid')) {
         return { failureClass: 'permanent', retryable: false, reason: 'invalid' };
     }

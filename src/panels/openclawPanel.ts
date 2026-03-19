@@ -98,6 +98,14 @@ import { handlePanelMessage } from './openclawPanel/messageRouter';
 
 const SESSION_SYNC_INTERVAL_MS = 450;
 const CHANNEL_SYNC_INTERVAL_MS = 450;
+
+interface ChatSubagentRecord {
+    id: string;
+    label: string;
+    parentAgentId?: string;
+    status?: string;
+    model?: string;
+}
 const OPENCLAW_LUNA_ISSUES_URL = 'https://github.com/LunaticLegacy/openclaw-vscode-luna/issues';
 
 /**
@@ -374,6 +382,7 @@ export class OpenClawPanel {
             await this._agentFolderManager.pruneMissingAgents(agents.map(agent => agent.id));
             const folders = await this._agentFolderManager.getFolders();
             const models = await this._service.getAvailableModels(agents);
+            const subagents = await this._loadChatSubagentInventory(agents);
             this._postMessage({
                 type: 'agentsLoaded',
                 agents: agents.map(a => ({
@@ -389,7 +398,8 @@ export class OpenClawPanel {
                 folders,
                 models,
                 presets: getAgentPresets(),
-                aiSkills: getAiSkills()
+                aiSkills: getAiSkills(),
+                subagents
             });
 
             const currentAgentStillExists = this._currentAgentId
@@ -418,6 +428,48 @@ export class OpenClawPanel {
                 type: 'agentsLoadFailed',
                 message: t('panel.failedLoadAgents', { error: String(error) })
             });
+        }
+    }
+
+    private async _loadChatSubagentInventory(agents: Array<{ id: string; name: string }>): Promise<ChatSubagentRecord[]> {
+        const stateDir = this._service.getOpenClawConfig()?.stateDir
+            || this._openClawConfigState?.stateDir
+            || this._runtimeDiagnostics?.detectedStateDir
+            || this._runtimeDiagnostics?.configuredStateDir
+            || path.join(process.env.USERPROFILE || process.env.HOME || '', '.openclaw');
+        if (!stateDir) {
+            return [];
+        }
+
+        const runsPath = path.join(stateDir, 'subagents', 'runs.json');
+        try {
+            if (!fs.existsSync(runsPath)) {
+                return [];
+            }
+
+            const content = await fs.promises.readFile(runsPath, 'utf8');
+            const parsed = JSON.parse(content) as { runs?: Record<string, any> };
+            const agentIds = new Set(agents.map(agent => agent.id));
+            const records = Object.entries(parsed.runs || {}).map(([runId, raw]) => {
+                const payload = raw && typeof raw === 'object' ? raw : {};
+                const parentAgentId = [
+                    payload.parentAgentId,
+                    payload.ownerAgentId,
+                    payload.rootAgentId,
+                    payload.agentId
+                ].map(value => String(value || '').trim()).find(Boolean);
+                return {
+                    id: String(payload.id || runId || '').trim(),
+                    label: String(payload.name || payload.title || payload.id || runId || '').trim(),
+                    parentAgentId,
+                    status: String(payload.status || payload.state || '').trim() || undefined,
+                    model: String(payload.model || payload.modelId || '').trim() || undefined
+                };
+            }).filter(item => item.id && (!item.parentAgentId || agentIds.has(item.parentAgentId)));
+
+            return records.sort((left, right) => left.label.localeCompare(right.label));
+        } catch {
+            return [];
         }
     }
 
@@ -1382,8 +1434,13 @@ export class OpenClawPanel {
      * @param clusterId - The cluster ID
      * @param mode - The swarm mode
      */
-    private async _loadClusterSwarmMessages(clusterId: string, mode: 'broadcast' | 'collaborate') {
-        await loadClusterSwarmMessagesAction(this._createClusterActionContext(), clusterId, mode);
+    private async _loadClusterSwarmMessages(
+        clusterId: string,
+        mode: 'broadcast' | 'collaborate',
+        outputMode: 'frontend' | 'raw' = 'frontend',
+        swarmRunId?: string
+    ) {
+        await loadClusterSwarmMessagesAction(this._createClusterActionContext(), clusterId, mode, outputMode, swarmRunId);
     }
 
     /**

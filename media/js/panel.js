@@ -25,9 +25,13 @@
             case 'agentsLoaded':
                 state.aiSkills = Array.isArray(message.aiSkills) ? message.aiSkills : state.aiSkills;
                 state.availableModels = Array.isArray(message.models) ? message.models : state.availableModels;
+                state.chatSubagents = Array.isArray(message.subagents) ? message.subagents : [];
                 renderAgents(message.agents, message.folders);
                 populateModelSelect(message.models || []);
                 setAgentPresets(message.presets || state.agentPresets);
+                if (typeof renderChatCommandBar === 'function') {
+                    renderChatCommandBar();
+                }
                 break;
 
             case 'agentMutationState':
@@ -95,6 +99,9 @@
                 state.currentAgentId = message.agentId;
                 renderAgents(state.agents);
                 renderConsoleOverview();
+                if (typeof renderChatCommandBar === 'function') {
+                    renderChatCommandBar();
+                }
                 break;
                 
             case 'setInputText':
@@ -312,7 +319,10 @@
                 break;
 
             case 'setClusterSwarmContextLoading':
-                setSwarmConversationLoading(message.clusterId, message.mode, message.loading);
+                setSwarmConversationLoading(message.clusterId, message.mode, message.loading, {
+                    swarmRunId: message.swarmRunId,
+                    outputMode: message.outputMode
+                });
                 break;
 
             case 'setClusterAgentSwarmContextLoading':
@@ -329,7 +339,9 @@
 
             case 'replaceSwarmMessages':
                 replaceSwarmConversationMessages(message.clusterId, message.mode, message.messages || [], {
-                    keepPending: Boolean(message.keepPending)
+                    swarmRunId: message.swarmRunId,
+                    keepPending: Boolean(message.keepPending),
+                    outputMode: message.outputMode
                 });
                 break;
 
@@ -344,7 +356,10 @@
                 break;
 
             case 'clusterRunFailed':
-                clearSwarmConversationPending(message.clusterId, message.mode);
+                clearSwarmConversationPending(message.clusterId, message.mode, {
+                    swarmRunId: message.swarmRunId,
+                    outputMode: message.outputMode
+                });
                 break;
 
             case 'agentsLoadFailed':

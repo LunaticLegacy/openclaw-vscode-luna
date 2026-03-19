@@ -85,9 +85,14 @@
                 elements.clusterModeTabs.innerHTML = '';
                 elements.clusterModeTabs.classList.add('hidden');
             }
+            if (elements.clusterOutputModeTabs) {
+                elements.clusterOutputModeTabs.innerHTML = '';
+                elements.clusterOutputModeTabs.classList.add('hidden');
+            }
             if (elements.clusterTopology) {
                 elements.clusterTopology.innerHTML = '';
             }
+            renderClusterTopSection(null);
             if (elements.clusterMessageInput) {
                 elements.clusterMessageInput.disabled = true;
             }
@@ -127,6 +132,7 @@
         if (elements.clusterTitle) {
             elements.clusterTitle.textContent = cluster.name;
         }
+        renderClusterTopSection(cluster);
         if (elements.clusterBriefing) {
             const briefing = String(getClusterWorkModeConfig(cluster).briefing || '').trim();
             elements.clusterBriefing.textContent = briefing;
@@ -170,10 +176,118 @@
 
         renderClusterTargetTabs(cluster);
         renderClusterModeTabs();
+        renderClusterOutputModeTabs();
         ensureCurrentClusterConversationLoaded(cluster);
         renderClusterTopology(cluster);
         renderCurrentClusterConversation();
         updateClusterInputState(cluster);
+    }
+
+    function renderClusterTopSection(cluster) {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        const modeLabel = cluster
+            ? t(state.currentClusterSwarmMode === 'collaborate' ? 'clusters.collaborate' : 'clusters.broadcast')
+            : t('clusters.broadcast');
+        const title = cluster?.name || 'Cluster';
+        const statusLabel = cluster ? resolveClusterStatusLabel(cluster.status) : 'Inactive';
+        const countLabel = cluster
+            ? t('clusterTree.agentsCount', { count: cluster.agentIds.length })
+            : t('clusterTree.agentsCount', { count: 0 });
+        const collapsed = Boolean(state.clusterTopSectionCollapsed);
+
+        if (elements.clusterTopSectionCollapsedTitle) {
+            elements.clusterTopSectionCollapsedTitle.textContent = title;
+        }
+        if (elements.clusterTopSectionCollapsedMode) {
+            elements.clusterTopSectionCollapsedMode.textContent = modeLabel;
+        }
+        if (elements.clusterTopSectionCollapsedCount) {
+            elements.clusterTopSectionCollapsedCount.textContent = countLabel;
+        }
+        if (elements.clusterTopSectionCollapsedStatus) {
+            elements.clusterTopSectionCollapsedStatus.textContent = statusLabel;
+        }
+        updateClusterTopSectionToggle(elements.btnToggleClusterTopSection, collapsed);
+        updateClusterTopSectionToggle(elements.btnToggleClusterTopSectionCollapsed, collapsed);
+        applyClusterTopSectionCollapsedState(collapsed);
+    }
+
+    function updateClusterTopSectionToggle(button, collapsed) {
+        if (!button) {
+            return;
+        }
+
+        const label = collapsed ? 'Expand' : 'Collapse';
+        const title = collapsed ? 'Expand swarm header' : 'Collapse swarm header';
+        const icon = collapsed ? '&#9654;' : '&#9660;';
+        button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        button.setAttribute('title', title);
+
+        const iconElement = button.querySelector('.cluster-section-toggle-icon');
+        if (iconElement) {
+            iconElement.innerHTML = icon;
+        }
+
+        const labelElement = button.querySelector('.cluster-section-toggle-label');
+        if (labelElement) {
+            labelElement.textContent = label;
+        }
+    }
+
+    function applyClusterTopSectionCollapsedState(collapsed) {
+        const topSection = elements.clusterTopSection;
+        const collapsedBar = elements.clusterTopSectionCollapsedBar;
+        const body = elements.clusterTopSectionBody;
+        if (!topSection || !collapsedBar || !body) {
+            return;
+        }
+
+        const wasInitialized = topSection.dataset.initialized === 'true';
+        const previousCollapsed = topSection.dataset.collapsed === 'true';
+        topSection.dataset.collapsed = collapsed ? 'true' : 'false';
+        topSection.classList.toggle('collapsed', collapsed);
+        collapsedBar.classList.toggle('hidden', !collapsed);
+
+        if (!wasInitialized) {
+            topSection.dataset.initialized = 'true';
+            body.style.height = collapsed ? '0px' : '';
+            body.classList.toggle('is-collapsed', collapsed);
+            body.style.overflow = collapsed ? 'hidden' : '';
+            return;
+        }
+
+        if (previousCollapsed === collapsed) {
+            return;
+        }
+
+        animateClusterTopSectionBody(body, collapsed);
+    }
+
+    function animateClusterTopSectionBody(body, collapsed) {
+        const endHeight = collapsed ? 0 : body.scrollHeight;
+        const startHeight = collapsed ? body.scrollHeight : 0;
+
+        body.classList.remove('is-collapsed');
+        body.style.overflow = 'hidden';
+        body.style.height = `${startHeight}px`;
+        body.getBoundingClientRect();
+
+        requestAnimationFrame(() => {
+            body.style.height = `${endHeight}px`;
+        });
+
+        const handleTransitionEnd = (event) => {
+            if (event.target !== body || event.propertyName !== 'height') {
+                return;
+            }
+
+            body.removeEventListener('transitionend', handleTransitionEnd);
+            body.classList.toggle('is-collapsed', collapsed);
+            body.style.overflow = collapsed ? 'hidden' : '';
+            body.style.height = collapsed ? '0px' : '';
+        };
+
+        body.addEventListener('transitionend', handleTransitionEnd);
     }
 
     function renderClusterTopology(cluster) {
@@ -345,6 +459,68 @@
         `).join('');
     }
 
+    function renderClusterOutputModeTabs() {
+        if (!elements.clusterOutputModeTabs) {
+            return;
+        }
+
+        const cluster = getCurrentCluster();
+        const target = getCurrentClusterTargetInfo(cluster);
+        if (!cluster || isReplayCluster(cluster) || target.kind !== 'swarm' || target.mode !== 'collaborate') {
+            elements.clusterOutputModeTabs.classList.add('hidden');
+            elements.clusterOutputModeTabs.innerHTML = '';
+            return;
+        }
+
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        const runOptions = getKnownSwarmConversationRuns(cluster.id, target.mode);
+        const selectedRunId = target.swarmRunId || getSelectedSwarmConversationRunId(cluster.id, target.mode);
+        elements.clusterOutputModeTabs.classList.remove('hidden');
+        elements.clusterOutputModeTabs.innerHTML = `
+            <div class="cluster-output-mode-strip">
+                <div class="cluster-output-mode-buttons">
+                    ${[
+                        { value: 'frontend', label: t('clusters.frontendView') || 'Frontend View' },
+                        { value: 'raw', label: t('clusters.rawSwarmLog') || 'Raw Log' }
+                    ].map(option => `
+                        <button
+                            class="cluster-mode-tab ${state.currentClusterSwarmOutputMode === option.value ? 'active' : ''}"
+                            type="button"
+                            data-cluster-output-mode="${escapeHtml(option.value)}"
+                        >
+                            ${escapeHtml(option.label)}
+                        </button>
+                    `).join('')}
+                </div>
+                ${runOptions.length > 0 ? `
+                    <label class="cluster-run-select-wrap">
+                        <span class="cluster-run-select-label">${escapeHtml(t('clusters.runLabel') || 'Run')}</span>
+                        <select class="cluster-run-select" data-cluster-swarm-run-select>
+                            ${runOptions.map((runId, index) => {
+                                const isActive = runId === getActiveSwarmConversationRunId(cluster.id, target.mode);
+                                const label = isActive
+                                    ? `${t('clusters.currentRun') || 'Current'} · ${shortenSwarmRunId(runId)}`
+                                    : `${t('clusters.runLabel') || 'Run'} ${runOptions.length - index} · ${shortenSwarmRunId(runId)}`;
+                                return `<option value="${escapeHtml(runId)}" ${runId === selectedRunId ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+                            }).join('')}
+                        </select>
+                    </label>
+                ` : ''}
+            </div>
+        `;
+    }
+
+    function shortenSwarmRunId(runId) {
+        const normalized = String(runId || '').trim();
+        if (!normalized) {
+            return '';
+        }
+
+        return normalized.length <= 18
+            ? normalized
+            : `${normalized.slice(0, 8)}…${normalized.slice(-6)}`;
+    }
+
     function renderCurrentClusterConversation() {
         if (!elements.clusterMessages) {
             return;
@@ -374,7 +550,11 @@
         if (conversation.messages.length === 0 && !conversation.pending) {
             sections.push(`<div class="cluster-empty-conversation">${escapeHtml(getClusterEmptyConversationCopy(cluster, target))}</div>`);
         } else {
-            sections.push(buildClusterConversationEntries(conversation.messages).map(renderClusterConversationEntry).join(''));
+            sections.push(
+                isRawClusterSwarmView(target)
+                    ? buildRawClusterConversationEntries(conversation.messages).map(renderClusterConversationEntry).join('')
+                    : buildClusterConversationEntries(conversation.messages).map(renderClusterConversationEntry).join('')
+            );
         }
 
         if (conversation.pending) {
@@ -434,6 +614,21 @@
         return entries;
     }
 
+    function buildRawClusterConversationEntries(messages) {
+        return (Array.isArray(messages) ? messages : [])
+            .filter(msg => msg && !shouldHideMessage(msg))
+            .map(message => ({
+                kind: 'message',
+                message
+            }));
+    }
+
+    function isRawClusterSwarmView(target) {
+        return target?.kind === 'swarm'
+            && target?.mode === 'collaborate'
+            && target?.outputMode === 'raw';
+    }
+
     function shouldAppendToClusterTrace(msg) {
         if (msg?.role === 'tool') {
             return true;
@@ -443,13 +638,31 @@
             return false;
         }
 
+        if (isBroadcastClusterMessage(msg)) {
+            return hasStructuredClusterTraceContent(msg);
+        }
+
         return Boolean(msg.displayName)
             || Boolean(msg.contextLabel)
-            || isToolUseMessage(msg);
+            || hasStructuredClusterTraceContent(msg);
     }
 
     function getClusterTraceBatchKey(msg) {
         return String(msg?.metadata?.swarmBatchId || '');
+    }
+
+    function isBroadcastClusterMessage(msg) {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        return (msg?.contextLabel || '') === t('clusters.broadcast');
+    }
+
+    function hasStructuredClusterTraceContent(msg) {
+        if (isToolUseMessage(msg)) {
+            return true;
+        }
+
+        return Array.isArray(msg?.parts)
+            && msg.parts.some(part => part?.type === 'toolCall' || part?.type === 'toolResult');
     }
 
     function sanitizeClusterConversationMessages(messages) {
@@ -709,7 +922,9 @@
             vscode.postMessage({
                 type: 'loadClusterSwarmMessages',
                 clusterId: cluster.id,
-                mode: target.mode
+                mode: target.mode,
+                outputMode: target.outputMode || 'frontend',
+                swarmRunId: target.swarmRunId || undefined
             });
             return;
         }
@@ -773,11 +988,44 @@
         if (cluster && isReplayCluster(cluster)) {
             const replay = getClusterReplay(cluster);
             state.currentClusterSwarmMode = replay?.mode === 'collaborate' ? 'collaborate' : 'broadcast';
+            state.currentClusterSwarmOutputMode = 'frontend';
             renderClusterWorkspace();
             return;
         }
 
         state.currentClusterSwarmMode = mode;
+        if (mode !== 'collaborate') {
+            state.currentClusterSwarmOutputMode = 'frontend';
+        }
+        renderClusterWorkspace();
+    }
+
+    function selectClusterSwarmOutputMode(outputMode) {
+        if (!['frontend', 'raw'].includes(outputMode)) {
+            return;
+        }
+
+        const cluster = getCurrentCluster();
+        if (!cluster || isReplayCluster(cluster) || state.currentClusterTargetKind !== 'swarm' || state.currentClusterSwarmMode !== 'collaborate') {
+            return;
+        }
+
+        state.currentClusterSwarmOutputMode = outputMode;
+        renderClusterWorkspace();
+    }
+
+    function selectClusterSwarmRun(runId) {
+        const cluster = getCurrentCluster();
+        if (!cluster || isReplayCluster(cluster) || state.currentClusterTargetKind !== 'swarm') {
+            return;
+        }
+
+        const normalizedRunId = String(runId || '').trim();
+        if (!normalizedRunId) {
+            return;
+        }
+
+        setSelectedSwarmConversationRunId(cluster.id, state.currentClusterSwarmMode, normalizedRunId);
         renderClusterWorkspace();
     }
 
@@ -896,6 +1144,7 @@
             ? result.rounds
             : [{
                 kind: 'revision-2',
+                descriptor: buildFallbackCollaborationRoundDescriptor('revision-2'),
                 entries: result.contributions || {}
             }];
         const finalAnswerHtml = result.synthesis?.ok && result.synthesis.message
@@ -909,7 +1158,7 @@
             }
 
             return `
-                <h4>${escapeHtml(getCollaborationRoundLabel(round.kind, t))}</h4>
+                <h4>${escapeHtml(getCollaborationRoundLabel(round, t))}</h4>
                 ${roundAgentIds.map(agentId => {
                     const entry = round.entries[agentId];
                     return `

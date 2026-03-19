@@ -391,6 +391,49 @@
                         </div>
                     </div>
 
+                    <div id="chat-command-bar" class="chat-command-bar">
+                        <button
+                            id="btn-toggle-chat-command-bar"
+                            class="chat-command-bar-toggle"
+                            type="button"
+                            aria-expanded="true"
+                            title="Collapse chat toolbar"
+                        >
+                            <span id="chat-command-bar-toggle-icon" class="chat-command-bar-toggle-icon" aria-hidden="true">&#9660;</span>
+                            <span class="chat-command-bar-toggle-copy">
+                                <span class="chat-command-bar-title" data-i18n="chat.commandBar.title">Chat Toolbar</span>
+                                <span id="chat-command-bar-summary" class="chat-command-bar-summary">0 subagents · OpenClaw commands</span>
+                            </span>
+                        </button>
+                        <div id="chat-command-bar-body" class="chat-command-bar-body">
+                            <div class="chat-command-pane">
+                                <div class="chat-command-pane-head">
+                                    <span class="chat-command-pane-label" data-i18n="chat.subagents.title">Subagents</span>
+                                    <span id="chat-subagents-count" class="chat-command-pane-meta">0</span>
+                                </div>
+                                <div class="chat-command-pane-body">
+                                    <select id="chat-subagent-select" class="chat-command-select">
+                                        <option value="" data-i18n="chat.subagents.none">No subagents</option>
+                                    </select>
+                                    <button id="btn-chat-insert-subagent-command" class="btn btn-secondary btn-small" type="button" data-i18n="chat.subagents.insert">Insert</button>
+                                </div>
+                            </div>
+                            <div class="chat-command-pane">
+                                <div class="chat-command-pane-head">
+                                    <span class="chat-command-pane-label" data-i18n="chat.openclawCommands.title">OpenClaw Commands</span>
+                                    <span class="chat-command-pane-meta" data-i18n="chat.openclawCommands.hint">Slash command helper</span>
+                                </div>
+                                <div class="chat-command-pane-body chat-command-pane-body-column">
+                                    <div class="chat-command-input-row">
+                                        <input id="chat-openclaw-command-input" class="chat-command-input" type="text" placeholder="/subagents" data-i18n-placeholder="chat.openclawCommands.placeholder" />
+                                        <button id="btn-chat-insert-openclaw-command" class="btn btn-secondary btn-small" type="button" data-i18n="chat.openclawCommands.insert">Insert</button>
+                                    </div>
+                                    <div id="chat-openclaw-command-tree" class="chat-command-tree"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div id="chat-messages" class="chat-messages">
                     </div>
 
@@ -425,51 +468,94 @@
                 </div>
 
                 <div id="cluster-workspace" class="cluster-workspace hidden">
-                    <div class="cluster-chat-header">
-                        <div class="cluster-chat-heading">
-                            <div class="cluster-chat-eyebrow" data-i18n="clusters.workspaceEyebrow">AI Swarm</div>
-                            <h2 id="cluster-title">Cluster</h2>
-                            <p id="cluster-briefing" class="cluster-briefing hidden"></p>
-                            <p id="cluster-subtitle" class="cluster-subtitle"></p>
-                            <div id="cluster-workmode-summary" class="cluster-workmode-summary"></div>
+                    <div id="cluster-top-section" class="cluster-top-section">
+                        <button
+                            id="btn-toggle-cluster-top-section"
+                            class="cluster-section-toggle cluster-section-toggle-floating"
+                            type="button"
+                            data-cluster-top-section-toggle
+                            aria-expanded="true"
+                            title="Collapse swarm header"
+                        >
+                            <span class="cluster-section-toggle-icon" aria-hidden="true">&#9660;</span>
+                            <span class="cluster-section-toggle-label">Collapse</span>
+                        </button>
+
+                        <div id="cluster-top-section-collapsed-bar" class="cluster-top-section-collapsed-bar hidden">
+                            <div class="cluster-top-section-summary">
+                                <div class="cluster-top-section-summary-copy">
+                                    <span id="cluster-top-section-collapsed-title" class="cluster-top-section-title">Cluster</span>
+                                    <div class="cluster-top-section-summary-meta">
+                                        <span id="cluster-top-section-collapsed-mode" class="cluster-top-section-mode">Broadcast</span>
+                                        <span id="cluster-top-section-collapsed-count" class="cluster-top-section-chip">0 agents</span>
+                                        <span id="cluster-top-section-collapsed-status" class="cluster-top-section-chip">Active</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <button
+                                id="btn-toggle-cluster-top-section-collapsed"
+                                class="cluster-section-toggle cluster-section-toggle-floating"
+                                type="button"
+                                data-cluster-top-section-toggle
+                                aria-expanded="false"
+                                title="Expand swarm header"
+                            >
+                                <span class="cluster-section-toggle-icon" aria-hidden="true">&#9654;</span>
+                                <span class="cluster-section-toggle-label">Expand</span>
+                            </button>
                         </div>
-                        <div class="cluster-header-actions">
-                            <button id="btn-import-cluster-replay" class="btn btn-secondary" data-i18n="clusters.importReplay">Import Replay JSON</button>
-                            <button id="btn-export-cluster-readable-context" class="btn btn-secondary" data-i18n="clusters.exportReadableContext">Export Readable Context</button>
-                            <button id="btn-export-cluster-raw-context" class="btn btn-secondary" data-i18n="clusters.exportRawContext">Export Raw Context</button>
-                            <button id="btn-export-cluster-swarm" class="btn btn-secondary" data-i18n="clusters.exportSwarm">Export Swarm JSON</button>
-                            <button id="btn-import-cluster-swarm" class="btn btn-secondary" data-i18n="clusters.importSwarm">Import Swarm JSON</button>
-                            <button id="btn-clear-cluster-replay" class="btn btn-secondary hidden" data-i18n="clusters.exitReplay">Exit Replay</button>
-                            <button id="btn-edit-cluster" class="btn btn-secondary" data-i18n="common.edit">Edit</button>
-                            <button id="btn-delete-current-cluster" class="btn btn-secondary" data-i18n="clusters.delete">Delete</button>
-                            <button id="btn-create-cluster-toolbar" class="btn btn-primary" data-i18n="clusters.create">Create Cluster</button>
+
+                        <div id="cluster-top-section-body" class="cluster-top-section-body">
+                            <div class="cluster-chat-header">
+                                <div class="cluster-chat-heading">
+                                    <div class="cluster-chat-eyebrow" data-i18n="clusters.workspaceEyebrow">AI Swarm</div>
+                                    <h2 id="cluster-title">Cluster</h2>
+                                    <p id="cluster-briefing" class="cluster-briefing hidden"></p>
+                                    <p id="cluster-subtitle" class="cluster-subtitle"></p>
+                                    <div id="cluster-workmode-summary" class="cluster-workmode-summary"></div>
+                                </div>
+                                <div class="cluster-header-actions">
+                                    <button id="btn-import-cluster-replay" class="btn btn-secondary" data-i18n="clusters.importReplay">Import Replay JSON</button>
+                                    <button id="btn-export-cluster-readable-context" class="btn btn-secondary" data-i18n="clusters.exportReadableContext">Export Readable Context</button>
+                                    <button id="btn-export-cluster-raw-context" class="btn btn-secondary" data-i18n="clusters.exportRawContext">Export Raw Context</button>
+                                    <button id="btn-export-cluster-swarm" class="btn btn-secondary" data-i18n="clusters.exportSwarm">Export Swarm JSON</button>
+                                    <button id="btn-import-cluster-swarm" class="btn btn-secondary" data-i18n="clusters.importSwarm">Import Swarm JSON</button>
+                                    <button id="btn-clear-cluster-replay" class="btn btn-secondary hidden" data-i18n="clusters.exitReplay">Exit Replay</button>
+                                    <button id="btn-edit-cluster" class="btn btn-secondary" data-i18n="common.edit">Edit</button>
+                                    <button id="btn-delete-current-cluster" class="btn btn-secondary" data-i18n="clusters.delete">Delete</button>
+                                    <button id="btn-create-cluster-toolbar" class="btn btn-primary" data-i18n="clusters.create">Create Cluster</button>
+                                </div>
+                            </div>
+
+                            <div class="cluster-toolbar">
+                                <div id="cluster-target-tabs" class="cluster-target-tabs"></div>
+                                <div id="cluster-mode-tabs" class="cluster-mode-tabs"></div>
+                                <div id="cluster-output-mode-tabs" class="cluster-mode-tabs hidden"></div>
+                                <div id="cluster-topology" class="cluster-topology"></div>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="cluster-toolbar">
-                        <div id="cluster-target-tabs" class="cluster-target-tabs"></div>
-                        <div id="cluster-mode-tabs" class="cluster-mode-tabs"></div>
-                        <div id="cluster-topology" class="cluster-topology"></div>
-                    </div>
+                    <div class="cluster-content">
+                        <div id="cluster-replay-banner" class="cluster-replay-banner hidden"></div>
 
-                    <div id="cluster-replay-banner" class="cluster-replay-banner hidden"></div>
+                        <div id="cluster-messages" class="chat-messages cluster-messages">
+                            <div class="loading" data-i18n="common.loading">Loading...</div>
+                        </div>
 
-                    <div id="cluster-messages" class="chat-messages cluster-messages">
-                        <div class="loading" data-i18n="common.loading">Loading...</div>
-                    </div>
-
-                    <div class="chat-input-container cluster-input-container">
-                        <div id="cluster-target-hint" class="cluster-target-hint"></div>
-                        <div class="input-wrapper">
-                            <textarea
-                                id="cluster-message-input"
-                                data-i18n-placeholder="clusters.chatPlaceholder"
-                                placeholder="Send a message to the current cluster target..."
-                                rows="3"
-                            ></textarea>
-                            <div class="input-actions">
-                                <button id="btn-stop-cluster" class="btn btn-danger hidden" type="button">Stop</button>
-                                <button id="btn-send-cluster" class="btn btn-primary" data-i18n="chat.send">Send</button>
+                        <div class="chat-input-container cluster-input-container">
+                            <div id="cluster-target-hint" class="cluster-target-hint"></div>
+                            <div class="input-wrapper">
+                                <textarea
+                                    id="cluster-message-input"
+                                    data-i18n-placeholder="clusters.chatPlaceholder"
+                                    placeholder="Send a message to the current cluster target..."
+                                    rows="3"
+                                ></textarea>
+                                <div class="input-actions">
+                                    <button id="btn-stop-cluster" class="btn btn-danger hidden" type="button">Stop</button>
+                                    <button id="btn-send-cluster" class="btn btn-primary" data-i18n="chat.send">Send</button>
+                                </div>
                             </div>
                         </div>
                     </div>
