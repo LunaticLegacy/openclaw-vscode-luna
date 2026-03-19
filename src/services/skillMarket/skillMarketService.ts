@@ -6,6 +6,7 @@ import {
     SkillDefinition,
     SkillSearchFilters,
     SkillInstallResult,
+    SkillInstallProgress,
     SkillMarketOverview,
     SkillHubDefinition,
     SkillHubStatus,
@@ -354,7 +355,10 @@ export class SkillMarketService extends EventEmitter {
         return localMatch || null;
     }
 
-    public async installSkill(skill: SkillDefinition): Promise<SkillInstallResult> {
+    public async installSkill(
+        skill: SkillDefinition,
+        options?: { onProgress?: (progress: SkillInstallProgress) => void }
+    ): Promise<SkillInstallResult> {
         if (!skill) {
             return { success: false, skill, error: 'Skill not provided' };
         }
@@ -374,18 +378,83 @@ export class SkillMarketService extends EventEmitter {
 
             let downloadedSkill = skill;
             try {
-                const response = await axios.get<any>(skill.downloadUrl, withProxyConfig({}, skill.downloadUrl));
-                if (response?.data && typeof response.data === 'object') {
-                    const hubProvider = this.hubProviders.find(p => p.getHub().id === skill.hubId);
-                    if (hubProvider) {
-                        const normalized = hubProvider.normalizeRemoteSkill(response.data);
-                        if (normalized) {
-                            downloadedSkill = {
-                                ...normalized,
-                                hubId: skill.hubId,
-                                hubName: skill.hubName,
-                                hubUrl: skill.hubUrl
-                            };
+                const response = await axios.get<NodeJS.ReadableStream>(skill.downloadUrl, withProxyConfig({
+                    responseType: 'stream'
+                }, skill.downloadUrl));
+                const downloadedBytes = { value: 0 };
+                const totalBytes = parseContentLengthHeader(response?.headers?.['content-length']);
+                let bytesAtLastTick = 0;
+                let lastReportedAt = Date.now();
+                let pendingProgress = false;
+                let latestBytesPerSecond = 0;
+                const notifyProgress = () => {
+                    pendingProgress = false;
+                    const percent = totalBytes && totalBytes > 0
+                        ? Math.max(0, Math.min(100, (downloadedBytes.value / totalBytes) * 100))
+                        : undefined;
+                    options?.onProgress?.({
+                        phase: 'downloading',
+                        downloadedBytes: downloadedBytes.value,
+                        totalBytes: totalBytes || undefined,
+                        bytesPerSecond: latestBytesPerSecond || undefined,
+                        percent
+                    });
+                };
+                const speedTimer = setInterval(() => {
+                    const now = Date.now();
+                    const elapsedSeconds = Math.max(1, (now - lastReportedAt) / 1000);
+                    latestBytesPerSecond = Math.max(0, Math.round((downloadedBytes.value - bytesAtLastTick) / elapsedSeconds));
+                    bytesAtLastTick = downloadedBytes.value;
+                    lastReportedAt = now;
+                    notifyProgress();
+                }, 1000);
+                speedTimer.unref?.();
+
+                const chunks: Buffer[] = [];
+                const stream = response.data;
+                if (!stream) {
+                    throw new Error('Empty download stream');
+                }
+
+                try {
+                    await new Promise<void>((resolve, reject) => {
+                        stream.on('data', (chunk: Buffer | string) => {
+                            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+                            chunks.push(buffer);
+                            downloadedBytes.value += buffer.length;
+                            pendingProgress = true;
+                        });
+                        stream.on('end', resolve);
+                        stream.on('error', reject);
+                    });
+                } finally {
+                    clearInterval(speedTimer);
+                }
+
+                if (pendingProgress || downloadedBytes.value > 0) {
+                    const now = Date.now();
+                    const elapsedSeconds = Math.max(0.001, (now - lastReportedAt) / 1000);
+                    latestBytesPerSecond = Math.max(0, Math.round((downloadedBytes.value - bytesAtLastTick) / elapsedSeconds));
+                    notifyProgress();
+                }
+
+                const bodyBuffer = Buffer.concat(chunks);
+                const contentType = String(response.headers?.['content-type'] || '').toLowerCase();
+                const bodyText = bodyBuffer.toString('utf8');
+                if (contentType.includes('json') || looksLikeJson(bodyText)) {
+                    const rawPayload = JSON.parse(bodyText);
+                    if (rawPayload && typeof rawPayload === 'object') {
+                        const hubProvider = this.hubProviders.find(p => p.getHub().id === skill.hubId);
+                        if (hubProvider) {
+                            const normalized = hubProvider.normalizeRemoteSkill(rawPayload);
+                            if (normalized) {
+                                downloadedSkill = {
+                                    ...normalized,
+                                    hubId: skill.hubId,
+                                    hubName: skill.hubName,
+                                    hubUrl: skill.hubUrl
+                                };
+                            }
                         }
                     }
                 }
@@ -393,6 +462,11 @@ export class SkillMarketService extends EventEmitter {
                 // Download failed or not JSON; fall back to provided metadata
             }
 
+            options?.onProgress?.({
+                phase: 'importing',
+                downloadedBytes: 0,
+                percent: 100
+            });
             await this.registry.importSkill(downloadedSkill);
             this.emit('installComplete', downloadedSkill);
             return { success: true, skill: downloadedSkill };
@@ -512,6 +586,17 @@ export class SkillMarketService extends EventEmitter {
         }
         return normalized;
     }
+}
+
+function parseContentLengthHeader(value: unknown): number | null {
+    const normalized = Array.isArray(value) ? value[0] : value;
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function looksLikeJson(value: string): boolean {
+    const trimmed = value.trim();
+    return trimmed.startsWith('{') || trimmed.startsWith('[');
 }
 
 function normalizeCategory(value: string): SkillCategory {

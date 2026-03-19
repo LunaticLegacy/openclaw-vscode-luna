@@ -1,5 +1,8 @@
 // Skill Market - Local Skill Registry
 import * as vscode from 'vscode';
+import * as fs from 'fs/promises';
+import * as os from 'os';
+import * as path from 'path';
 import { SkillDefinition, SkillCategory } from './types';
 import { EventEmitter } from 'events';
 
@@ -91,6 +94,25 @@ interface SkillState {
     enabledForAgents: string[]; // agent IDs
 }
 
+interface StoredSkillMetadata {
+    id?: string;
+    label?: string;
+    description?: string;
+    prompt?: string;
+    category?: SkillCategory;
+    tags?: string[];
+    source?: string;
+    hubId?: string;
+    hubName?: string;
+    hubUrl?: string;
+    version?: string;
+    downloads?: number;
+    installedAt?: string;
+    homepage?: string;
+}
+
+const SKILL_METADATA_FILE = '.openclaw-skill.json';
+
 export class LocalSkillRegistry extends EventEmitter {
     private skillStates: Map<string, SkillState> = new Map();
     private customSkills: Map<string, SkillDefinition> = new Map();
@@ -151,7 +173,8 @@ export class LocalSkillRegistry extends EventEmitter {
      * Get skills enabled for a specific agent
      */
     public getEnabledSkillsForAgent(agentId: string): SkillDefinition[] {
-        const allSkills = [...BUILT_IN_SKILLS, ...this.customSkills.values()];
+        const installedSkills = Array.from(this.customSkills.values());
+        const allSkills = [...BUILT_IN_SKILLS, ...installedSkills];
         return allSkills
             .filter(s => {
                 const state = this.skillStates.get(s.id);
@@ -233,21 +256,40 @@ export class LocalSkillRegistry extends EventEmitter {
      * Import skill from marketplace to local
      */
     public async importSkill(skill: SkillDefinition): Promise<void> {
-        const skillsDir = vscode.Uri.joinPath(this.context.globalStorageUri, 'skills');
-        await vscode.workspace.fs.createDirectory(skillsDir);
+        const skillsDir = await this.resolveOpenClawSkillsDir();
+        await fs.mkdir(skillsDir, { recursive: true });
 
-        const skillPath = vscode.Uri.joinPath(skillsDir, `${skill.id}.json`);
+        const skillFolderName = this.buildInstalledSkillFolderName(skill);
+        const skillDir = path.join(skillsDir, skillFolderName);
+        await fs.mkdir(skillDir, { recursive: true });
+
         const skillData: SkillDefinition = {
             ...skill,
             isInstalled: true,
             isEnabled: false,
             installedAt: new Date().toISOString(),
-            localPath: skillPath.fsPath
+            localPath: skillDir
         };
-
-        await vscode.workspace.fs.writeFile(
-            skillPath,
-            Buffer.from(JSON.stringify(skillData, null, 2))
+        await fs.writeFile(path.join(skillDir, 'SKILL.md'), this.buildInstalledSkillMarkdown(skillData), 'utf8');
+        await fs.writeFile(
+            path.join(skillDir, SKILL_METADATA_FILE),
+            JSON.stringify({
+                id: skillData.id,
+                label: skillData.label,
+                description: skillData.description,
+                prompt: skillData.prompt,
+                category: skillData.category,
+                tags: skillData.tags,
+                source: skillData.source,
+                hubId: skillData.hubId,
+                hubName: skillData.hubName,
+                hubUrl: skillData.hubUrl,
+                version: skillData.version,
+                downloads: skillData.downloads,
+                installedAt: skillData.installedAt,
+                homepage: skillData.homepage
+            } as StoredSkillMetadata, null, 2),
+            'utf8'
         );
 
         this.emit('skillImported', skillData);
@@ -258,9 +300,12 @@ export class LocalSkillRegistry extends EventEmitter {
      */
     public async removeInstalledSkill(skillId: string): Promise<boolean> {
         try {
-            const skillsDir = vscode.Uri.joinPath(this.context.globalStorageUri, 'skills');
-            const skillPath = vscode.Uri.joinPath(skillsDir, `${skillId}.json`);
-            await vscode.workspace.fs.delete(skillPath, { useTrash: false });
+            const installedSkills = await this.getInstalledSkills();
+            const target = installedSkills.find(skill => skill.id === skillId);
+            if (!target?.localPath) {
+                return false;
+            }
+            await fs.rm(target.localPath, { recursive: true, force: true });
             this.skillStates.delete(skillId);
             this.saveStates();
             this.emit('skillRemoved', skillId);
@@ -275,28 +320,25 @@ export class LocalSkillRegistry extends EventEmitter {
      */
     private async getInstalledSkills(): Promise<SkillDefinition[]> {
         try {
-            const skillsDir = vscode.Uri.joinPath(this.context.globalStorageUri, 'skills');
-            
+            const skillsDir = await this.resolveOpenClawSkillsDir();
+
             try {
-                await vscode.workspace.fs.stat(skillsDir);
+                await fs.stat(skillsDir);
             } catch {
                 return [];
             }
 
-            const entries = await vscode.workspace.fs.readDirectory(skillsDir);
+            const entries = await fs.readdir(skillsDir, { withFileTypes: true });
             const skills: SkillDefinition[] = [];
 
-            for (const [name, type] of entries) {
-                if (type === vscode.FileType.File && name.endsWith('.json')) {
-                    try {
-                        const content = await vscode.workspace.fs.readFile(
-                            vscode.Uri.joinPath(skillsDir, name)
-                        );
-                        const skill = JSON.parse(content.toString()) as SkillDefinition;
-                        skills.push(skill);
-                    } catch {
-                        // Skip invalid files
-                    }
+            for (const entry of entries) {
+                if (!entry.isDirectory()) {
+                    continue;
+                }
+
+                const skill = await this.readInstalledSkillFromDirectory(path.join(skillsDir, entry.name), entry.name);
+                if (skill) {
+                    skills.push(skill);
                 }
             }
 
@@ -406,5 +448,112 @@ export class LocalSkillRegistry extends EventEmitter {
         } catch {
             // Ignore save errors
         }
+    }
+
+    private async resolveOpenClawSkillsDir(): Promise<string> {
+        const configuredStateDir = String(
+            vscode.workspace.getConfiguration('openclaw').get<string>('stateDir', '')
+            || process.env.OPENCLAW_STATE_DIR
+            || path.join(os.homedir(), '.openclaw')
+        ).trim();
+        return path.join(configuredStateDir, 'skills');
+    }
+
+    private buildInstalledSkillFolderName(skill: SkillDefinition): string {
+        const prefix = String(skill.hubId || skill.source || 'local')
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9_-]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            || 'local';
+        const id = String(skill.id || 'skill')
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9_-]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            || 'skill';
+        return `${prefix}__${id}`;
+    }
+
+    private buildInstalledSkillMarkdown(skill: SkillDefinition): string {
+        const frontmatter = [
+            '---',
+            `name: ${skill.id}`,
+            `description: ${JSON.stringify(skill.description || '')}`,
+            '---',
+            ''
+        ];
+        const body = skill.prompt || skill.readme || skill.description || '';
+        return [...frontmatter, body, ''].join('\n');
+    }
+
+    private async readInstalledSkillFromDirectory(skillDir: string, folderName: string): Promise<SkillDefinition | null> {
+        try {
+            const skillMarkdownPath = path.join(skillDir, 'SKILL.md');
+            const markdown = await fs.readFile(skillMarkdownPath, 'utf8');
+            const metadata = await this.readStoredSkillMetadata(path.join(skillDir, SKILL_METADATA_FILE));
+            const parsed = this.parseSkillMarkdown(markdown);
+            const skillId = String(metadata.id || parsed.name || folderName.split('__').slice(1).join('__') || folderName).trim();
+            if (!skillId) {
+                return null;
+            }
+
+            return {
+                id: skillId,
+                label: String(metadata.label || parsed.name || skillId).trim(),
+                description: String(metadata.description || parsed.description || '').trim(),
+                prompt: String(metadata.prompt || parsed.body || '').trim(),
+                category: metadata.category || 'other',
+                tags: Array.isArray(metadata.tags) ? metadata.tags.map(tag => String(tag || '').trim()).filter(Boolean) : [],
+                source: metadata.source === 'custom' ? 'custom' : 'marketplace',
+                sourceKind: 'installed',
+                hubId: metadata.hubId,
+                hubName: metadata.hubName,
+                hubUrl: metadata.hubUrl,
+                version: String(metadata.version || '1.0.0'),
+                downloads: Number(metadata.downloads || 0),
+                createdAt: metadata.installedAt || new Date().toISOString(),
+                updatedAt: metadata.installedAt || new Date().toISOString(),
+                downloadUrl: '',
+                homepage: metadata.homepage,
+                isInstalled: true,
+                isEnabled: this.isSkillEnabled(skillId),
+                installedAt: metadata.installedAt,
+                localPath: skillDir
+            };
+        } catch {
+            return null;
+        }
+    }
+
+    private async readStoredSkillMetadata(metadataPath: string): Promise<StoredSkillMetadata> {
+        try {
+            const content = await fs.readFile(metadataPath, 'utf8');
+            return JSON.parse(content) as StoredSkillMetadata;
+        } catch {
+            return {};
+        }
+    }
+
+    private parseSkillMarkdown(markdown: string): { name?: string; description?: string; body: string } {
+        const content = String(markdown || '');
+        if (!content.startsWith('---')) {
+            return { body: content.trim() };
+        }
+
+        const closing = content.indexOf('\n---', 3);
+        if (closing < 0) {
+            return { body: content.trim() };
+        }
+
+        const frontmatter = content.slice(3, closing).trim();
+        const body = content.slice(closing + 4).trim();
+        const nameMatch = frontmatter.match(/(?:^|\n)name:\s*(.+)/);
+        const descriptionMatch = frontmatter.match(/(?:^|\n)description:\s*(.+)/);
+        return {
+            name: nameMatch ? String(nameMatch[1]).trim().replace(/^["']|["']$/g, '') : undefined,
+            description: descriptionMatch ? String(descriptionMatch[1]).trim().replace(/^["']|["']$/g, '') : undefined,
+            body
+        };
     }
 }

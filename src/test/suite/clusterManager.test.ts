@@ -25,6 +25,16 @@ suite('clusterManager', () => {
                 result.rounds.map(round => round.kind),
                 ['opening', 'critique-1', 'revision-1', 'critique-2', 'revision-2']
             );
+            assert.deepEqual(
+                result.rounds.map(round => round.descriptor.fallbackLabel),
+                [
+                    'Opening Positions',
+                    'Review Round 1: Critique',
+                    'Review Round 1: Revision',
+                    'Review Round 2: Critique',
+                    'Review Round 2: Revision'
+                ]
+            );
             assert.equal(result.coordinatorAgentId, 'alpha');
             assert.match(result.contributions.alpha.message?.content || '', /revision-2/i);
             assert.match(result.contributions.beta.message?.content || '', /revision-2/i);
@@ -155,11 +165,61 @@ suite('clusterManager', () => {
                 result.rounds.map(round => round.kind),
                 ['opening', 'critique-1', 'revision-1', 'critique-2', 'revision-2', 'critique-3', 'revision-3']
             );
+            assert.deepEqual(
+                result.rounds.map(round => round.descriptor.displayOrder),
+                [1, 2, 3, 4, 5, 6, 7]
+            );
             assert.equal(service.sentMessages.filter(entry => entry.stage === 'stop-check-1').length, 1);
             assert.equal(service.sentMessages.filter(entry => entry.stage === 'stop-check-2').length, 1);
             assert.equal(service.sentMessages.filter(entry => entry.stage === 'stop-check-3').length, 1);
             assert.equal(service.sentMessages.some(entry => entry.stage === 'critique-4'), false);
             assert.match(result.synthesis?.message?.content || '', /final synthesis by alpha/i);
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
+
+    test('stops an unlimited collaborate run after STOP cancels the swarm run', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-cancel-unlimited-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService([], {
+            stopAfterReviewRound: 5
+        });
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Cancellable Unlimited Swarm',
+                agentIds: ['alpha', 'beta'],
+                workspaceConfig: {
+                    presetId: 'implementation-squad',
+                    collaborationStyle: 'debate',
+                    deliveryStyle: 'balanced',
+                    critiqueLevel: 'standard',
+                    rounds: 2,
+                    runUntilConditionMet: true,
+                    stopCondition: 'Stop when a single implementation-ready answer is stable.'
+                }
+            });
+            let cancelled = false;
+            service.onMessageSent = async entry => {
+                if (!cancelled && entry.stage === 'revision-1') {
+                    cancelled = true;
+                    await manager.abortClusterSwarmRun(cluster.id, 'collaborate');
+                }
+            };
+
+            const result = await manager.collaborateOnCluster(cluster.id, 'Plan the rollout.');
+            const runState = (manager as any).swarmRunStates.get(result.swarmRunId);
+
+            assert.deepEqual(result.rounds.map(round => round.kind), ['opening', 'critique-1', 'revision-1']);
+            assert.equal(service.sentMessages.some(entry => entry.stage === 'critique-2'), false);
+            assert.equal(service.sentMessages.some(entry => entry.stage === 'stop-check-1'), false);
+            assert.equal(service.sentMessages.some(entry => entry.stage === 'synthesis'), false);
+            assert.equal(service.cancelledSwarmRuns.length, 1);
+            assert.equal(runState?.status, 'stopped');
+            assert.equal(runState?.cancellationRequested, true);
         } finally {
             manager.dispose();
             await fs.rm(root, { recursive: true, force: true });
@@ -304,14 +364,14 @@ suite('clusterManager', () => {
                 agentIds: ['alpha', 'beta']
             });
 
-            await manager.collaborateOnCluster(cluster.id, 'Coordinate a release.');
-            await manager.replaceClusterSwarmMessages(cluster.id, 'collaborate', swarmMessages);
+            const result = await manager.collaborateOnCluster(cluster.id, 'Coordinate a release.');
+            await manager.replaceClusterSwarmMessages(cluster.id, 'collaborate', swarmMessages, result.swarmRunId);
 
             const persistedFile = JSON.parse(await fs.readFile(storagePath, 'utf8')) as {
                 swarmSessions?: Record<string, string>;
             };
             assert.ok(
-                Object.keys(persistedFile.swarmSessions || {}).some(key => key.includes(`${cluster.id}:swarm:collaborate:agent:alpha`)),
+                Object.keys(persistedFile.swarmSessions || {}).some(key => key.includes(`${cluster.id}:swarm:collaborate:run:${result.swarmRunId}:agent:alpha`)),
                 'expected persisted swarm session ids to include the collaborate lane'
             );
 
@@ -347,6 +407,43 @@ suite('clusterManager', () => {
             const alphaMessages = await manager.getClusterAgentSwarmMessages(cluster.id, 'alpha', 'collaborate');
             assert.ok(alphaMessages.some(message => message.role === 'user'));
             assert.ok(alphaMessages.some(message => /alpha/i.test(message.content)));
+            assert.ok(alphaMessages.some(message => /beta/i.test(message.content)));
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
+
+    test('persists cluster-agent swarm logs independently from mutable swarm sessions', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-agent-swarm-persist-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Persistent Agent Swarm Log',
+                agentIds: ['alpha', 'beta']
+            });
+
+            await manager.collaborateOnCluster(cluster.id, 'Inspect the internal debate.');
+
+            const persistedFile = JSON.parse(await fs.readFile(storagePath, 'utf8')) as {
+                clusterAgentSwarmMessages?: Record<string, ChatMessage[]>;
+            };
+            assert.ok(
+                Object.keys(persistedFile.clusterAgentSwarmMessages || {}).some(key => key.includes(`${cluster.id}::agent::alpha::collaborate`)),
+                'expected persisted cluster-agent swarm logs to include alpha collaborate messages'
+            );
+
+            const reloadedManager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+            try {
+                const alphaMessages = await reloadedManager.getClusterAgentSwarmMessages(cluster.id, 'alpha', 'collaborate');
+                assert.ok(alphaMessages.some(message => message.role === 'user'));
+                assert.ok(alphaMessages.some(message => /beta/i.test(message.content)));
+            } finally {
+                reloadedManager.dispose();
+            }
         } finally {
             manager.dispose();
             await fs.rm(root, { recursive: true, force: true });
@@ -501,6 +598,56 @@ suite('clusterManager', () => {
         }
     });
 
+    test('does not wake broadcast children after the swarm run is cancelled', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-broadcast-cancel-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Cancelled Broadcast',
+                agentIds: ['alpha', 'beta'],
+                workspaceConfig: {
+                    presetId: 'implementation-squad',
+                    collaborationStyle: 'leader-draft',
+                    deliveryStyle: 'balanced',
+                    critiqueLevel: 'standard',
+                    rounds: 1,
+                    memberProfiles: {
+                        beta: {
+                            parentAgentId: 'alpha',
+                            activation: {
+                                swarmModes: ['broadcast']
+                            }
+                        }
+                    }
+                }
+            });
+            let cancelled = false;
+            service.onMessageSent = async entry => {
+                if (!cancelled && entry.stage === 'broadcast' && entry.agentId === 'alpha') {
+                    cancelled = true;
+                    await manager.abortClusterSwarmRun(cluster.id, 'broadcast');
+                }
+            };
+
+            const result = await manager.broadcastToCluster(cluster.id, 'Review deployment blast radius.');
+
+            assert.deepEqual(Object.keys(result), ['alpha']);
+            assert.deepEqual(
+                service.sentMessages
+                    .filter(entry => entry.stage === 'broadcast')
+                    .map(entry => entry.agentId),
+                ['alpha']
+            );
+            assert.equal(service.cancelledSwarmRuns.length, 1);
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
+
     test('only wakes descendants when their parent branch is covered', async () => {
         const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-topology-coverage-'));
         const storagePath = path.join(root, 'clusters.json');
@@ -602,6 +749,183 @@ suite('clusterManager', () => {
             await fs.rm(root, { recursive: true, force: true });
         }
     });
+
+    test('does not wake collaborate children after the swarm run is cancelled', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-collaborate-cancel-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Cancelled Collaborate',
+                agentIds: ['alpha', 'beta'],
+                workspaceConfig: {
+                    presetId: 'implementation-squad',
+                    collaborationStyle: 'debate',
+                    deliveryStyle: 'balanced',
+                    critiqueLevel: 'standard',
+                    rounds: 1,
+                    memberProfiles: {
+                        beta: {
+                            parentAgentId: 'alpha',
+                            activation: {
+                                swarmModes: ['collaborate']
+                            }
+                        }
+                    }
+                }
+            });
+            let cancelled = false;
+            service.onMessageSent = async entry => {
+                if (!cancelled && entry.stage === 'opening' && entry.agentId === 'alpha') {
+                    cancelled = true;
+                    await manager.abortClusterSwarmRun(cluster.id, 'collaborate');
+                }
+            };
+
+            const result = await manager.collaborateOnCluster(cluster.id, 'Design the release topology.');
+
+            assert.deepEqual(result.rounds.map(round => round.kind), ['opening']);
+            assert.deepEqual(
+                service.sentMessages
+                    .filter(entry => entry.stage === 'opening')
+                    .map(entry => entry.agentId),
+                ['alpha']
+            );
+            assert.equal(service.sentMessages.some(entry => entry.stage === 'critique-1'), false);
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
+
+    test('starts each swarm run with fresh swarm sessions', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-fresh-swarm-sessions-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Fresh Session Swarm',
+                agentIds: ['alpha', 'beta']
+            });
+
+            await manager.collaborateOnCluster(cluster.id, 'Run one.');
+            const firstRunOpeningSessions = new Map(
+                service.sentMessages
+                    .filter(entry => entry.stage === 'opening')
+                    .map(entry => [entry.agentId, entry.sessionId] as const)
+            );
+
+            service.sentMessages.length = 0;
+
+            await manager.collaborateOnCluster(cluster.id, 'Run two.');
+            const secondRunOpeningSessions = new Map(
+                service.sentMessages
+                    .filter(entry => entry.stage === 'opening')
+                    .map(entry => [entry.agentId, entry.sessionId] as const)
+            );
+
+            assert.notEqual(firstRunOpeningSessions.get('alpha'), secondRunOpeningSessions.get('alpha'));
+            assert.notEqual(firstRunOpeningSessions.get('beta'), secondRunOpeningSessions.get('beta'));
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
+
+    test('starts each agent swarm log from a clean run transcript', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-fresh-agent-swarm-log-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Fresh Agent Swarm Log',
+                agentIds: ['alpha', 'beta']
+            });
+
+            await manager.collaborateOnCluster(cluster.id, 'Run one.');
+            const firstRunMessages = await manager.getClusterAgentSwarmMessages(cluster.id, 'alpha', 'collaborate');
+            assert.ok(firstRunMessages.some(message => message.content.includes('Run one.')));
+
+            await manager.collaborateOnCluster(cluster.id, 'Run two.');
+            const secondRunMessages = await manager.getClusterAgentSwarmMessages(cluster.id, 'alpha', 'collaborate');
+
+            assert.ok(secondRunMessages.some(message => message.content.includes('Run two.')));
+            assert.equal(secondRunMessages.some(message => message.content.includes('Run one.')), false);
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
+
+    test('stores swarm aggregate messages per run and shows only the latest run by default', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-run-scoped-swarm-log-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Run Scoped Aggregate',
+                agentIds: ['alpha', 'beta']
+            });
+
+            const firstRun = await manager.collaborateOnCluster(cluster.id, 'Run one.');
+            await manager.replaceClusterSwarmMessages(cluster.id, 'collaborate', [
+                createContextMessage('swarm-run-1', 'Run one aggregate')
+            ], firstRun.swarmRunId);
+
+            const secondRun = await manager.collaborateOnCluster(cluster.id, 'Run two.');
+            await manager.replaceClusterSwarmMessages(cluster.id, 'collaborate', [
+                createContextMessage('swarm-run-2', 'Run two aggregate')
+            ], secondRun.swarmRunId);
+
+            const latestMessages = await manager.getClusterSwarmMessages(cluster.id, 'collaborate');
+            const firstRunMessages = await manager.getClusterSwarmMessages(cluster.id, 'collaborate', firstRun.swarmRunId);
+
+            assert.deepEqual(latestMessages.map(message => message.content), ['Run two aggregate']);
+            assert.deepEqual(firstRunMessages.map(message => message.content), ['Run one aggregate']);
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
+
+    test('forbids workers from finalizing during critique and reserves finalization for synthesis coordinator', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-phase-guards-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Phase Guard Swarm',
+                agentIds: ['alpha', 'beta'],
+                workspaceConfig: {
+                    presetId: 'implementation-squad',
+                    collaborationStyle: 'debate',
+                    deliveryStyle: 'balanced',
+                    critiqueLevel: 'standard',
+                    rounds: 1
+                }
+            });
+
+            await manager.collaborateOnCluster(cluster.id, 'Draft the implementation report and let the final summarizer write it to disk.');
+
+            assert.match(service.findPrompt('beta', 'critique-1'), /Do not write files, export artifacts, or act as the final summarizer during critique/i);
+            assert.match(service.findPrompt('alpha', 'opening'), /Do not write files, export artifacts, or perform final consolidation in opening/i);
+            assert.match(service.findPrompt('alpha', 'synthesis'), /only role in this run authorized to finalize, export, or write the merged result/i);
+            assert.equal(service.sentMessages.some(entry => entry.agentId === 'beta' && entry.stage === 'synthesis'), false);
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
 });
 
 type DebateStage =
@@ -619,6 +943,9 @@ class FakeCollaborationService extends EventEmitter {
         stage: DebateStage;
         prompt: string;
     }> = [];
+    public readonly cancelledSwarmRuns: Array<{ swarmRunId: string; reason: string }> = [];
+    public readonly abortedSessions: string[] = [];
+    public onMessageSent?: (entry: { agentId: string; sessionId: string; stage: DebateStage; prompt: string }) => Promise<void> | void;
 
     private readonly agents = new Map<string, Agent>();
     private readonly sessionAgentIds = new Map<string, string>();
@@ -680,6 +1007,12 @@ class FakeCollaborationService extends EventEmitter {
             stage,
             prompt
         });
+        await this.onMessageSent?.({
+            agentId,
+            sessionId,
+            stage,
+            prompt
+        });
 
         if (this.failures.some(rule => rule.agentId === agentId && rule.stage === stage)) {
             throw new Error(`${agentId} failed during ${stage}`);
@@ -713,6 +1046,15 @@ class FakeCollaborationService extends EventEmitter {
 
     public async getChatHistory(sessionId: string): Promise<ChatMessage[]> {
         return [...(this.sessionMessages.get(sessionId) || [])];
+    }
+
+    public async abortSessionRun(sessionId: string): Promise<void> {
+        this.abortedSessions.push(sessionId);
+    }
+
+    public cancelSwarmRun(swarmRunId: string, reason: string = 'Swarm run cancelled'): number {
+        this.cancelledSwarmRuns.push({ swarmRunId, reason });
+        return 1;
     }
 
     public async getAgent(agentId: string): Promise<Agent | null> {
@@ -801,5 +1143,14 @@ function toComparableMessage(message: ChatMessage) {
         agentId: message.agentId,
         displayName: message.displayName,
         contextLabel: message.contextLabel
+    };
+}
+
+function createContextMessage(id: string, content: string): ChatMessage {
+    return {
+        id,
+        role: 'assistant',
+        content,
+        timestamp: '2026-03-19T00:00:00.000Z'
     };
 }

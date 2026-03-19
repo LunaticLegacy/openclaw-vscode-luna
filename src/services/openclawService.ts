@@ -36,6 +36,11 @@ import type {
     StreamChunk,
     StreamMessageOptions,
     SwarmDeliveryContext,
+    SwarmMode,
+    SwarmRoundSnapshot,
+    SwarmRunLifecycleStatus,
+    SwarmRunPhase,
+    SwarmRunState,
     UpdateAgentParams,
     UpdateClusterParams
 } from './openclaw/types';
@@ -60,6 +65,11 @@ export type {
     StreamChunk,
     StreamMessageOptions,
     SwarmDeliveryContext,
+    SwarmMode,
+    SwarmRoundSnapshot,
+    SwarmRunLifecycleStatus,
+    SwarmRunPhase,
+    SwarmRunState,
     UpdateAgentParams,
     UpdateClusterParams
 } from './openclaw/types';
@@ -524,6 +534,13 @@ export class OpenClawService extends EventEmitter {
      * @param sessionId - 会话 ID
      * @returns 是否有活跃运行
      */
+    /**
+     * Cancels every queued or retrying delivery for a swarm run.
+     */
+    public cancelSwarmRun(swarmRunId: string, reason: string = 'Swarm run cancelled'): number {
+        return this.outboundManager.cancelBySwarmRun(swarmRunId, reason);
+    }
+
     public hasActiveSessionRun(sessionId: string | null | undefined): boolean {
         const normalizedSessionId = typeof sessionId === 'string' ? sessionId.trim() : '';
         if (!normalizedSessionId) {

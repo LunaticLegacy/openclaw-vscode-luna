@@ -363,7 +363,7 @@ export class OpenClawGatewayClient extends EventEmitter {
             caps: this.options.caps || [],
             auth: token ? { token } : undefined,
             role: 'operator',
-            scopes: ['operator.admin']
+            scopes: ['operator.admin', 'operator.write']
         };
     }
 

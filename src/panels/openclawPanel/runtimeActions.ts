@@ -35,7 +35,7 @@ interface RuntimeActionContext {
 /**
  * Timeout for OpenClaw startup in milliseconds
  */
-const OPENCLAW_STARTUP_TIMEOUT_MS = 30000;
+const OPENCLAW_STARTUP_TIMEOUT_MS = 60000;
 
 /**
  * Poll interval for checking service connection during startup

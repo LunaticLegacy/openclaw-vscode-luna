@@ -28,7 +28,12 @@ interface MessageRouterContext {
     handleSendMessage(content: string, agentId?: string, options?: { optimisticEcho?: boolean }): Promise<void>;
     handleStopActiveRun(message: any): void;
     activateAgent(agentId: string): Promise<void>;
-    loadClusterSwarmMessages(clusterId: string, mode: 'broadcast' | 'collaborate'): Promise<void>;
+    loadClusterSwarmMessages(
+        clusterId: string,
+        mode: 'broadcast' | 'collaborate',
+        outputMode?: 'frontend' | 'raw',
+        swarmRunId?: string
+    ): Promise<void>;
     loadClusterAgentMessages(clusterId: string, agentId: string): Promise<void>;
     loadClusterAgentSwarmMessages(clusterId: string, agentId: string, mode: 'broadcast' | 'collaborate'): Promise<void>;
     exportClusterConversation(options: {
@@ -150,7 +155,14 @@ export async function handlePanelMessage(context: MessageRouterContext, message:
 
         case 'loadClusterSwarmMessages':
             if (message.mode === 'broadcast' || message.mode === 'collaborate') {
-                await context.loadClusterSwarmMessages(message.clusterId, message.mode);
+                await context.loadClusterSwarmMessages(
+                    message.clusterId,
+                    message.mode,
+                    message.outputMode === 'raw' ? 'raw' : 'frontend',
+                    typeof message.swarmRunId === 'string' && message.swarmRunId.trim()
+                        ? message.swarmRunId.trim()
+                        : undefined
+                );
             }
             break;
 

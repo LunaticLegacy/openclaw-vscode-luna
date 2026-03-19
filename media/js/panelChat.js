@@ -1,6 +1,169 @@
 // OpenClaw Luna - Panel Chat
 'use strict';
 
+    function getCurrentAgentSubagents() {
+        const currentAgentId = String(state.currentAgentId || '').trim();
+        const source = Array.isArray(state.chatSubagents) ? state.chatSubagents : [];
+        if (!currentAgentId) {
+            return [];
+        }
+
+        const exact = source.filter(item => String(item?.parentAgentId || '').trim() === currentAgentId);
+        if (exact.length > 0) {
+            return exact;
+        }
+
+        return source.filter(item => !String(item?.parentAgentId || '').trim());
+    }
+
+    function getOpenClawSlashCommandCatalog() {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        return [
+            {
+                id: 'session',
+                label: t('chat.openclawCommands.groupSession') || 'Session',
+                commands: [
+                    { label: '/new', value: '/new' },
+                    { label: '/clear', value: '/clear' },
+                    { label: '/reset', value: '/reset' }
+                ]
+            },
+            {
+                id: 'subagents',
+                label: t('chat.openclawCommands.groupSubagents') || 'Subagents',
+                commands: [
+                    { label: '/subagents', value: '/subagents' },
+                    { label: '/subagents list', value: '/subagents list' },
+                    { label: '/subagents runs', value: '/subagents runs' }
+                ]
+            },
+            {
+                id: 'memory',
+                label: t('chat.openclawCommands.groupMemory') || 'Memory',
+                commands: [
+                    { label: '/memory', value: '/memory' },
+                    { label: '/memory status', value: '/memory status' },
+                    { label: '/memory sync', value: '/memory sync' }
+                ]
+            }
+        ];
+    }
+
+    function renderChatCommandBar() {
+        if (!elements.chatCommandBar) {
+            return;
+        }
+
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        const subagents = getCurrentAgentSubagents();
+
+        if (elements.chatSubagentsCount) {
+            elements.chatSubagentsCount.textContent = String(subagents.length);
+        }
+
+        if (elements.chatCommandBarSummary) {
+            const summary = t('chat.commandBar.summary', {
+                count: subagents.length
+            });
+            elements.chatCommandBarSummary.textContent = summary === 'chat.commandBar.summary'
+                ? `${subagents.length} subagents · OpenClaw commands`
+                : summary;
+        }
+
+        if (elements.chatSubagentSelect) {
+            const emptyLabel = t('chat.subagents.none') || 'No subagents';
+            elements.chatSubagentSelect.innerHTML = subagents.length > 0
+                ? subagents.map(item => `
+                    <option value="${escapeHtml(String(item.id || ''))}">
+                        ${escapeHtml(String(item.label || item.id || ''))}
+                    </option>
+                `).join('')
+                : `<option value="">${escapeHtml(emptyLabel)}</option>`;
+            elements.chatSubagentSelect.disabled = subagents.length === 0;
+        }
+
+        if (elements.btnChatInsertSubagentCommand) {
+            elements.btnChatInsertSubagentCommand.disabled = subagents.length === 0;
+        }
+
+        if (elements.chatOpenClawCommandTree) {
+            elements.chatOpenClawCommandTree.innerHTML = getOpenClawSlashCommandCatalog().map((group, index) => `
+                <details class="chat-command-group" ${index === 0 ? 'open' : ''}>
+                    <summary>${escapeHtml(group.label)}</summary>
+                    <div class="chat-command-group-body">
+                        ${group.commands.map(command => `
+                            <button class="chat-command-chip" type="button" data-chat-openclaw-command="${escapeHtml(command.value)}">
+                                ${escapeHtml(command.label)}
+                            </button>
+                        `).join('')}
+                    </div>
+                </details>
+            `).join('');
+        }
+
+        applyChatCommandBarCollapsedState();
+    }
+
+    function toggleChatCommandBar() {
+        state.chatCommandBarCollapsed = !state.chatCommandBarCollapsed;
+        applyChatCommandBarCollapsedState();
+        if (typeof persistUiState === 'function') {
+            persistUiState();
+        }
+    }
+
+    function applyChatCommandBarCollapsedState() {
+        if (!elements.chatCommandBar || !elements.btnToggleChatCommandBar) {
+            return;
+        }
+
+        const collapsed = Boolean(state.chatCommandBarCollapsed);
+        elements.chatCommandBar.classList.toggle('collapsed', collapsed);
+        elements.btnToggleChatCommandBar.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        elements.btnToggleChatCommandBar.setAttribute(
+            'title',
+            collapsed
+                ? (window.OpenClawI18n ? window.OpenClawI18n.t('chat.commandBar.expand') : 'Expand chat toolbar')
+                : (window.OpenClawI18n ? window.OpenClawI18n.t('chat.commandBar.collapse') : 'Collapse chat toolbar')
+        );
+        if (elements.chatCommandBarToggleIcon) {
+            elements.chatCommandBarToggleIcon.innerHTML = collapsed ? '&#9654;' : '&#9660;';
+        }
+    }
+
+    function insertSelectedSubagentCommand() {
+        const selectedSubagentId = String(elements.chatSubagentSelect?.value || '').trim();
+        if (!selectedSubagentId) {
+            return;
+        }
+
+        const command = `/subagents ${selectedSubagentId}`;
+        if (elements.chatOpenClawCommandInput) {
+            elements.chatOpenClawCommandInput.value = command;
+        }
+        insertCommandIntoChatInput(command);
+    }
+
+    function insertOpenClawSlashCommand(command) {
+        const resolvedCommand = typeof command === 'string'
+            ? command.trim()
+            : String(elements.chatOpenClawCommandInput?.value || '').trim();
+        if (!resolvedCommand) {
+            return;
+        }
+
+        insertCommandIntoChatInput(resolvedCommand);
+    }
+
+    function insertCommandIntoChatInput(command) {
+        if (!elements.messageInput) {
+            return;
+        }
+
+        elements.messageInput.value = command;
+        elements.messageInput.focus();
+    }
+
     function sendMessage() {
         const content = normalizeOutgoingMessage(elements.messageInput?.value || '');
         if (!content.trim() || state.isStreaming) return;
@@ -234,4 +397,16 @@
 
         finalizeStreamingState();
     }
+
+    document.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) {
+            return;
+        }
+
+        const commandChip = target.closest('[data-chat-openclaw-command]');
+        if (commandChip) {
+            insertOpenClawSlashCommand(commandChip.getAttribute('data-chat-openclaw-command') || '');
+        }
+    });
 

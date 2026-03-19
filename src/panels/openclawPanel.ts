@@ -98,6 +98,14 @@ import { handlePanelMessage } from './openclawPanel/messageRouter';
 
 const SESSION_SYNC_INTERVAL_MS = 450;
 const CHANNEL_SYNC_INTERVAL_MS = 450;
+
+interface ChatSubagentRecord {
+    id: string;
+    label: string;
+    parentAgentId?: string;
+    status?: string;
+    model?: string;
+}
 const OPENCLAW_LUNA_ISSUES_URL = 'https://github.com/LunaticLegacy/openclaw-vscode-luna/issues';
 
 /**
@@ -374,6 +382,7 @@ export class OpenClawPanel {
             await this._agentFolderManager.pruneMissingAgents(agents.map(agent => agent.id));
             const folders = await this._agentFolderManager.getFolders();
             const models = await this._service.getAvailableModels(agents);
+            const subagents = await this._loadChatSubagentInventory(agents);
             this._postMessage({
                 type: 'agentsLoaded',
                 agents: agents.map(a => ({
@@ -389,7 +398,8 @@ export class OpenClawPanel {
                 folders,
                 models,
                 presets: getAgentPresets(),
-                aiSkills: getAiSkills()
+                aiSkills: getAiSkills(),
+                subagents
             });
 
             const currentAgentStillExists = this._currentAgentId
@@ -418,6 +428,48 @@ export class OpenClawPanel {
                 type: 'agentsLoadFailed',
                 message: t('panel.failedLoadAgents', { error: String(error) })
             });
+        }
+    }
+
+    private async _loadChatSubagentInventory(agents: Array<{ id: string; name: string }>): Promise<ChatSubagentRecord[]> {
+        const stateDir = this._service.getOpenClawConfig()?.stateDir
+            || this._openClawConfigState?.stateDir
+            || this._runtimeDiagnostics?.detectedStateDir
+            || this._runtimeDiagnostics?.configuredStateDir
+            || path.join(process.env.USERPROFILE || process.env.HOME || '', '.openclaw');
+        if (!stateDir) {
+            return [];
+        }
+
+        const runsPath = path.join(stateDir, 'subagents', 'runs.json');
+        try {
+            if (!fs.existsSync(runsPath)) {
+                return [];
+            }
+
+            const content = await fs.promises.readFile(runsPath, 'utf8');
+            const parsed = JSON.parse(content) as { runs?: Record<string, any> };
+            const agentIds = new Set(agents.map(agent => agent.id));
+            const records = Object.entries(parsed.runs || {}).map(([runId, raw]) => {
+                const payload = raw && typeof raw === 'object' ? raw : {};
+                const parentAgentId = [
+                    payload.parentAgentId,
+                    payload.ownerAgentId,
+                    payload.rootAgentId,
+                    payload.agentId
+                ].map(value => String(value || '').trim()).find(Boolean);
+                return {
+                    id: String(payload.id || runId || '').trim(),
+                    label: String(payload.name || payload.title || payload.id || runId || '').trim(),
+                    parentAgentId,
+                    status: String(payload.status || payload.state || '').trim() || undefined,
+                    model: String(payload.model || payload.modelId || '').trim() || undefined
+                };
+            }).filter(item => item.id && (!item.parentAgentId || agentIds.has(item.parentAgentId)));
+
+            return records.sort((left, right) => left.label.localeCompare(right.label));
+        } catch {
+            return [];
         }
     }
 
@@ -585,8 +637,50 @@ export class OpenClawPanel {
             if (!skill) {
                 throw new Error('Skill not found');
             }
-            
-            const result = await this._skillMarketService.installSkill(skill);
+
+            const result = await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: `Installing skill: ${skill.label || skill.id}`,
+                    cancellable: false
+                },
+                async progress => {
+                    let reportedPercent = 0;
+                    let lastReportedSecond = -1;
+                    progress.report({ message: 'Preparing download...' });
+
+                    return await this._skillMarketService.installSkill(skill, {
+                        onProgress: update => {
+                            if (update.phase === 'importing') {
+                                const increment = Math.max(0, 100 - reportedPercent);
+                                reportedPercent = 100;
+                                progress.report({
+                                    message: 'Importing skill files...',
+                                    increment
+                                });
+                                return;
+                            }
+
+                            const currentSecond = Math.floor(Date.now() / 1000);
+                            const nextPercent = typeof update.percent === 'number'
+                                ? Math.max(0, Math.min(100, Math.floor(update.percent)))
+                                : reportedPercent;
+                            const increment = Math.max(0, nextPercent - reportedPercent);
+
+                            if (currentSecond === lastReportedSecond && increment === 0) {
+                                return;
+                            }
+
+                            lastReportedSecond = currentSecond;
+                            reportedPercent = nextPercent;
+                            progress.report({
+                                message: buildSkillDownloadProgressMessage(update),
+                                increment
+                            });
+                        }
+                    });
+                }
+            );
             
             if (result.success) {
                 this._postMessage({
@@ -1382,8 +1476,13 @@ export class OpenClawPanel {
      * @param clusterId - The cluster ID
      * @param mode - The swarm mode
      */
-    private async _loadClusterSwarmMessages(clusterId: string, mode: 'broadcast' | 'collaborate') {
-        await loadClusterSwarmMessagesAction(this._createClusterActionContext(), clusterId, mode);
+    private async _loadClusterSwarmMessages(
+        clusterId: string,
+        mode: 'broadcast' | 'collaborate',
+        outputMode: 'frontend' | 'raw' = 'frontend',
+        swarmRunId?: string
+    ) {
+        await loadClusterSwarmMessagesAction(this._createClusterActionContext(), clusterId, mode, outputMode, swarmRunId);
     }
 
     /**
@@ -2701,4 +2800,42 @@ function remapWorkspaceConfig(
         coordinatorAgentId: coordinatorId ? (memberIdMap.get(coordinatorId) || coordinatorId) : '',
         memberProfiles: remappedProfiles
     };
+}
+
+function buildSkillDownloadProgressMessage(progress: {
+    downloadedBytes: number;
+    totalBytes?: number;
+    bytesPerSecond?: number;
+    percent?: number;
+}): string {
+    const downloaded = formatByteSize(progress.downloadedBytes);
+    const total = typeof progress.totalBytes === 'number' && progress.totalBytes > 0
+        ? formatByteSize(progress.totalBytes)
+        : '?';
+    const speed = typeof progress.bytesPerSecond === 'number' && progress.bytesPerSecond > 0
+        ? `${formatByteSize(progress.bytesPerSecond)}/s`
+        : 'calculating...';
+    const percent = typeof progress.percent === 'number'
+        ? `${Math.max(0, Math.min(100, Math.floor(progress.percent)))}%`
+        : 'downloading';
+
+    return `${percent} • ${downloaded}/${total} • ${speed}`;
+}
+
+function formatByteSize(bytes: number): string {
+    if (!Number.isFinite(bytes) || bytes <= 0) {
+        return '0 B';
+    }
+
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let value = bytes;
+    let unitIndex = 0;
+
+    while (value >= 1024 && unitIndex < units.length - 1) {
+        value /= 1024;
+        unitIndex += 1;
+    }
+
+    const digits = value >= 100 || unitIndex === 0 ? 0 : value >= 10 ? 1 : 2;
+    return `${value.toFixed(digits)} ${units[unitIndex]}`;
 }

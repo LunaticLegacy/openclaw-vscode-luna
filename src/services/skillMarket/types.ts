@@ -75,6 +75,14 @@ export interface SkillInstallResult {
     error?: string;
 }
 
+export interface SkillInstallProgress {
+    phase: 'downloading' | 'importing';
+    downloadedBytes: number;
+    totalBytes?: number;
+    bytesPerSecond?: number;
+    percent?: number;
+}
+
 export interface SkillMarketProvider {
     id: string;
     name: string;

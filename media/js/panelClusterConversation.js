@@ -5,41 +5,50 @@
         return state.clusters.find(cluster => cluster.id === state.currentClusterId) || null;
     }
 
-    function getCollaborationRoundLabel(kind, t) {
-        const keyMap = {
-            opening: 'clusters.debateRoundOpening',
-            'critique-1': 'clusters.debateRoundCritique1',
-            'revision-1': 'clusters.debateRoundRevision1',
-            'critique-2': 'clusters.debateRoundCritique2',
-            'revision-2': 'clusters.debateRoundRevision2'
-        };
-        const fallbackMap = {
-            opening: 'Round 1 - Opening Positions',
-            'critique-1': 'Round 2 - Peer Review',
-            'revision-1': 'Round 3 - Revised Positions',
-            'critique-2': 'Round 4 - Second Peer Review',
-            'revision-2': 'Round 5 - Final Positions'
-        };
+    function getCollaborationRoundLabel(round, t) {
+        const descriptor = round?.descriptor || buildFallbackCollaborationRoundDescriptor(round?.kind || 'opening');
+        const translated = t(descriptor.labelKey, { round: descriptor.reviewRound });
+        return translated && translated !== descriptor.labelKey
+            ? translated
+            : descriptor.fallbackLabel;
+    }
 
-        if (keyMap[kind]) {
-            return getTranslationOrFallback(t, keyMap[kind], fallbackMap[kind]);
-        }
-
+    function buildFallbackCollaborationRoundDescriptor(kind) {
         if (kind === 'opening') {
-            return t('clusters.debateRoundOpening') || 'Round 1 - Opening Positions';
+            return {
+                kind,
+                phase: 'opening',
+                reviewRound: 0,
+                phaseIndex: 1,
+                displayOrder: 1,
+                labelKey: 'clusters.debateRoundOpening',
+                fallbackLabel: 'Opening Positions'
+            };
         }
 
-        if (kind.startsWith('critique-')) {
-            const round = Number(kind.slice('critique-'.length) || '1');
-            return t('clusters.debateRoundCritiqueDynamic', { round }) || `Critique Round ${round}`;
+        if (String(kind).startsWith('critique-')) {
+            const reviewRound = Number(String(kind).slice('critique-'.length) || '1');
+            return {
+                kind,
+                phase: 'critique',
+                reviewRound,
+                phaseIndex: 2,
+                displayOrder: reviewRound * 2,
+                labelKey: 'clusters.debateRoundCritiqueDynamic',
+                fallbackLabel: `Review Round ${reviewRound}: Critique`
+            };
         }
 
-        if (kind.startsWith('revision-')) {
-            const round = Number(kind.slice('revision-'.length) || '1');
-            return t('clusters.debateRoundRevisionDynamic', { round }) || `Revision Round ${round}`;
-        }
-
-        return t('clusters.contributions') || 'Contributions';
+        const reviewRound = Number(String(kind).slice('revision-'.length) || '1');
+        return {
+            kind,
+            phase: 'revision',
+            reviewRound,
+            phaseIndex: 3,
+            displayOrder: (reviewRound * 2) + 1,
+            labelKey: 'clusters.debateRoundRevisionDynamic',
+            fallbackLabel: `Review Round ${reviewRound}: Revision`
+        };
     }
 
     function ensureCurrentClusterSelection() {
@@ -60,12 +69,17 @@
             state.currentClusterTargetKind = 'swarm';
             state.currentClusterAgentId = null;
             state.currentClusterSwarmMode = replay?.mode === 'collaborate' ? 'collaborate' : 'broadcast';
+            state.currentClusterSwarmOutputMode = 'frontend';
             state.currentClusterAgentViewMode = 'chat';
             return;
         }
 
         if (!state.currentClusterSwarmMode) {
             state.currentClusterSwarmMode = 'broadcast';
+        }
+
+        if (!state.currentClusterSwarmOutputMode || !['frontend', 'raw'].includes(state.currentClusterSwarmOutputMode)) {
+            state.currentClusterSwarmOutputMode = 'frontend';
         }
 
         if (!state.currentClusterAgentViewMode || !['chat', 'broadcast', 'collaborate'].includes(state.currentClusterAgentViewMode)) {
@@ -102,10 +116,14 @@
         return {
             kind: 'swarm',
             mode: state.currentClusterSwarmMode,
+            outputMode: state.currentClusterSwarmOutputMode || 'frontend',
+            swarmRunId: getSelectedSwarmConversationRunId(cluster.id, state.currentClusterSwarmMode),
             agentId: null,
             key: getClusterConversationKey(cluster.id, {
                 targetKind: 'swarm',
-                mode: state.currentClusterSwarmMode
+                mode: state.currentClusterSwarmMode,
+                outputMode: state.currentClusterSwarmOutputMode || 'frontend',
+                swarmRunId: getSelectedSwarmConversationRunId(cluster.id, state.currentClusterSwarmMode)
             })
         };
     }
@@ -116,7 +134,14 @@
             return `cluster:${clusterId}:agent:${options.agentId || state.currentClusterAgentId || ''}:${options.agentViewMode || state.currentClusterAgentViewMode || 'chat'}`;
         }
 
-        return `cluster:${clusterId}:swarm:${options.mode || state.currentClusterSwarmMode || 'broadcast'}`;
+        const mode = options.mode || state.currentClusterSwarmMode || 'broadcast';
+        const outputMode = mode === 'collaborate'
+            ? (options.outputMode || state.currentClusterSwarmOutputMode || 'frontend')
+            : 'frontend';
+        const swarmRunId = typeof options.swarmRunId === 'string' && options.swarmRunId.trim()
+            ? options.swarmRunId.trim()
+            : getSelectedSwarmConversationRunId(clusterId, mode);
+        return `cluster:${clusterId}:swarm:${mode}:run:${swarmRunId || 'latest'}:view:${outputMode}`;
     }
 
     function ensureClusterConversation(key) {
@@ -125,11 +150,155 @@
                 messages: [],
                 loading: false,
                 loaded: false,
-                pending: false
+                pending: false,
+                swarmRunId: null,
+                renderSignature: ''
             };
         }
 
         return state.clusterConversations[key];
+    }
+
+    function getSwarmConversationRegistryKey(clusterId, mode) {
+        return `cluster:${clusterId}:swarm:${mode}`;
+    }
+
+    function getKnownSwarmConversationRuns(clusterId, mode) {
+        return Array.isArray(state.clusterSwarmRunHistory?.[getSwarmConversationRegistryKey(clusterId, mode)])
+            ? state.clusterSwarmRunHistory[getSwarmConversationRegistryKey(clusterId, mode)]
+            : [];
+    }
+
+    function recordKnownSwarmConversationRunId(clusterId, mode, swarmRunId, options = {}) {
+        const normalizedRunId = typeof swarmRunId === 'string' ? swarmRunId.trim() : '';
+        if (!normalizedRunId) {
+            return;
+        }
+
+        if (!state.clusterSwarmRunHistory) {
+            state.clusterSwarmRunHistory = {};
+        }
+
+        const registryKey = getSwarmConversationRegistryKey(clusterId, mode);
+        const existing = getKnownSwarmConversationRuns(clusterId, mode).filter(runId => runId !== normalizedRunId);
+        state.clusterSwarmRunHistory[registryKey] = [normalizedRunId, ...existing].slice(0, 12);
+
+        if (!state.currentClusterSwarmRunSelections) {
+            state.currentClusterSwarmRunSelections = {};
+        }
+
+        if (options.select === true || !state.currentClusterSwarmRunSelections[registryKey]) {
+            state.currentClusterSwarmRunSelections[registryKey] = normalizedRunId;
+        }
+    }
+
+    function getActiveSwarmConversationRunId(clusterId, mode) {
+        return state.activeClusterSwarmRuns?.[getSwarmConversationRegistryKey(clusterId, mode)] || null;
+    }
+
+    function setActiveSwarmConversationRunId(clusterId, mode, swarmRunId) {
+        if (!state.activeClusterSwarmRuns) {
+            state.activeClusterSwarmRuns = {};
+        }
+
+        const registryKey = getSwarmConversationRegistryKey(clusterId, mode);
+        if (swarmRunId) {
+            state.activeClusterSwarmRuns[registryKey] = swarmRunId;
+            return;
+        }
+
+        delete state.activeClusterSwarmRuns[registryKey];
+    }
+
+    function getSelectedSwarmConversationRunId(clusterId, mode) {
+        const registryKey = getSwarmConversationRegistryKey(clusterId, mode);
+        const selectedRunId = state.currentClusterSwarmRunSelections?.[registryKey];
+        if (typeof selectedRunId === 'string' && selectedRunId.trim()) {
+            return selectedRunId.trim();
+        }
+
+        const activeRunId = getActiveSwarmConversationRunId(clusterId, mode);
+        if (activeRunId) {
+            return activeRunId;
+        }
+
+        return getKnownSwarmConversationRuns(clusterId, mode)[0] || null;
+    }
+
+    function setSelectedSwarmConversationRunId(clusterId, mode, swarmRunId) {
+        const normalizedRunId = typeof swarmRunId === 'string' ? swarmRunId.trim() : '';
+        if (!normalizedRunId) {
+            return;
+        }
+
+        if (!state.currentClusterSwarmRunSelections) {
+            state.currentClusterSwarmRunSelections = {};
+        }
+
+        recordKnownSwarmConversationRunId(clusterId, mode, normalizedRunId);
+        state.currentClusterSwarmRunSelections[getSwarmConversationRegistryKey(clusterId, mode)] = normalizedRunId;
+    }
+
+    function isVisibleClusterConversationKey(key) {
+        const cluster = getCurrentCluster();
+        if (!cluster || state.viewMode !== 'clusters') {
+            return false;
+        }
+
+        return getCurrentClusterTargetInfo(cluster).key === key;
+    }
+
+    function refreshClusterConversationIfVisible(key) {
+        if (isVisibleClusterConversationKey(key)) {
+            renderClusterWorkspace();
+        }
+    }
+
+    function buildConversationRenderSignature(messages, options = {}) {
+        const source = Array.isArray(messages) ? messages : [];
+        const messageSignature = source.map(message => ([
+            message?.id || '',
+            message?.role || '',
+            message?.timestamp || '',
+            message?.content || '',
+            message?.displayName || '',
+            message?.contextLabel || '',
+            String(message?.metadata?.swarmBatchId || ''),
+            String(message?.metadata?.swarmRunId || ''),
+            message?.toolCallId || '',
+            message?.toolName || '',
+            Array.isArray(message?.parts) ? message.parts.length : 0
+        ].join('|'))).join('||');
+
+        return [
+            options.loading ? '1' : '0',
+            options.pending ? '1' : '0',
+            options.swarmRunId || '',
+            messageSignature
+        ].join(':::');
+    }
+
+    function shouldAcceptSwarmConversationUpdate(clusterId, mode, messages, options = {}) {
+        const incomingRunId = typeof options.swarmRunId === 'string' && options.swarmRunId.trim()
+            ? options.swarmRunId.trim()
+            : '';
+        const isRunInitialization = options.keepPending === true
+            && Array.isArray(messages)
+            && messages.length > 0
+            && messages[0]?.role === 'user';
+
+        if (incomingRunId) {
+            recordKnownSwarmConversationRunId(clusterId, mode, incomingRunId, {
+                select: isRunInitialization
+            });
+        }
+
+        if (isRunInitialization && incomingRunId) {
+            setActiveSwarmConversationRunId(clusterId, mode, incomingRunId);
+            setSelectedSwarmConversationRunId(clusterId, mode, incomingRunId);
+        }
+
+        return true;
     }
 
     function setClusterConversationLoading(clusterId, agentId, loading) {
@@ -145,100 +314,203 @@
         renderClusterWorkspace();
     }
 
-    function setSwarmConversationLoading(clusterId, mode, loading) {
-        const conversation = ensureClusterConversation(getClusterConversationKey(clusterId, {
+    function setSwarmConversationLoading(clusterId, mode, loading, options = {}) {
+        const key = getClusterConversationKey(clusterId, {
             targetKind: 'swarm',
-            mode
-        }));
+            mode,
+            outputMode: options.outputMode,
+            swarmRunId: options.swarmRunId
+        });
+        const conversation = ensureClusterConversation(key);
+        if (options.swarmRunId) {
+            recordKnownSwarmConversationRunId(clusterId, mode, options.swarmRunId);
+        }
+        const nextSignature = buildConversationRenderSignature(conversation.messages, {
+            loading: Boolean(loading),
+            pending: conversation.pending,
+            swarmRunId: options.swarmRunId || conversation.swarmRunId
+        });
+        if (conversation.renderSignature === nextSignature) {
+            return;
+        }
         conversation.loading = Boolean(loading);
         if (!loading) {
             conversation.loaded = true;
         }
-        renderClusterWorkspace();
+        if (options.swarmRunId) {
+            conversation.swarmRunId = options.swarmRunId;
+        }
+        conversation.renderSignature = nextSignature;
+        refreshClusterConversationIfVisible(key);
     }
 
     function replaceClusterConversationMessages(clusterId, agentId, messages) {
-        const conversation = ensureClusterConversation(getClusterConversationKey(clusterId, {
+        const key = getClusterConversationKey(clusterId, {
             targetKind: 'agent',
             agentId,
             agentViewMode: 'chat'
-        }));
-        conversation.messages = Array.isArray(messages) ? messages : [];
+        });
+        const conversation = ensureClusterConversation(key);
+        const nextMessages = Array.isArray(messages) ? messages : [];
+        const nextSignature = buildConversationRenderSignature(nextMessages, {
+            loading: false,
+            pending: false
+        });
+        if (conversation.renderSignature === nextSignature) {
+            return;
+        }
+        conversation.messages = nextMessages;
         conversation.loading = false;
         conversation.loaded = true;
         conversation.pending = false;
-        renderClusterWorkspace();
+        conversation.renderSignature = nextSignature;
+        refreshClusterConversationIfVisible(key);
     }
 
     function appendClusterConversationMessage(clusterId, agentId, message, options = {}) {
-        const conversation = ensureClusterConversation(getClusterConversationKey(clusterId, {
+        const key = getClusterConversationKey(clusterId, {
             targetKind: 'agent',
             agentId,
             agentViewMode: 'chat'
-        }));
+        });
+        const conversation = ensureClusterConversation(key);
         conversation.messages.push(message);
         conversation.loading = false;
         conversation.loaded = true;
         conversation.pending = options.keepPending === true;
-        renderClusterWorkspace();
+        conversation.renderSignature = buildConversationRenderSignature(conversation.messages, {
+            loading: false,
+            pending: conversation.pending
+        });
+        refreshClusterConversationIfVisible(key);
     }
 
     function setClusterAgentSwarmConversationLoading(clusterId, agentId, mode, loading) {
-        const conversation = ensureClusterConversation(getClusterConversationKey(clusterId, {
+        const key = getClusterConversationKey(clusterId, {
             targetKind: 'agent',
             agentId,
             agentViewMode: mode
-        }));
+        });
+        const conversation = ensureClusterConversation(key);
+        const nextSignature = buildConversationRenderSignature(conversation.messages, {
+            loading: Boolean(loading),
+            pending: conversation.pending
+        });
+        if (conversation.renderSignature === nextSignature) {
+            return;
+        }
         conversation.loading = Boolean(loading);
         if (!loading) {
             conversation.loaded = true;
         }
-        renderClusterWorkspace();
+        conversation.renderSignature = nextSignature;
+        refreshClusterConversationIfVisible(key);
     }
 
     function replaceClusterAgentSwarmConversationMessages(clusterId, agentId, mode, messages) {
-        const conversation = ensureClusterConversation(getClusterConversationKey(clusterId, {
+        const key = getClusterConversationKey(clusterId, {
             targetKind: 'agent',
             agentId,
             agentViewMode: mode
-        }));
-        conversation.messages = Array.isArray(messages) ? messages : [];
+        });
+        const conversation = ensureClusterConversation(key);
+        const nextMessages = Array.isArray(messages) ? messages : [];
+        const nextSignature = buildConversationRenderSignature(nextMessages, {
+            loading: false,
+            pending: false
+        });
+        if (conversation.renderSignature === nextSignature) {
+            return;
+        }
+        conversation.messages = nextMessages;
         conversation.loading = false;
         conversation.loaded = true;
         conversation.pending = false;
-        renderClusterWorkspace();
+        conversation.renderSignature = nextSignature;
+        refreshClusterConversationIfVisible(key);
     }
 
     function appendSwarmConversationMessages(clusterId, mode, messages) {
-        const conversation = ensureClusterConversation(getClusterConversationKey(clusterId, {
+        const key = getClusterConversationKey(clusterId, {
             targetKind: 'swarm',
-            mode
-        }));
+            mode,
+            outputMode: 'frontend',
+            swarmRunId: getSelectedSwarmConversationRunId(clusterId, mode)
+        });
+        const conversation = ensureClusterConversation(key);
         conversation.messages.push(...messages);
         conversation.pending = false;
         conversation.loaded = true;
-        renderClusterWorkspace();
+        conversation.renderSignature = buildConversationRenderSignature(conversation.messages, {
+            loading: false,
+            pending: false,
+            swarmRunId: conversation.swarmRunId
+        });
+        refreshClusterConversationIfVisible(key);
     }
 
     function replaceSwarmConversationMessages(clusterId, mode, messages, options = {}) {
-        const conversation = ensureClusterConversation(getClusterConversationKey(clusterId, {
+        if (!shouldAcceptSwarmConversationUpdate(clusterId, mode, messages, options)) {
+            return;
+        }
+
+        const key = getClusterConversationKey(clusterId, {
             targetKind: 'swarm',
-            mode
-        }));
-        conversation.messages = Array.isArray(messages) ? messages : [];
+            mode,
+            outputMode: options.outputMode || 'frontend',
+            swarmRunId: options.swarmRunId
+        });
+        const conversation = ensureClusterConversation(key);
+        const nextMessages = Array.isArray(messages) ? messages : [];
+        const nextRunId = typeof options.swarmRunId === 'string' && options.swarmRunId.trim()
+            ? options.swarmRunId.trim()
+            : conversation.swarmRunId;
+        const nextSignature = buildConversationRenderSignature(nextMessages, {
+            loading: false,
+            pending: options.keepPending === true,
+            swarmRunId: nextRunId
+        });
+        if (conversation.renderSignature === nextSignature) {
+            return;
+        }
+
+        conversation.messages = nextMessages;
         conversation.loading = false;
         conversation.loaded = true;
         conversation.pending = options.keepPending === true;
-        renderClusterWorkspace();
+        conversation.swarmRunId = nextRunId || null;
+        conversation.renderSignature = nextSignature;
+        refreshClusterConversationIfVisible(key);
     }
 
-    function clearSwarmConversationPending(clusterId, mode) {
-        const conversation = ensureClusterConversation(getClusterConversationKey(clusterId, {
+    function clearSwarmConversationPending(clusterId, mode, options = {}) {
+        if (!shouldAcceptSwarmConversationUpdate(clusterId, mode, [], options)) {
+            return;
+        }
+
+        const key = getClusterConversationKey(clusterId, {
             targetKind: 'swarm',
-            mode
-        }));
+            mode,
+            outputMode: options.outputMode || 'frontend',
+            swarmRunId: options.swarmRunId
+        });
+        const conversation = ensureClusterConversation(key);
+        const nextRunId = typeof options.swarmRunId === 'string' && options.swarmRunId.trim()
+            ? options.swarmRunId.trim()
+            : conversation.swarmRunId;
+        const nextSignature = buildConversationRenderSignature(conversation.messages, {
+            loading: false,
+            pending: false,
+            swarmRunId: nextRunId
+        });
+        if (conversation.renderSignature === nextSignature) {
+            return;
+        }
+
         conversation.pending = false;
-        renderClusterWorkspace();
+        conversation.swarmRunId = nextRunId || conversation.swarmRunId || null;
+        conversation.renderSignature = nextSignature;
+        refreshClusterConversationIfVisible(key);
     }
 
     function clearCurrentClusterPendingState() {
@@ -250,6 +522,11 @@
         const conversation = ensureClusterConversation(getCurrentClusterTargetInfo(cluster).key);
         conversation.pending = false;
         conversation.loading = false;
+        conversation.renderSignature = buildConversationRenderSignature(conversation.messages, {
+            loading: false,
+            pending: false,
+            swarmRunId: conversation.swarmRunId
+        });
         renderClusterWorkspace();
     }
 
@@ -279,19 +556,27 @@
         const trace = Array.isArray(entry?.trace) ? entry.trace : [];
         const source = mergeTraceWithFinalMessage(trace, entry?.message);
         const deduped = [];
-        const seen = new Set();
+        const byKey = new Map();
 
         source.forEach(message => {
             if (!message) {
                 return;
             }
 
-            const id = message.id || `${message.role}:${message.timestamp || ''}:${message.content || ''}`;
-            if (seen.has(id)) {
+            const key = message.id || `${message.role}:${message.timestamp || ''}:${message.content || ''}`;
+            const existingIndex = byKey.get(key);
+            if (existingIndex !== undefined) {
+                if (shouldPreferClusterTraceMessage(message, deduped[existingIndex])) {
+                    deduped[existingIndex] = {
+                        ...message,
+                        displayName,
+                        contextLabel
+                    };
+                }
                 return;
             }
-            seen.add(id);
 
+            byKey.set(key, deduped.length);
             deduped.push({
                 ...message,
                 displayName,
@@ -300,6 +585,19 @@
         });
 
         return deduped;
+    }
+
+    function shouldPreferClusterTraceMessage(candidate, existing) {
+        return computeClusterTraceMessageRichness(candidate) >= computeClusterTraceMessageRichness(existing);
+    }
+
+    function computeClusterTraceMessageRichness(message) {
+        const contentLength = typeof message?.content === 'string' ? message.content.length : 0;
+        const partsLength = Array.isArray(message?.parts)
+            ? JSON.stringify(message.parts).length
+            : 0;
+        const metadataLength = message?.metadata ? JSON.stringify(message.metadata).length : 0;
+        return contentLength + partsLength + metadataLength;
     }
 
     function mergeTraceWithFinalMessage(trace, finalMessage) {
@@ -336,6 +634,7 @@
             ? result.rounds
             : [{
                 kind: 'revision-2',
+                descriptor: buildFallbackCollaborationRoundDescriptor('revision-2'),
                 entries: result.contributions || {}
             }];
         const coordinatorLabel = result.coordinatorAgentId
@@ -343,7 +642,7 @@
             : t('clusters.targetSwarm');
 
         rounds.forEach(round => {
-            const roundLabel = getCollaborationRoundLabel(round.kind, t);
+            const roundLabel = getCollaborationRoundLabel(round, t);
             Object.entries(round.entries || {}).forEach(([agentId, entry]) => {
                 if (entry.ok) {
                     messages.push(...buildAgentTraceMessages(

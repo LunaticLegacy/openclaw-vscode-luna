@@ -16,10 +16,14 @@
     // State
     let state = {
         currentAgentId: null,
+        chatSubagents: [],
+        chatCommandBarCollapsed: false,
         currentClusterId: null,
         currentClusterTargetKind: 'swarm',
         currentClusterAgentId: null,
         currentClusterSwarmMode: 'broadcast',
+        currentClusterSwarmOutputMode: 'frontend',
+        currentClusterSwarmRunSelections: {},
         currentClusterAgentViewMode: 'chat',
         agents: [],
         agentFolders: [],
@@ -34,6 +38,8 @@
         clusterWorkModePresets: [],
         identityPresets: [],
         clusterConversations: {},
+        activeClusterSwarmRuns: {},
+        clusterSwarmRunHistory: {},
         tasks: [],
         tasksAvailable: true,
         tasksLoaded: false,
@@ -85,6 +91,7 @@
         installGuideBusy: false,
         agentMutation: null,
         mainSidebarCollapsed: false,
+        clusterTopSectionCollapsed: false,
         clusterTopologyCollapsed: false,
         skillMarketFilters: {
             query: '',
@@ -211,7 +218,9 @@
     function hydrateUiState() {
         const savedState = vscode.getState ? (vscode.getState() || {}) : {};
         state.mainSidebarCollapsed = Boolean(savedState.mainSidebarCollapsed);
+        state.clusterTopSectionCollapsed = Boolean(savedState.clusterTopSectionCollapsed);
         state.clusterTopologyCollapsed = Boolean(savedState.clusterTopologyCollapsed);
+        state.chatCommandBarCollapsed = Boolean(savedState.chatCommandBarCollapsed);
     }
 
     function persistUiState() {
@@ -221,7 +230,9 @@
 
         vscode.setState({
             mainSidebarCollapsed: state.mainSidebarCollapsed,
-            clusterTopologyCollapsed: state.clusterTopologyCollapsed
+            clusterTopSectionCollapsed: state.clusterTopSectionCollapsed,
+            clusterTopologyCollapsed: state.clusterTopologyCollapsed,
+            chatCommandBarCollapsed: state.chatCommandBarCollapsed
         });
     }
 
@@ -255,6 +266,21 @@
         Object.keys(state.clusterConversations || {}).forEach(key => {
             if (key.startsWith(`cluster:${clusterId}:`)) {
                 delete state.clusterConversations[key];
+            }
+        });
+        Object.keys(state.activeClusterSwarmRuns || {}).forEach(key => {
+            if (key.startsWith(`cluster:${clusterId}:swarm:`)) {
+                delete state.activeClusterSwarmRuns[key];
+            }
+        });
+        Object.keys(state.clusterSwarmRunHistory || {}).forEach(key => {
+            if (key.startsWith(`cluster:${clusterId}:swarm:`)) {
+                delete state.clusterSwarmRunHistory[key];
+            }
+        });
+        Object.keys(state.currentClusterSwarmRunSelections || {}).forEach(key => {
+            if (key.startsWith(`cluster:${clusterId}:swarm:`)) {
+                delete state.currentClusterSwarmRunSelections[key];
             }
         });
 
@@ -326,6 +352,12 @@
         persistUiState();
     }
 
+    function toggleClusterTopSection() {
+        state.clusterTopSectionCollapsed = !state.clusterTopSectionCollapsed;
+        renderClusterWorkspace();
+        persistUiState();
+    }
+
     function applySidebarState() {
         elements.mainSidebar?.classList.toggle('collapsed', state.mainSidebarCollapsed);
 
@@ -369,6 +401,17 @@
         elements.btnOpenAgentOnboardingSettings = document.getElementById('btn-open-agent-onboarding-settings');
         elements.clusterSidebarList = document.getElementById('cluster-sidebar-list');
         elements.chatMessages = document.getElementById('chat-messages');
+        elements.chatCommandBar = document.getElementById('chat-command-bar');
+        elements.btnToggleChatCommandBar = document.getElementById('btn-toggle-chat-command-bar');
+        elements.chatCommandBarBody = document.getElementById('chat-command-bar-body');
+        elements.chatCommandBarToggleIcon = document.getElementById('chat-command-bar-toggle-icon');
+        elements.chatCommandBarSummary = document.getElementById('chat-command-bar-summary');
+        elements.chatSubagentSelect = document.getElementById('chat-subagent-select');
+        elements.chatSubagentsCount = document.getElementById('chat-subagents-count');
+        elements.btnChatInsertSubagentCommand = document.getElementById('btn-chat-insert-subagent-command');
+        elements.chatOpenClawCommandInput = document.getElementById('chat-openclaw-command-input');
+        elements.btnChatInsertOpenClawCommand = document.getElementById('btn-chat-insert-openclaw-command');
+        elements.chatOpenClawCommandTree = document.getElementById('chat-openclaw-command-tree');
         elements.messageInput = document.getElementById('message-input');
         elements.btnSend = document.getElementById('btn-send');
         elements.btnClear = document.getElementById('btn-clear');
@@ -447,6 +490,15 @@
         elements.copyCommandButtons = document.querySelectorAll('[data-copy-command]');
         elements.clusterEmptyState = document.getElementById('clusters-empty-state');
         elements.clusterWorkspace = document.getElementById('cluster-workspace');
+        elements.clusterTopSection = document.getElementById('cluster-top-section');
+        elements.clusterTopSectionCollapsedBar = document.getElementById('cluster-top-section-collapsed-bar');
+        elements.clusterTopSectionBody = document.getElementById('cluster-top-section-body');
+        elements.clusterTopSectionCollapsedTitle = document.getElementById('cluster-top-section-collapsed-title');
+        elements.clusterTopSectionCollapsedMode = document.getElementById('cluster-top-section-collapsed-mode');
+        elements.clusterTopSectionCollapsedCount = document.getElementById('cluster-top-section-collapsed-count');
+        elements.clusterTopSectionCollapsedStatus = document.getElementById('cluster-top-section-collapsed-status');
+        elements.btnToggleClusterTopSection = document.getElementById('btn-toggle-cluster-top-section');
+        elements.btnToggleClusterTopSectionCollapsed = document.getElementById('btn-toggle-cluster-top-section-collapsed');
         elements.clusterTitle = document.getElementById('cluster-title');
         elements.clusterBriefing = document.getElementById('cluster-briefing');
         elements.clusterSubtitle = document.getElementById('cluster-subtitle');
@@ -454,6 +506,7 @@
         elements.clusterWorkmodeSummary = document.getElementById('cluster-workmode-summary');
         elements.clusterTargetTabs = document.getElementById('cluster-target-tabs');
         elements.clusterModeTabs = document.getElementById('cluster-mode-tabs');
+        elements.clusterOutputModeTabs = document.getElementById('cluster-output-mode-tabs');
         elements.clusterTopology = document.getElementById('cluster-topology');
         elements.clusterMessages = document.getElementById('cluster-messages');
         elements.clusterMessageInput = document.getElementById('cluster-message-input');
@@ -610,6 +663,13 @@
 
         // Send message
         elements.btnSend?.addEventListener('click', sendMessage);
+        elements.btnToggleChatCommandBar?.addEventListener('click', toggleChatCommandBar);
+        elements.btnChatInsertSubagentCommand?.addEventListener('click', () => {
+            insertSelectedSubagentCommand();
+        });
+        elements.btnChatInsertOpenClawCommand?.addEventListener('click', () => {
+            insertOpenClawSlashCommand();
+        });
         bindStopButton(elements.btnStop, stopChatRun);
         elements.messageInput?.addEventListener('keydown', (e) => {
             if (e.key !== 'Enter' || e.isComposing) {
@@ -1270,9 +1330,24 @@
                 return;
             }
 
+            const clusterOutputModeTab = target.closest('[data-cluster-output-mode]');
+            if (clusterOutputModeTab) {
+                const outputMode = clusterOutputModeTab.getAttribute('data-cluster-output-mode');
+                if (outputMode === 'frontend' || outputMode === 'raw') {
+                    selectClusterSwarmOutputMode(outputMode);
+                }
+                return;
+            }
+
             const clusterTopologyToggle = target.closest('[data-cluster-topology-toggle]');
             if (clusterTopologyToggle) {
                 toggleClusterTopology();
+                return;
+            }
+
+            const clusterTopSectionToggle = target.closest('[data-cluster-top-section-toggle]');
+            if (clusterTopSectionToggle) {
+                toggleClusterTopSection();
                 return;
             }
 
@@ -1312,6 +1387,17 @@
                 if (presetId) {
                     applyAgentOnboardingPreset(presetId);
                 }
+            }
+        });
+
+        document.addEventListener('change', (e) => {
+            const target = e.target;
+            if (!(target instanceof HTMLSelectElement)) {
+                return;
+            }
+
+            if (target.matches('[data-cluster-swarm-run-select]')) {
+                selectClusterSwarmRun(target.value);
             }
         });
 
