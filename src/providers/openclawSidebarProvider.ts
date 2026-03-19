@@ -59,9 +59,13 @@ class AgentFolderTreeItem extends vscode.TreeItem {
     ) {
         super(labelText, collapsed ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.Expanded);
 
+        const isUngrouped = !folderId;
         this.description = String(agentIds.length);
-        this.contextValue = folderId ? 'agentFolder' : 'agentFolder:ungrouped';
-        this.iconPath = new vscode.ThemeIcon(folderId ? 'folder' : 'root-folder');
+        this.contextValue = isUngrouped ? 'agentFolder:ungrouped' : 'agentFolder';
+        this.iconPath = new vscode.ThemeIcon('folder');
+        if (isUngrouped) {
+            this.tooltip = t('sidebar.ungroupedHint');
+        }
     }
 }
 

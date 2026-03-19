@@ -12,7 +12,7 @@ export interface AiSkillDefinition {
 /**
  * AI技能市场URL
  */
-export const SKILL_MARKET_URL = 'https://skillmarket.cc/zh/';
+export const SKILL_MARKET_URL = 'https://skillsllm.com/';
 
 const AI_SKILLS: AiSkillDefinition[] = [
     {
@@ -21,9 +21,9 @@ const AI_SKILLS: AiSkillDefinition[] = [
         description: 'Find high-signal bugs, regressions, missing tests, and user-visible risks first.',
         prompt: 'Review code with a findings-first mindset. Prioritize correctness, regressions, security, and missing tests over style.',
         downloadUrl: SKILL_MARKET_URL,
-        linkLabel: 'Browse SkillMarket.cc',
-        linkDescription: 'Open the public SkillMarket catalog to discover and import more skills.',
-        sourceLabel: 'Open Market'
+        linkLabel: 'Browse Skill Hubs',
+        linkDescription: 'Open a public skill hub catalog to discover and import more skills.',
+        sourceLabel: 'Skill Hub'
     },
     {
         id: 'debugging',
@@ -31,9 +31,9 @@ const AI_SKILLS: AiSkillDefinition[] = [
         description: 'Converge on the fastest reproducer, strongest signal, and smallest safe fix.',
         prompt: 'Run a compact debug loop: restate the symptom, rank hypotheses, pick one high-signal probe, and avoid broad rewrites before verification.',
         downloadUrl: SKILL_MARKET_URL,
-        linkLabel: 'Browse SkillMarket.cc',
-        linkDescription: 'Open the public SkillMarket catalog to discover and import more skills.',
-        sourceLabel: 'Open Market'
+        linkLabel: 'Browse Skill Hubs',
+        linkDescription: 'Open a public skill hub catalog to discover and import more skills.',
+        sourceLabel: 'Skill Hub'
     },
     {
         id: 'refactor-planning',
@@ -41,9 +41,9 @@ const AI_SKILLS: AiSkillDefinition[] = [
         description: 'Plan staged, reversible refactors with rollback and verification gates.',
         prompt: 'Favor small, reversible phases. Include dependency impact, rollback points, and verification gates for each stage.',
         downloadUrl: SKILL_MARKET_URL,
-        linkLabel: 'Browse SkillMarket.cc',
-        linkDescription: 'Open the public SkillMarket catalog to discover and import more skills.',
-        sourceLabel: 'Open Market'
+        linkLabel: 'Browse Skill Hubs',
+        linkDescription: 'Open a public skill hub catalog to discover and import more skills.',
+        sourceLabel: 'Skill Hub'
     },
     {
         id: 'api-design',
@@ -51,9 +51,9 @@ const AI_SKILLS: AiSkillDefinition[] = [
         description: 'Design contracts with explicit schema, examples, compatibility, and error models.',
         prompt: 'Keep request and response schemas, examples, authentication, versioning, and error models internally consistent. Call out breaking changes explicitly.',
         downloadUrl: SKILL_MARKET_URL,
-        linkLabel: 'Browse SkillMarket.cc',
-        linkDescription: 'Open the public SkillMarket catalog to discover and import more skills.',
-        sourceLabel: 'Open Market'
+        linkLabel: 'Browse Skill Hubs',
+        linkDescription: 'Open a public skill hub catalog to discover and import more skills.',
+        sourceLabel: 'Skill Hub'
     },
     {
         id: 'test-authoring',
@@ -61,9 +61,9 @@ const AI_SKILLS: AiSkillDefinition[] = [
         description: 'Add focused tests that cover the real behavioral risk without brittle noise.',
         prompt: 'Write the smallest stable tests that cover the intended behavior and key edge cases. Prefer risk coverage over raw coverage count.',
         downloadUrl: SKILL_MARKET_URL,
-        linkLabel: 'Browse SkillMarket.cc',
-        linkDescription: 'Open the public SkillMarket catalog to discover and import more skills.',
-        sourceLabel: 'Open Market'
+        linkLabel: 'Browse Skill Hubs',
+        linkDescription: 'Open a public skill hub catalog to discover and import more skills.',
+        sourceLabel: 'Skill Hub'
     }
 ];
 

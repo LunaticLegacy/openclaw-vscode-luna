@@ -10,13 +10,18 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - File-based swarm presets and identity presets with bundled + user preset loading support.
 - Per-member “Use Preset Identity” selector in the cluster editor, with preset application behavior.
 - Export Swarm JSON for saving the current swarm structure.
+- Import Swarm JSON to restore a previously exported swarm configuration into the editor.
 - Agent folder support in the sidebar, including ungrouped bucket and folder expand/collapse persistence.
 - Cluster agent creation queue to allow batch creation without blocking the New Agent button.
 - Topology view improvements (tree layout, SVG connectors, and scroll support).
+- Swarm-aware outbound send reliability layer with queueing, retries, delivery state tracking, and orchestration events.
 
 ### Changed
 - Cluster creation from presets now loads preset definitions from JSON files instead of hardcoded lists.
 - Cluster refresh flow now also refreshes clusters when agents are refreshed.
+- Cluster editor modal layout refresh with unified header shell styling.
+- New Agent modal and Skill Market modal redesigned to match the Swarm editor visual language.
+- Skill Market now pulls listings from SkillsLLM and Tencent SkillHub APIs with hub-aware normalization and generic hub copy.
 
 ### Fixed
 - Swarm stop handling now properly aborts all agent runs and swarm sessions.
@@ -24,6 +29,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
     - Sidebar i18n keys and view titles rendering issues.
     - Main panel loading stall during agent/cluster view initialization.
 - Cluster member picker UX now uses a single, coherent selection model.
+- Cluster editor “Unlimited rounds” control alignment and layout consistency.
 
 ## [0.7.2] - 2026.3.15
 

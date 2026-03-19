@@ -631,82 +631,90 @@
 
         <div id="modal-new-agent" class="modal">
             <div class="modal-content modal-content-wide">
-                <span class="modal-close">&times;</span>
-                <h2 data-i18n="sidebar.newAgent">New Agent</h2>
-                <form id="form-new-agent">
-                    <div class="new-agent-mode-toggle" role="tablist">
-                        <button id="btn-new-agent-mode-custom" type="button" class="new-agent-mode-btn active" data-new-agent-mode="custom" data-i18n="newAgent.mode.custom">New Agent</button>
-                        <button id="btn-new-agent-mode-preset" type="button" class="new-agent-mode-btn" data-new-agent-mode="preset" data-i18n="newAgent.mode.preset">Use Preset Agent</button>
-                        <button id="btn-new-agent-mode-batch" type="button" class="new-agent-mode-btn" data-new-agent-mode="batch" data-i18n="newAgent.mode.batch">Batch Create</button>
+                <div class="modal-shell">
+                    <div class="modal-shell-header">
+                        <div class="modal-shell-title">
+                            <h2 data-i18n="sidebar.newAgent">New Agent</h2>
+                        </div>
+                        <button class="modal-close" type="button" aria-label="Close">&times;</button>
                     </div>
-                    <div id="new-agent-preset-panel" class="new-agent-preset-panel hidden">
-                        <div class="new-agent-preset-header">
-                            <div class="new-agent-preset-copy">
-                                <div class="new-agent-preset-eyebrow" data-i18n="newAgent.preset.galleryEyebrow">Preset Agents</div>
-                                <h3 data-i18n="newAgent.preset.galleryTitle">Choose a scenario template</h3>
-                                <p data-i18n="newAgent.preset.galleryHint">Pick a preset card to prefill the agent name and system prompt.</p>
+                    <form id="form-new-agent" class="modal-shell-body new-agent-body">
+                        <div class="new-agent-panel">
+                            <div class="new-agent-mode-toggle" role="tablist">
+                                <button id="btn-new-agent-mode-custom" type="button" class="new-agent-mode-btn active" data-new-agent-mode="custom" data-i18n="newAgent.mode.custom">New Agent</button>
+                                <button id="btn-new-agent-mode-preset" type="button" class="new-agent-mode-btn" data-new-agent-mode="preset" data-i18n="newAgent.mode.preset">Use Preset Agent</button>
+                                <button id="btn-new-agent-mode-batch" type="button" class="new-agent-mode-btn" data-new-agent-mode="batch" data-i18n="newAgent.mode.batch">Batch Create</button>
                             </div>
-                        </div>
-                        <div id="new-agent-preset-grid" class="new-agent-preset-grid"></div>
-                        <div id="new-agent-preset-description" class="new-agent-preset-summary"></div>
-                    </div>
-                    <div id="new-agent-single-fields">
-                    <div class="form-group">
-                        <label for="new-agent-name" data-i18n="agentSettings.name">Name</label>
-                        <input type="text" id="new-agent-name" required data-i18n-placeholder="newAgent.placeholderName" placeholder="My Agent">
-                    </div>
-                    <div class="form-group">
-                        <label for="new-agent-model-provider" data-i18n="agentSettings.modelProvider">Model Provider</label>
-                        <div class="auth-provider-inputs">
-                            <select id="new-agent-model-provider"></select>
-                            <input type="text" id="new-agent-model-provider-custom" class="hidden" data-i18n-placeholder="agentSettings.modelProviderPlaceholder" placeholder="Custom provider">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label for="new-agent-model" data-i18n="agentSettings.model">Model</label>
-                        <div class="auth-provider-inputs">
-                            <select id="new-agent-model" required></select>
-                            <input type="text" id="new-agent-model-custom" class="hidden" data-i18n-placeholder="agentSettings.modelCustomPlaceholder" placeholder="Custom model">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label for="new-agent-prompt" data-i18n="common.systemPrompt">System Prompt</label>
-                        <textarea id="new-agent-prompt" rows="3" data-i18n-placeholder="newAgent.placeholderPrompt" placeholder="Optional system prompt..."></textarea>
-                    </div>
-                    </div>
-                    <div id="new-agent-batch-panel" class="hidden">
-                        <div class="form-group">
-                            <label for="batch-agent-names" data-i18n="agentBatch.names">Agent Names</label>
-                            <textarea id="batch-agent-names" rows="8" data-i18n-placeholder="agentBatch.namesPlaceholder" placeholder="One agent name per line"></textarea>
-                            <div class="form-hint" data-i18n="agentBatch.namesHint">One name per line. Empty lines are ignored.</div>
-                        </div>
-                        <div class="cluster-form-grid">
+                            <div id="new-agent-preset-panel" class="new-agent-preset-panel hidden">
+                                <div class="new-agent-preset-header">
+                                    <div class="new-agent-preset-copy">
+                                        <div class="new-agent-preset-eyebrow" data-i18n="newAgent.preset.galleryEyebrow">Preset Agents</div>
+                                        <h3 data-i18n="newAgent.preset.galleryTitle">Choose a scenario template</h3>
+                                        <p data-i18n="newAgent.preset.galleryHint">Pick a preset card to prefill the agent name and system prompt.</p>
+                                    </div>
+                                </div>
+                                <div id="new-agent-preset-grid" class="new-agent-preset-grid"></div>
+                                <div id="new-agent-preset-description" class="new-agent-preset-summary"></div>
+                            </div>
+                            <div id="new-agent-single-fields">
                             <div class="form-group">
-                                <label for="batch-agent-model-provider" data-i18n="agentSettings.modelProvider">Model Provider</label>
+                                <label for="new-agent-name" data-i18n="agentSettings.name">Name</label>
+                                <input type="text" id="new-agent-name" required data-i18n-placeholder="newAgent.placeholderName" placeholder="My Agent">
+                            </div>
+                            <div class="form-group">
+                                <label for="new-agent-model-provider" data-i18n="agentSettings.modelProvider">Model Provider</label>
                                 <div class="auth-provider-inputs">
-                                    <select id="batch-agent-model-provider"></select>
-                                    <input type="text" id="batch-agent-model-provider-custom" class="hidden" data-i18n-placeholder="agentSettings.modelProviderPlaceholder" placeholder="Custom provider">
+                                    <select id="new-agent-model-provider"></select>
+                                    <input type="text" id="new-agent-model-provider-custom" class="hidden" data-i18n-placeholder="agentSettings.modelProviderPlaceholder" placeholder="Custom provider">
                                 </div>
                             </div>
                             <div class="form-group">
-                                <label for="batch-agent-model" data-i18n="agentSettings.model">Model</label>
+                                <label for="new-agent-model" data-i18n="agentSettings.model">Model</label>
                                 <div class="auth-provider-inputs">
-                                    <select id="batch-agent-model"></select>
-                                    <input type="text" id="batch-agent-model-custom" class="hidden" data-i18n-placeholder="agentSettings.modelCustomPlaceholder" placeholder="Custom model">
+                                    <select id="new-agent-model" required></select>
+                                    <input type="text" id="new-agent-model-custom" class="hidden" data-i18n-placeholder="agentSettings.modelCustomPlaceholder" placeholder="Custom model">
                                 </div>
                             </div>
+                            <div class="form-group">
+                                <label for="new-agent-prompt" data-i18n="common.systemPrompt">System Prompt</label>
+                                <textarea id="new-agent-prompt" rows="3" data-i18n-placeholder="newAgent.placeholderPrompt" placeholder="Optional system prompt..."></textarea>
+                            </div>
+                            </div>
+                            <div id="new-agent-batch-panel" class="hidden">
+                                <div class="form-group">
+                                    <label for="batch-agent-names" data-i18n="agentBatch.names">Agent Names</label>
+                                    <textarea id="batch-agent-names" rows="8" data-i18n-placeholder="agentBatch.namesPlaceholder" placeholder="One agent name per line"></textarea>
+                                    <div class="form-hint" data-i18n="agentBatch.namesHint">One name per line. Empty lines are ignored.</div>
+                                </div>
+                                <div class="cluster-form-grid">
+                                    <div class="form-group">
+                                        <label for="batch-agent-model-provider" data-i18n="agentSettings.modelProvider">Model Provider</label>
+                                        <div class="auth-provider-inputs">
+                                            <select id="batch-agent-model-provider"></select>
+                                            <input type="text" id="batch-agent-model-provider-custom" class="hidden" data-i18n-placeholder="agentSettings.modelProviderPlaceholder" placeholder="Custom provider">
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="batch-agent-model" data-i18n="agentSettings.model">Model</label>
+                                        <div class="auth-provider-inputs">
+                                            <select id="batch-agent-model"></select>
+                                            <input type="text" id="batch-agent-model-custom" class="hidden" data-i18n-placeholder="agentSettings.modelCustomPlaceholder" placeholder="Custom model">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="batch-agent-prompt" data-i18n="common.systemPrompt">System Prompt</label>
+                                    <textarea id="batch-agent-prompt" rows="4" data-i18n-placeholder="agentBatch.promptPlaceholder" placeholder="Optional shared system prompt..."></textarea>
+                                </div>
+                                <div id="batch-agent-form-status" class="form-status hidden"></div>
+                            </div>
                         </div>
-                        <div class="form-group">
-                            <label for="batch-agent-prompt" data-i18n="common.systemPrompt">System Prompt</label>
-                            <textarea id="batch-agent-prompt" rows="4" data-i18n-placeholder="agentBatch.promptPlaceholder" placeholder="Optional shared system prompt..."></textarea>
+                        <div class="form-actions">
+                            <button type="button" class="btn modal-cancel" data-i18n="common.cancel">Cancel</button>
+                            <button type="submit" class="btn btn-primary" data-i18n="common.create">Create</button>
                         </div>
-                        <div id="batch-agent-form-status" class="form-status hidden"></div>
-                    </div>
-                    <div class="form-actions">
-                        <button type="button" class="btn modal-cancel" data-i18n="common.cancel">Cancel</button>
-                        <button type="submit" class="btn btn-primary" data-i18n="common.create">Create</button>
-                    </div>
-                </form>
+                    </form>
+                </div>
             </div>
         </div>
 
@@ -769,71 +777,86 @@
 
         <div id="modal-skill-market" class="modal">
             <div class="modal-content modal-content-wide">
-                <span class="modal-close">&times;</span>
-                <div class="skill-market-header">
-                    <div>
-                        <h2 data-i18n="skillMarket.title">Skill Market</h2>
-                        <p id="skill-market-subtitle" class="channel-editor-summary" data-i18n="skillMarket.subtitleMarket">Discover and install AI skills from SkillMarket.cc</p>
-                    </div>
-                    <div class="skill-market-header-actions">
-                        <button type="button" class="btn btn-secondary" id="btn-refresh-skills" title="Refresh">
-                            <span class="icon">&#8635;</span>
-                        </button>
-                        <button type="button" class="btn btn-primary" id="btn-create-custom-skill" data-i18n="skillMarket.createCustom">
-                            Create Custom
-                        </button>
-                    </div>
-                </div>
-                <div class="skill-market-tabs" id="skill-market-tabs">
-                    <button type="button" class="skill-market-tab is-active" data-tab="market" data-i18n="skillMarket.tabMarket">Market</button>
-                    <button type="button" class="skill-market-tab" data-tab="installed" data-i18n="skillMarket.tabInstalled">Installed</button>
-                    <button type="button" class="skill-market-tab" data-tab="enabled" data-i18n="skillMarket.tabEnabled">Enabled</button>
-                </div>
-                <div class="skill-market-hubs" id="skill-market-hubs"></div>
-                <div class="skill-market-filters">
-                    <div class="skill-market-search-row">
-                        <div class="skill-market-search">
-                            <input type="text" id="skill-market-search-input" data-i18n-placeholder="skillMarket.searchPlaceholder" placeholder="Search skills..." class="skill-market-search-input">
-                            <button type="button" id="skill-market-search-clear" class="skill-market-search-clear" title="Clear search">&times;</button>
+                <div class="modal-shell">
+                    <div class="modal-shell-header skill-market-shell-header">
+                        <div class="modal-shell-title">
+                            <h2 data-i18n="skillMarket.title">Skill Market</h2>
+                            <p id="skill-market-subtitle" class="modal-shell-subtitle channel-editor-summary" data-i18n="skillMarket.subtitleMarket">Discover and install skills from remote hubs.</p>
                         </div>
-                        <div class="skill-market-sort">
-                            <select id="skill-market-sort" class="skill-market-sort-select">
-                                <option value="popular" data-i18n="skillMarket.sortPopular">Most Popular</option>
-                                <option value="updated" data-i18n="skillMarket.sortUpdated">Recently Updated</option>
-                                <option value="rating" data-i18n="skillMarket.sortRating">Highest Rated</option>
-                                <option value="name" data-i18n="skillMarket.sortName">Name</option>
-                                <option value="installed" data-i18n="skillMarket.sortInstalled">Installed</option>
-                            </select>
+                        <div class="modal-shell-actions">
+                            <div class="skill-market-header-actions">
+                                <button type="button" class="btn btn-secondary" id="btn-refresh-skills" title="Refresh">
+                                    <span class="icon">&#8635;</span>
+                                </button>
+                                <button type="button" class="btn btn-primary" id="btn-create-custom-skill" data-i18n="skillMarket.createCustom">
+                                    Create Custom
+                                </button>
+                            </div>
+                            <button class="modal-close" type="button" aria-label="Close">&times;</button>
                         </div>
                     </div>
-                    <div class="skill-market-categories" id="skill-market-categories"></div>
-                    <div class="skill-market-tags" id="skill-market-tags"></div>
-                    <div class="skill-market-stats" id="skill-market-stats"></div>
-                    <div class="skill-market-status" id="skill-market-status"></div>
-                </div>
-                <div id="skill-market-content" class="skill-market-content">
-                    <div id="skill-market-grid" class="skill-market-grid"></div>
-                </div>
-                <div id="skill-market-empty" class="skill-market-empty hidden">
-                    <div class="skill-market-empty-icon">&#128230;</div>
-                    <div id="skill-market-empty-title" data-i18n="skillMarket.emptyMarket">No skills found</div>
-                    <div id="skill-market-empty-hint" class="skill-market-empty-hint" data-i18n="skillMarket.emptyMarketHint">Try adjusting filters or search terms.</div>
-                </div>
-                <div id="skill-market-loading" class="skill-market-loading hidden">
-                    <div class="spinner"></div>
-                    <div data-i18n="common.loading">Loading...</div>
+                    <div class="modal-shell-body skill-market-body">
+                        <div class="skill-market-panel">
+                            <div class="skill-market-tabs" id="skill-market-tabs">
+                                <button type="button" class="skill-market-tab is-active" data-tab="market" data-i18n="skillMarket.tabMarket">Market</button>
+                                <button type="button" class="skill-market-tab" data-tab="installed" data-i18n="skillMarket.tabInstalled">Installed</button>
+                                <button type="button" class="skill-market-tab" data-tab="enabled" data-i18n="skillMarket.tabEnabled">Enabled</button>
+                            </div>
+                            <div class="skill-market-hubs" id="skill-market-hubs"></div>
+                            <div class="skill-market-filters">
+                                <div class="skill-market-search-row">
+                                    <div class="skill-market-search">
+                                        <input type="text" id="skill-market-search-input" data-i18n-placeholder="skillMarket.searchPlaceholder" placeholder="Search skills..." class="skill-market-search-input">
+                                        <button type="button" id="skill-market-search-clear" class="skill-market-search-clear" title="Clear search">&times;</button>
+                                    </div>
+                                    <div class="skill-market-sort">
+                                        <select id="skill-market-sort" class="skill-market-sort-select">
+                                            <option value="popular" data-i18n="skillMarket.sortPopular">Most Popular</option>
+                                            <option value="updated" data-i18n="skillMarket.sortUpdated">Recently Updated</option>
+                                            <option value="rating" data-i18n="skillMarket.sortRating">Highest Rated</option>
+                                            <option value="name" data-i18n="skillMarket.sortName">Name</option>
+                                            <option value="installed" data-i18n="skillMarket.sortInstalled">Installed</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="skill-market-categories" id="skill-market-categories"></div>
+                                <div class="skill-market-tags" id="skill-market-tags"></div>
+                                <div class="skill-market-stats" id="skill-market-stats"></div>
+                                <div class="skill-market-status" id="skill-market-status"></div>
+                            </div>
+                        </div>
+                        <div class="skill-market-panel skill-market-panel-content">
+                            <div id="skill-market-content" class="skill-market-content">
+                                <div id="skill-market-grid" class="skill-market-grid"></div>
+                            </div>
+                            <div id="skill-market-empty" class="skill-market-empty hidden">
+                                <div class="skill-market-empty-icon">&#128230;</div>
+                                <div id="skill-market-empty-title" data-i18n="skillMarket.emptyMarket">No skills found</div>
+                                <div id="skill-market-empty-hint" class="skill-market-empty-hint" data-i18n="skillMarket.emptyMarketHint">Try adjusting filters or search terms.</div>
+                            </div>
+                            <div id="skill-market-loading" class="skill-market-loading hidden">
+                                <div class="spinner"></div>
+                                <div data-i18n="common.loading">Loading...</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
 
         <div id="modal-cluster-editor" class="modal">
             <div class="modal-content modal-content-wide">
-                <span class="modal-close">&times;</span>
-                <h2 id="cluster-modal-title" data-i18n="clusters.create">Create Cluster</h2>
-                <form id="form-cluster-editor">
-                    <input type="hidden" id="cluster-editor-id">
-                    <div class="cluster-editor-layout">
-                        <section class="cluster-editor-main">
+                <div class="cluster-editor-shell">
+                    <div class="cluster-editor-header">
+                        <div class="cluster-editor-header-title">
+                            <h2 id="cluster-modal-title" data-i18n="clusters.create">Create Cluster</h2>
+                        </div>
+                        <button class="modal-close" type="button" aria-label="Close">&times;</button>
+                    </div>
+                    <form id="form-cluster-editor" class="cluster-editor-form">
+                        <input type="hidden" id="cluster-editor-id">
+                        <div class="cluster-editor-layout">
+                            <section class="cluster-editor-main">
                             <div class="form-group">
                                 <label for="cluster-editor-name" data-i18n="clusters.form.name">Cluster Name</label>
                                 <input type="text" id="cluster-editor-name" required data-i18n-placeholder="clusters.placeholderName" placeholder="My Cluster">
@@ -858,12 +881,12 @@
                                     <select id="cluster-editor-critique"></select>
                                 </div>
                                 <div class="form-group cluster-rounds-group">
+                                    <label for="cluster-editor-rounds" data-i18n="clusters.form.rounds">Debate Rounds</label>
+                                    <input type="number" id="cluster-editor-rounds" min="1" step="1" value="2">
                                     <label for="cluster-editor-rounds-unlimited" class="cluster-rounds-toggle">
                                         <input type="checkbox" id="cluster-editor-rounds-unlimited">
                                         <span data-i18n="clusters.form.roundsUnlimited">Unlimited rounds</span>
                                     </label>
-                                    <label for="cluster-editor-rounds" data-i18n="clusters.form.rounds">Debate Rounds</label>
-                                    <input type="number" id="cluster-editor-rounds" min="1" step="1" value="2">
                                 </div>
                             </div>
                             <div id="cluster-editor-stop-condition-group" class="form-group cluster-stop-condition-group hidden">
@@ -879,9 +902,9 @@
                                 <label for="cluster-editor-coordinator-agent" data-i18n="clusters.form.coordinator">Final Summary Agent</label>
                                 <select id="cluster-editor-coordinator-agent"></select>
                             </div>
-                            <div id="cluster-preset-summary" class="cluster-preset-summary"></div>
-                        </section>
-                        <aside class="cluster-editor-side">
+                                <div id="cluster-preset-summary" class="cluster-preset-summary"></div>
+                            </section>
+                            <aside class="cluster-editor-side">
                             <div class="cluster-editor-side-header">
                                 <h3 data-i18n="clusters.form.members">Members</h3>
                                 <p data-i18n="clusters.form.membersHint">Pick the agents that belong to this cluster.</p>
@@ -916,20 +939,21 @@
                                     <div class="form-hint" data-i18n="clusters.form.quickCreateSaveHint">These new agents are only created when you save the cluster.</div>
                                 </div>
                             </section>
-                        </aside>
-                    </div>
-                    <section class="cluster-editor-bottom">
-                        <div class="cluster-editor-side-header">
-                            <h3 data-i18n="clusters.form.memberProfiles">Member Profiles</h3>
-                            <p data-i18n="clusters.form.memberProfilesHint">Customize each member's identity and stance inside the swarm.</p>
+                            </aside>
                         </div>
-                        <div id="cluster-editor-member-profiles" class="cluster-member-profiles"></div>
-                    </section>
-                    <div class="form-actions">
-                        <button type="button" class="btn modal-cancel" data-i18n="common.cancel">Cancel</button>
-                        <button type="submit" class="btn btn-primary" data-i18n="common.save">Save</button>
-                    </div>
-                </form>
+                        <section class="cluster-editor-bottom">
+                            <div class="cluster-editor-side-header">
+                                <h3 data-i18n="clusters.form.memberProfiles">Member Profiles</h3>
+                                <p data-i18n="clusters.form.memberProfilesHint">Customize each member's identity and stance inside the swarm.</p>
+                            </div>
+                            <div id="cluster-editor-member-profiles" class="cluster-member-profiles"></div>
+                        </section>
+                        <div class="form-actions">
+                            <button type="button" class="btn modal-cancel" data-i18n="common.cancel">Cancel</button>
+                            <button type="submit" class="btn btn-primary" data-i18n="common.save">Save</button>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
 

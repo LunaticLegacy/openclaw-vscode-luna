@@ -918,8 +918,8 @@
             const defaultLinkLabel = t('agentSettings.skills.downloadLink');
             const defaultLinkDescription = t('agentSettings.skills.downloadHint');
             uniqueLinks.set(url, {
-                label: skill.linkLabel || (defaultLinkLabel === 'agentSettings.skills.downloadLink' ? 'Browse SkillMarket.cc' : defaultLinkLabel),
-                description: skill.linkDescription || (defaultLinkDescription === 'agentSettings.skills.downloadHint' ? 'Open the public SkillMarket catalog in your browser.' : defaultLinkDescription)
+                label: skill.linkLabel || (defaultLinkLabel === 'agentSettings.skills.downloadLink' ? 'Browse Skill Hubs' : defaultLinkLabel),
+                description: skill.linkDescription || (defaultLinkDescription === 'agentSettings.skills.downloadHint' ? 'Open a public skill hub catalog in your browser.' : defaultLinkDescription)
             });
         });
 

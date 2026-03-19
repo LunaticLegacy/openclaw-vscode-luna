@@ -31,8 +31,72 @@
     max-width: 1080px;
 }
 
-#modal-new-agent .modal-content > h2 {
-    margin-left: 8px;
+.modal-shell {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.modal-shell-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 92%, white 8%), var(--bg-secondary));
+}
+
+.modal-shell-title h2 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.modal-shell-subtitle {
+    margin: 6px 0 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.modal-shell-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.modal-shell-body {
+    padding: 18px 22px 24px;
+}
+
+form.modal-shell-body {
+    padding: 18px 22px 24px;
+}
+
+.cluster-editor-shell {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.cluster-editor-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 92%, white 8%), var(--bg-secondary));
+}
+
+.cluster-editor-header-title h2 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.cluster-editor-form {
+    padding: 18px 22px 24px;
 }
 
 .modal-header {
@@ -53,6 +117,19 @@
 
 .modal-close:hover {
     color: var(--text-primary);
+}
+
+.new-agent-body {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.new-agent-panel {
+    padding: 18px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 94%, white 6%), var(--bg-secondary));
 }
 
 form {
@@ -138,15 +215,17 @@ form {
 }
 
 .cluster-rounds-toggle {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 10px;
-    margin-bottom: 4px;
-    padding: 8px 10px;
+    gap: 8px;
+    margin: 8px 0 0;
+    padding: 4px 10px;
+    min-height: 28px;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 999px;
     background: var(--bg-secondary);
     cursor: pointer;
+    white-space: nowrap;
 }
 
 .cluster-rounds-toggle input[type="checkbox"] {
@@ -157,11 +236,13 @@ form {
 .cluster-rounds-toggle span {
     font-size: 13px;
     font-weight: 600;
+    line-height: 1.2;
 }
 
 .cluster-rounds-group {
-    display: grid;
-    gap: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
     align-content: start;
 }
 
@@ -205,6 +286,14 @@ form {
     gap: 20px;
 }
 
+.cluster-editor-main {
+    padding: 18px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 95%, white 5%), var(--bg-secondary));
+    box-shadow: 0 12px 30px -26px rgba(0, 0, 0, 0.6);
+}
+
 .cluster-editor-bottom {
     margin-top: 20px;
     padding: 18px;
@@ -216,7 +305,8 @@ form {
 .cluster-form-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0 16px;
+    gap: 12px 16px;
+    align-items: start;
 }
 
 .cluster-editor-side {
@@ -1408,6 +1498,28 @@ form {
 /* ... existing content ... */
 
 /* New Skill Market Styles */
+.skill-market-shell-header .modal-shell-title {
+    display: flex;
+    flex-direction: column;
+}
+
+.skill-market-body {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.skill-market-panel {
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 94%, white 6%), var(--bg-secondary));
+}
+
+.skill-market-panel-content {
+    padding: 16px;
+}
+
 .skill-market-tabs {
     display: flex;
     gap: 6px;
@@ -1485,17 +1597,70 @@ form {
 }
 
 .skill-market-search-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 190px;
     gap: 12px;
     margin-bottom: 12px;
-    flex-wrap: wrap;
+    align-items: stretch;
 }
 
 .skill-market-search {
     position: relative;
-    flex: 1;
     display: flex;
     align-items: center;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--bg-primary) 92%, var(--bg-secondary));
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.skill-market-search:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.skill-market-search-input {
+    flex: 1;
+    height: 38px;
+    border: none;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 13px;
+    outline: none;
+    padding: 0 30px 0 4px;
+}
+
+.skill-market-search-input::placeholder {
+    color: var(--text-secondary);
+}
+
+.skill-market-search-clear {
+    position: absolute;
+    right: 8px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 1px solid transparent;
+    background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.2s ease;
+}
+
+.skill-market-search-clear.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.skill-market-search-clear:hover {
+    color: var(--text-primary);
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
 }
 
 .skill-market-sort {
@@ -1503,11 +1668,13 @@ form {
 }
 
 .skill-market-sort-select {
-    min-width: 160px;
-    padding: 10px 14px;
+    width: 100%;
+    min-width: 170px;
+    height: 40px;
+    padding: 0 14px;
     border: 1px solid var(--border);
-    border-radius: 10px;
-    background: var(--bg-primary);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--bg-primary) 92%, var(--bg-secondary));
     color: var(--text-primary);
     font-size: 13px;
     cursor: pointer;
@@ -1516,6 +1683,12 @@ form {
 
 .skill-market-sort-select:focus {
     border-color: var(--accent);
+}
+
+@media (max-width: 960px) {
+    .skill-market-search-row {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }
 
 .skill-market-categories,
