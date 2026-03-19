@@ -921,8 +921,19 @@
                                 <div id="skill-market-empty-hint" class="skill-market-empty-hint" data-i18n="skillMarket.emptyMarketHint">Try adjusting filters or search terms.</div>
                             </div>
                             <div id="skill-market-loading" class="skill-market-loading hidden">
-                                <div class="spinner"></div>
-                                <div data-i18n="common.loading">Loading...</div>
+                                <div class="skill-market-loading-orbit" aria-hidden="true">
+                                    <span></span>
+                                    <span></span>
+                                    <span></span>
+                                </div>
+                                <div class="skill-market-loading-copy">
+                                    <div class="skill-market-loading-title" data-i18n="common.loading">Loading...</div>
+                                    <div class="skill-market-loading-skeletons" aria-hidden="true">
+                                        <span class="skill-market-loading-skeleton skill-market-loading-skeleton-wide"></span>
+                                        <span class="skill-market-loading-skeleton"></span>
+                                        <span class="skill-market-loading-skeleton skill-market-loading-skeleton-short"></span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>

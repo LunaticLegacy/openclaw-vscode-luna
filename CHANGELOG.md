@@ -9,8 +9,12 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 THIS IS AN EMERGENCY FIX FOR [0.8.0](#080---2026-03-19), WHICH IS LITERALLY AN UNTESTED VERSION. SORRY FOR THIS FAULT.
 
 ### Added
-- UI/UX: collapse and expand the Agent Swarm table.
+- UI/UX:
+    - Collapse and expand the Agent Swarm table.
+    - Skill market now has a simple animation while loading.
 - CHAT: Added the ability of exploring Subagent in Chat.
+- SWARM: Now the record is separable. The new topic will NOT use the older topic's information.
+    - Which meant the swarm's record will be more clear, and you should let those agents remember information MANUALLY.
 
 ### Changed
 - SWARM: Changed the basic logic of Agent Swarm.
