@@ -829,12 +829,65 @@
             `).join('');
         }
 
+        renderMemoryStatus();
         syncAgentOnboardingDraft(selectedAgent);
         renderAgentOnboarding();
         renderCapabilityMatrix();
         renderConnectionSetup();
         renderOpenClawConfig();
         updateChatHomeVisibility();
+    }
+
+    function renderMemoryStatus() {
+        if (!elements.memoryStatus) {
+            return;
+        }
+
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        const status = state.runtime?.memoryStatus || null;
+
+        if (!status) {
+            if (elements.memoryStatusBackend) elements.memoryStatusBackend.textContent = t('memory.statusUnknown');
+            if (elements.memoryStatusRoot) elements.memoryStatusRoot.textContent = '-';
+            if (elements.memoryStatusSync) elements.memoryStatusSync.textContent = '-';
+            if (elements.memoryStatusEvent) elements.memoryStatusEvent.textContent = '-';
+            if (elements.memoryStatusError) elements.memoryStatusError.classList.add('hidden');
+            if (elements.btnOpenMemoryRoot) elements.btnOpenMemoryRoot.disabled = true;
+            return;
+        }
+
+        const backendLabelKey = status.backend === 'webdav'
+            ? 'memory.backendWebDav'
+            : status.backend === 'local'
+                ? 'memory.backendLocal'
+                : 'memory.backendCustom';
+
+        if (elements.memoryStatusBackend) {
+            elements.memoryStatusBackend.textContent = t(backendLabelKey);
+        }
+        if (elements.memoryStatusRoot) {
+            elements.memoryStatusRoot.textContent = status.root || '-';
+        }
+        if (elements.memoryStatusSync) {
+            elements.memoryStatusSync.textContent = status.lastSyncAt || t('memory.never');
+        }
+        if (elements.memoryStatusEvent) {
+            elements.memoryStatusEvent.textContent = status.lastEvent || '-';
+        }
+
+        if (elements.memoryStatusError && elements.memoryStatusErrorValue) {
+            if (status.lastError) {
+                elements.memoryStatusError.classList.remove('hidden');
+                elements.memoryStatusErrorValue.textContent = status.lastError;
+            } else {
+                elements.memoryStatusError.classList.add('hidden');
+                elements.memoryStatusErrorValue.textContent = '';
+            }
+        }
+
+        if (elements.btnOpenMemoryRoot) {
+            elements.btnOpenMemoryRoot.disabled = status.backend !== 'local' || !status.ready;
+        }
     }
 
     function buildConsoleSteps(t) {

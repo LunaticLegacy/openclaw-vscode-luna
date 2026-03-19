@@ -26,7 +26,7 @@ interface MessageRouterContext {
     loadTasks(): Promise<void>;
     loadUsage(): Promise<void>;
     handleSendMessage(content: string, agentId?: string, options?: { optimisticEcho?: boolean }): Promise<void>;
-    handleStopActiveRun(scope: unknown): void;
+    handleStopActiveRun(message: any): void;
     activateAgent(agentId: string): Promise<void>;
     loadClusterSwarmMessages(clusterId: string, mode: 'broadcast' | 'collaborate'): Promise<void>;
     loadClusterAgentMessages(clusterId: string, agentId: string): Promise<void>;
@@ -39,6 +39,8 @@ interface MessageRouterContext {
         agentId?: string;
         agentViewMode?: 'chat' | 'broadcast' | 'collaborate';
     }): Promise<void>;
+    exportClusterSwarm(options: { clusterId: string }): Promise<void>;
+    importClusterSwarm(): Promise<void>;
     importClusterReplay(): Promise<void>;
     exportRuntimeLogs(): Promise<void>;
     clearChat(): void;
@@ -90,9 +92,13 @@ interface MessageRouterContext {
     handleSaveOpenClawConfig(settings: any): Promise<void>;
     loadSkillMarket(filters: any): Promise<void>;
     refreshSkillMarket(): Promise<void>;
-    installSkill(skillId: string): Promise<void>;
+    installSkill(skillId: string, hubId?: string | null): Promise<void>;
     uninstallSkill(skillId: string): Promise<void>;
     toggleSkillForAgent(agentId: string, skillId: string, enable: boolean): Promise<void>;
+    refreshMemoryStatus(): Promise<void>;
+    openMemoryRoot(): Promise<void>;
+    exportMemoryBundle(): Promise<void>;
+    importMemoryBundle(): Promise<void>;
 }
 
 /**
@@ -125,7 +131,7 @@ export async function handlePanelMessage(context: MessageRouterContext, message:
             break;
 
         case 'stopActiveRun':
-            context.handleStopActiveRun(message.scope);
+            context.handleStopActiveRun(message);
             break;
 
         case 'selectAgent':
@@ -161,6 +167,16 @@ export async function handlePanelMessage(context: MessageRouterContext, message:
                         ? 'collaborate'
                         : 'chat'
             });
+            break;
+
+        case 'exportClusterSwarm':
+            await context.exportClusterSwarm({
+                clusterId: message.clusterId
+            });
+            break;
+
+        case 'importClusterSwarm':
+            await context.importClusterSwarm();
             break;
 
         case 'importClusterReplay':
@@ -427,7 +443,7 @@ export async function handlePanelMessage(context: MessageRouterContext, message:
             break;
 
         case 'installSkill':
-            await context.installSkill(message.skillId);
+            await context.installSkill(message.skillId, message.hubId || null);
             break;
 
         case 'uninstallSkill':
@@ -436,6 +452,22 @@ export async function handlePanelMessage(context: MessageRouterContext, message:
 
         case 'toggleSkillForAgent':
             await context.toggleSkillForAgent(message.agentId, message.skillId, Boolean(message.enable));
+            break;
+
+        case 'refreshMemoryStatus':
+            await context.refreshMemoryStatus();
+            break;
+
+        case 'openMemoryRoot':
+            await context.openMemoryRoot();
+            break;
+
+        case 'exportMemoryBundle':
+            await context.exportMemoryBundle();
+            break;
+
+        case 'importMemoryBundle':
+            await context.importMemoryBundle();
             break;
     }
 }

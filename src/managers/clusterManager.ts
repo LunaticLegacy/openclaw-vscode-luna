@@ -12,8 +12,10 @@ import {
     AgentCluster,
     ChatMessage,
     ClusterWorkspaceConfig,
-    OpenClawService
+    OpenClawService,
+    SwarmDeliveryContext
 } from '../services/openclawService';
+import { OutboundDeliveryError, type FailureClass, type OutboundDeliveryStatus } from '../services/outbound';
 
 /**
  * 创建集群参数
@@ -53,6 +55,9 @@ export interface ClusterBroadcastResult {
     message?: ChatMessage;
     trace?: ChatMessage[];
     error?: string;
+    deliveryStatus?: OutboundDeliveryStatus;
+    failureClass?: FailureClass;
+    deliveryId?: string;
     timing?: {
         startedAt: string;
         completedAt: string;
@@ -65,6 +70,19 @@ export interface ClusterBroadcastResult {
  */
 export interface BroadcastClusterOptions {
     onAgentResult?: (agentId: string, result: ClusterBroadcastResult) => Promise<void> | void;
+}
+
+interface SwarmSendContext {
+    swarmRunId: string;
+    phase: string;
+    round?: number;
+    sourceAgentId?: string;
+    targetAgentId?: string;
+    transactionGroupId?: string;
+    expectedGroupSize?: number;
+    groupCompletionPolicy?: 'all' | 'any';
+    requiresDeliveryForProgress?: boolean;
+    messageKind?: string;
 }
 
 /**
@@ -250,6 +268,12 @@ export class ClusterManager extends EventEmitter {
 
             this.clusters.delete(clusterId);
             this.emit('clusterDeleted', clusterId);
+        });
+
+        this.service.on('deliveryEvent', event => {
+            if (event?.entry?.swarm?.clusterId) {
+                this.emit('deliveryEvent', event);
+            }
         });
     }
 
@@ -463,6 +487,9 @@ export class ClusterManager extends EventEmitter {
             throw new Error(t('clusterManager.noEligibleAgents'));
         }
 
+        const swarmRunId = buildSwarmRunId(cluster.id, 'broadcast');
+        const broadcastGroupId = buildSwarmTransactionGroupId(swarmRunId, 'broadcast');
+
         const results = await this.sendHierarchicalMessages(
             activationPlan,
             async (node, routing) => routing.parentNode
@@ -475,6 +502,16 @@ export class ClusterManager extends EventEmitter {
             {
             clusterId,
             mode: 'broadcast',
+            swarm: {
+                swarmRunId,
+                phase: 'broadcast',
+                round: 1,
+                transactionGroupId: broadcastGroupId,
+                expectedGroupSize: activationPlan.orderedAgentIds.length,
+                groupCompletionPolicy: 'all',
+                requiresDeliveryForProgress: true,
+                messageKind: 'broadcast'
+            },
             onAgentResult: options.onAgentResult
             }
         );
@@ -512,10 +549,12 @@ export class ClusterManager extends EventEmitter {
             throw new Error(t('clusterManager.noEligibleAgents'));
         }
         const initialParticipantAgentIds = [...activationPlan.orderedAgentIds];
+        const swarmRunId = buildSwarmRunId(cluster.id, 'collaborate');
 
         const debateSessionIds = new Map<string, string>();
         const rounds: ClusterCollaborationRound[] = [];
 
+        const openingGroupId = buildSwarmTransactionGroupId(swarmRunId, 'opening');
         const openingEntries = await this.sendHierarchicalMessages(
             activationPlan,
             async (node, routing) => buildOpeningContributionPrompt(
@@ -535,6 +574,16 @@ export class ClusterManager extends EventEmitter {
             clusterId: cluster.id,
             mode: 'collaborate',
             debateSessionIds,
+            swarm: {
+                swarmRunId,
+                phase: 'opening',
+                round: 1,
+                transactionGroupId: openingGroupId,
+                expectedGroupSize: activationPlan.orderedAgentIds.length,
+                groupCompletionPolicy: 'all',
+                requiresDeliveryForProgress: true,
+                messageKind: 'opening'
+            },
             onAgentResult: (agentId, entry) => options.onProgress?.({
                 kind: 'round-entry',
                 roundKind: 'opening',
@@ -561,6 +610,7 @@ export class ClusterManager extends EventEmitter {
                 }
 
                 const debateRound = buildCollaborationDebateRound(reviewRound);
+                const critiqueGroupId = buildSwarmTransactionGroupId(swarmRunId, debateRound.critiqueKind);
                 const critiqueEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildPeerReviewPrompt(
                     cluster.name,
                     message,
@@ -573,6 +623,16 @@ export class ClusterManager extends EventEmitter {
                     clusterId: cluster.id,
                     mode: 'collaborate',
                     debateSessionIds,
+                    swarm: {
+                        swarmRunId,
+                        phase: debateRound.critiqueKind,
+                        round: debateRound.reviewRound,
+                        transactionGroupId: critiqueGroupId,
+                        expectedGroupSize: successfulAgentIds.length,
+                        groupCompletionPolicy: 'all',
+                        requiresDeliveryForProgress: true,
+                        messageKind: 'critique'
+                    },
                     onAgentResult: (agentId, entry) => options.onProgress?.({
                         kind: 'round-entry',
                         roundKind: debateRound.critiqueKind,
@@ -585,6 +645,7 @@ export class ClusterManager extends EventEmitter {
                     entries: critiqueEntries
                 });
 
+                const revisionGroupId = buildSwarmTransactionGroupId(swarmRunId, debateRound.revisionKind);
                 const revisionEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildRevisionPrompt(
                     cluster.name,
                     message,
@@ -598,6 +659,16 @@ export class ClusterManager extends EventEmitter {
                     clusterId: cluster.id,
                     mode: 'collaborate',
                     debateSessionIds,
+                    swarm: {
+                        swarmRunId,
+                        phase: debateRound.revisionKind,
+                        round: debateRound.reviewRound,
+                        transactionGroupId: revisionGroupId,
+                        expectedGroupSize: successfulAgentIds.length,
+                        groupCompletionPolicy: 'all',
+                        requiresDeliveryForProgress: true,
+                        messageKind: 'revision'
+                    },
                     onAgentResult: (agentId, entry) => options.onProgress?.({
                         kind: 'round-entry',
                         roundKind: debateRound.revisionKind,
@@ -639,6 +710,7 @@ export class ClusterManager extends EventEmitter {
                     successfulAgentIds,
                     latestUsableContributions,
                     rounds,
+                    swarmRunId,
                     reviewRound,
                     stopConditionSessionIds
                 );
@@ -662,6 +734,7 @@ export class ClusterManager extends EventEmitter {
                     break;
                 }
 
+                const critiqueGroupId = buildSwarmTransactionGroupId(swarmRunId, debateRound.critiqueKind);
                 const critiqueEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildPeerReviewPrompt(
                     cluster.name,
                     message,
@@ -674,6 +747,16 @@ export class ClusterManager extends EventEmitter {
                     clusterId: cluster.id,
                     mode: 'collaborate',
                     debateSessionIds,
+                    swarm: {
+                        swarmRunId,
+                        phase: debateRound.critiqueKind,
+                        round: debateRound.reviewRound,
+                        transactionGroupId: critiqueGroupId,
+                        expectedGroupSize: successfulAgentIds.length,
+                        groupCompletionPolicy: 'all',
+                        requiresDeliveryForProgress: true,
+                        messageKind: 'critique'
+                    },
                     onAgentResult: (agentId, entry) => options.onProgress?.({
                         kind: 'round-entry',
                         roundKind: debateRound.critiqueKind,
@@ -686,6 +769,7 @@ export class ClusterManager extends EventEmitter {
                     entries: critiqueEntries
                 });
 
+                const revisionGroupId = buildSwarmTransactionGroupId(swarmRunId, debateRound.revisionKind);
                 const revisionEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildRevisionPrompt(
                     cluster.name,
                     message,
@@ -699,6 +783,16 @@ export class ClusterManager extends EventEmitter {
                     clusterId: cluster.id,
                     mode: 'collaborate',
                     debateSessionIds,
+                    swarm: {
+                        swarmRunId,
+                        phase: debateRound.revisionKind,
+                        round: debateRound.reviewRound,
+                        transactionGroupId: revisionGroupId,
+                        expectedGroupSize: successfulAgentIds.length,
+                        groupCompletionPolicy: 'all',
+                        requiresDeliveryForProgress: true,
+                        messageKind: 'revision'
+                    },
                     onAgentResult: (agentId, entry) => options.onProgress?.({
                         kind: 'round-entry',
                         roundKind: debateRound.revisionKind,
@@ -739,10 +833,23 @@ export class ClusterManager extends EventEmitter {
                 rounds,
                 buildStopConditionSummary(workspaceConfig, lastStopConditionEvaluation)
             );
+            const synthesisGroupId = buildSwarmTransactionGroupId(swarmRunId, 'synthesis');
             synthesis = await this.sendMessageToAgent(coordinatorAgentId, synthesisPrompt, {
                 clusterId: cluster.id,
                 mode: 'collaborate',
-                debateSessionIds
+                debateSessionIds,
+                swarm: {
+                    swarmRunId,
+                    phase: 'synthesis',
+                    round: rounds.length + 1,
+                    transactionGroupId: synthesisGroupId,
+                    expectedGroupSize: 1,
+                    groupCompletionPolicy: 'all',
+                    requiresDeliveryForProgress: true,
+                    messageKind: 'synthesis',
+                    sourceAgentId: coordinatorAgentId,
+                    targetAgentId: coordinatorAgentId
+                }
             });
             await options.onProgress?.({
                 kind: 'synthesis',
@@ -988,6 +1095,33 @@ export class ClusterManager extends EventEmitter {
     }
 
     /**
+     * 中止集群 Swarm 运行（对该集群指定模式的所有会话发起 abort）
+     *
+     * @param clusterId - 集群ID
+     * @param mode - 模式（广播或协作）
+     * @returns Promise<void>
+     */
+    public async abortClusterSwarmRun(
+        clusterId: string,
+        mode: 'broadcast' | 'collaborate'
+    ): Promise<void> {
+        await this.ensurePersistedStateLoaded();
+        const prefix = `cluster:${clusterId}:swarm:${mode}:agent:`;
+        const sessionIds = new Set<string>();
+        for (const [key, sessionId] of this.swarmSessionIds.entries()) {
+            if (key.startsWith(prefix) && sessionId) {
+                sessionIds.add(sessionId);
+            }
+        }
+
+        await Promise.allSettled(
+            Array.from(sessionIds.values()).map(sessionId =>
+                this.service.abortSessionRun(sessionId).catch(() => undefined)
+            )
+        );
+    }
+
+    /**
      * 替换集群 Swarm 消息
      * 
      * @param clusterId - 集群ID
@@ -1202,6 +1336,7 @@ export class ClusterManager extends EventEmitter {
             clusterId: string;
             mode: 'broadcast' | 'collaborate';
             debateSessionIds?: Map<string, string>;
+            swarm?: SwarmSendContext;
             onAgentResult?: (agentId: string, result: ClusterBroadcastResult) => Promise<void> | void;
         }
     ): Promise<Record<string, ClusterBroadcastResult>> {
@@ -1236,6 +1371,7 @@ export class ClusterManager extends EventEmitter {
             clusterId: string;
             mode: 'broadcast' | 'collaborate';
             debateSessionIds?: Map<string, string>;
+            swarm?: SwarmSendContext;
             onAgentResult?: (agentId: string, result: ClusterBroadcastResult) => Promise<void> | void;
         }
     ): Promise<Record<string, ClusterBroadcastResult>> {
@@ -1246,7 +1382,16 @@ export class ClusterManager extends EventEmitter {
             routing: SwarmRoutingContext
         ): Promise<void> => {
             const resolvedMessage = await message(node, routing);
-            const result = await this.sendMessageToAgent(node.agentId, resolvedMessage, options);
+            const swarmContext = options.swarm
+                ? {
+                    ...options.swarm,
+                    sourceAgentId: routing.parentNode?.agentId || options.swarm.sourceAgentId
+                }
+                : undefined;
+            const result = await this.sendMessageToAgent(node.agentId, resolvedMessage, {
+                ...options,
+                swarm: swarmContext
+            });
             results[node.agentId] = result;
             await options.onAgentResult?.(node.agentId, result);
 
@@ -1288,6 +1433,7 @@ export class ClusterManager extends EventEmitter {
             clusterId: string;
             mode: 'broadcast' | 'collaborate';
             debateSessionIds?: Map<string, string>;
+            swarm?: SwarmSendContext;
         }
     ): Promise<ClusterBroadcastResult> {
         const startedAtMs = Date.now();
@@ -1296,15 +1442,22 @@ export class ClusterManager extends EventEmitter {
             const sessionId = options.debateSessionIds
                 ? await this.ensureDebateSession(agentId, options.debateSessionIds, options.clusterId, options.mode)
                 : await this.ensureSwarmSession(agentId, options.clusterId, options.mode);
-            const traceResult = await this.sendMessageWithTrace(sessionId, message, CLUSTER_AGENT_RESPONSE_TIMEOUT_MS);
+            const swarmDelivery = buildSwarmDeliveryContext(options, agentId);
+            const traceResult = await this.sendMessageWithTrace(sessionId, message, {
+                timeoutMs: CLUSTER_AGENT_RESPONSE_TIMEOUT_MS,
+                delivery: swarmDelivery
+            });
             const timing = buildClusterResultTiming(startedAtMs, startedAt);
-            if (traceResult.timedOut) {
+            if (traceResult.errorMessage || traceResult.timedOut) {
                 return {
                     agentId,
                     ok: false,
                     message: traceResult.message || undefined,
                     trace: traceResult.trace,
-                    error: `Timed out after ${Math.round(CLUSTER_AGENT_RESPONSE_TIMEOUT_MS / 1000)}s`,
+                    error: traceResult.errorMessage || `Timed out after ${Math.round(CLUSTER_AGENT_RESPONSE_TIMEOUT_MS / 1000)}s`,
+                    deliveryStatus: traceResult.deliveryStatus,
+                    failureClass: traceResult.failureClass,
+                    deliveryId: traceResult.deliveryId,
                     timing
                 };
             }
@@ -1314,6 +1467,9 @@ export class ClusterManager extends EventEmitter {
                 ok: true,
                 message: traceResult.message || undefined,
                 trace: traceResult.trace,
+                deliveryStatus: traceResult.deliveryStatus,
+                failureClass: traceResult.failureClass,
+                deliveryId: traceResult.deliveryId,
                 timing
             };
         } catch (error) {
@@ -1321,6 +1477,9 @@ export class ClusterManager extends EventEmitter {
                 agentId,
                 ok: false,
                 error: String(error),
+                deliveryStatus: error instanceof OutboundDeliveryError ? error.status : undefined,
+                failureClass: error instanceof OutboundDeliveryError ? error.failureClass : undefined,
+                deliveryId: error instanceof OutboundDeliveryError ? error.entryId : undefined,
                 timing: buildClusterResultTiming(startedAtMs, startedAt)
             };
         }
@@ -1501,41 +1660,66 @@ export class ClusterManager extends EventEmitter {
     private async sendMessageWithTrace(
         sessionId: string,
         message: string,
-        timeoutMs: number
-    ): Promise<{ message: ChatMessage | null; trace: ChatMessage[]; timedOut: boolean }> {
+        options: { timeoutMs: number; delivery?: SwarmDeliveryContext }
+    ): Promise<{
+        message: ChatMessage | null;
+        trace: ChatMessage[];
+        timedOut: boolean;
+        errorMessage?: string;
+        deliveryStatus?: OutboundDeliveryStatus;
+        failureClass?: FailureClass;
+        deliveryId?: string;
+    }> {
         const before = await this.service.getChatHistory(sessionId).catch(() => []);
         const knownIds = new Set(before.map(item => item.id));
-        const responseResult = await raceWithTimeout(this.service.sendMessage(sessionId, message), timeoutMs);
-        const after = await this.service.getChatHistory(sessionId).catch(() => []);
 
-        const trace = this.normalizeTraceMessages(
-            after.filter(item => !knownIds.has(item.id))
-        );
+        let response: ChatMessage | null = null;
+        try {
+            response = await this.service.sendMessage(sessionId, message, {
+                delivery: options.delivery,
+                timeoutMs: options.timeoutMs
+            });
+        } catch (error) {
+            if (error instanceof OutboundDeliveryError) {
+                return {
+                    message: null,
+                    trace: [],
+                    timedOut: error.status === 'expired',
+                    errorMessage: error.message,
+                    deliveryStatus: error.status,
+                    failureClass: error.failureClass,
+                    deliveryId: error.entryId
+                };
+            }
 
-        const finalTraceMessage = findLastAssistantMessage(trace);
-
-        if (responseResult.timedOut) {
             return {
-                message: finalTraceMessage,
-                trace,
-                timedOut: true
+                message: null,
+                trace: [],
+                timedOut: false,
+                errorMessage: String(error)
             };
         }
 
-        const response = responseResult.value;
+        const after = await this.service.getChatHistory(sessionId).catch(() => []);
+        const trace = this.normalizeTraceMessages(
+            after.filter(item => !knownIds.has(item.id))
+        );
+        const finalTraceMessage = findLastAssistantMessage(trace);
 
         if (trace.length === 0) {
             return {
                 message: response,
                 trace: response ? [response] : [],
-                timedOut: false
+                timedOut: false,
+                deliveryStatus: 'sent'
             };
         }
 
         return {
             message: finalTraceMessage || response,
             trace,
-            timedOut: false
+            timedOut: false,
+            deliveryStatus: 'sent'
         };
     }
 
@@ -1658,6 +1842,7 @@ export class ClusterManager extends EventEmitter {
         successfulAgentIds: string[],
         contributions: Record<string, ClusterBroadcastResult>,
         rounds: ClusterCollaborationRound[],
+        swarmRunId: string,
         reviewRound: number,
         stopConditionSessionIds: Map<string, string>
     ): Promise<ClusterStopConditionEvaluation> {
@@ -1671,10 +1856,23 @@ export class ClusterManager extends EventEmitter {
             rounds,
             reviewRound
         );
+        const stopConditionGroupId = buildSwarmTransactionGroupId(swarmRunId, `stop-condition-${reviewRound}`);
         const evaluation = await this.sendMessageToAgent(judgeAgentId, prompt, {
             clusterId: cluster.id,
             mode: 'collaborate',
-            debateSessionIds: stopConditionSessionIds
+            debateSessionIds: stopConditionSessionIds,
+            swarm: {
+                swarmRunId,
+                phase: `stop-condition-${reviewRound}`,
+                round: reviewRound,
+                transactionGroupId: stopConditionGroupId,
+                expectedGroupSize: 1,
+                groupCompletionPolicy: 'all',
+                requiresDeliveryForProgress: true,
+                messageKind: 'stop-condition',
+                sourceAgentId: judgeAgentId,
+                targetAgentId: judgeAgentId
+            }
         });
         return parseStopConditionEvaluation(evaluation, judgeAgentId, reviewRound);
     }
@@ -1844,37 +2042,6 @@ function findLastAssistantMessage(messages: ChatMessage[]): ChatMessage | null {
     return fallbackAssistant;
 }
 
-/**
- * 带超时的竞速
- * @param promise - Promise
- * @param timeoutMs - 超时毫秒
- * @returns 竞速结果
- */
-async function raceWithTimeout<T>(
-    promise: Promise<T>,
-    timeoutMs: number
-): Promise<{ timedOut: true } | { timedOut: false; value: T }> {
-    if (timeoutMs <= 0) {
-        return {
-            timedOut: false,
-            value: await promise
-        };
-    }
-
-    let timer: NodeJS.Timeout | null = null;
-    try {
-        return await Promise.race([
-            promise.then(value => ({ timedOut: false, value } as const)),
-            new Promise<{ timedOut: true }>(resolve => {
-                timer = setTimeout(() => resolve({ timedOut: true } as const), timeoutMs);
-            })
-        ]);
-    } finally {
-        if (timer) {
-            clearTimeout(timer);
-        }
-    }
-}
 
 /**
  * 检查是否为聊天消息角色
@@ -2614,7 +2781,7 @@ function parseStopConditionEvaluation(
     judgeAgentId: string,
     reviewRound: number
 ): ClusterStopConditionEvaluation {
-    const rawContent = evaluation.message?.content || evaluation.error || '';
+    const rawContent = extractStopConditionText(evaluation) || evaluation.error || '';
     const decisionMatch = rawContent.match(/Decision:\s*(STOP|CONTINUE)/i);
     const reasonMatch = rawContent.match(/Reason:\s*([\s\S]+)/i);
     const decision = (decisionMatch?.[1] || '').toUpperCase();
@@ -2626,6 +2793,69 @@ function parseStopConditionEvaluation(
         reviewRound,
         reason: reason || (evaluation.ok ? 'No reason provided.' : 'Stop-condition evaluation failed.')
     };
+}
+
+function extractStopConditionText(evaluation: ClusterBroadcastResult): string {
+    const fromMessage = extractChatMessageText(evaluation.message);
+    if (fromMessage) {
+        return fromMessage;
+    }
+
+    const trace = Array.isArray(evaluation.trace) ? evaluation.trace : [];
+    for (let index = trace.length - 1; index >= 0; index -= 1) {
+        const message = trace[index];
+        if (message?.role !== 'assistant') {
+            continue;
+        }
+
+        const text = extractChatMessageText(message);
+        if (text) {
+            return text;
+        }
+    }
+
+    return '';
+}
+
+function extractChatMessageText(message?: ChatMessage | null): string {
+    if (!message) {
+        return '';
+    }
+
+    const content = String(message.content || '').trim();
+    if (content) {
+        return content;
+    }
+
+    if (!Array.isArray(message.parts) || message.parts.length === 0) {
+        return '';
+    }
+
+    const partsText = message.parts
+        .map(part => {
+            if (!part || typeof part !== 'object') {
+                return '';
+            }
+
+            if (part.type === 'text') {
+                return String(part.text || '');
+            }
+
+            if (part.type === 'thinking') {
+                return String(part.thinking || '');
+            }
+
+            if (part.type === 'toolResult') {
+                return String(part.result || '');
+            }
+
+            return '';
+        })
+        .filter(Boolean)
+        .join('\n')
+        .trim();
+
+    return partsText;
 }
 
 /**
@@ -2725,12 +2955,66 @@ function extractSwarmResultContext(result: ClusterBroadcastResult | null): strin
         return '';
     }
 
+    if (!result.ok || (result.deliveryStatus && result.deliveryStatus !== 'sent')) {
+        return '';
+    }
+
     const messageContent = result.message?.content?.trim();
     if (messageContent) {
         return messageContent;
     }
+    return '';
+}
 
-    return result.error || '';
+function buildSwarmDeliveryContext(
+    options: {
+        clusterId: string;
+        mode: 'broadcast' | 'collaborate';
+        swarm?: SwarmSendContext;
+    },
+    agentId: string
+): SwarmDeliveryContext | undefined {
+    if (!options.swarm) {
+        return undefined;
+    }
+
+    const base = options.swarm;
+    const phase = base.phase || 'unknown';
+    const dependencyKey = `${base.swarmRunId}:${sanitizeSegment(phase)}:${agentId}`;
+
+    return {
+        swarmRunId: base.swarmRunId,
+        clusterId: options.clusterId,
+        mode: options.mode,
+        round: base.round,
+        phase,
+        sourceAgentId: base.sourceAgentId,
+        targetAgentId: base.targetAgentId || agentId,
+        messageKind: base.messageKind,
+        dependencyKey,
+        transactionGroupId: base.transactionGroupId,
+        expectedGroupSize: base.expectedGroupSize,
+        groupCompletionPolicy: base.groupCompletionPolicy,
+        requiresDeliveryForProgress: base.requiresDeliveryForProgress ?? true
+    };
+}
+
+function buildSwarmRunId(clusterId: string, mode: 'broadcast' | 'collaborate'): string {
+    const base = sanitizeSegment(clusterId) || 'cluster';
+    const suffix = Math.random().toString(36).slice(2, 8);
+    return `${base}-${mode}-${Date.now().toString(36)}-${suffix}`;
+}
+
+function buildSwarmTransactionGroupId(swarmRunId: string, phase: string): string {
+    const phaseKey = sanitizeSegment(phase) || 'phase';
+    return `${swarmRunId}:${phaseKey}`;
+}
+
+function sanitizeSegment(value: string): string {
+    return String(value || '')
+        .replace(/[^a-zA-Z0-9_-]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/(^-|-$)/g, '');
 }
 
 /**

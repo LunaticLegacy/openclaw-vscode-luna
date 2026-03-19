@@ -6,3 +6,4 @@ tsconfig.json
 package-lock.json
 .gitignore
 .codex_tmp_openclaw_bundle.js
+!src/presets/**

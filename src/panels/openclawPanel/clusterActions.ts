@@ -6,9 +6,11 @@ import {
     getClusterMemberPresets,
     type ClusterMemberPreset
 } from '../../config/clusterMemberPresets';
+import { loadIdentityPresets } from '../../presets/loader';
 import { t } from '../../i18n';
 import type { AgentCluster } from '../../services/openclawService';
 import type { AgentManager } from '../../managers/agentManager';
+import type { AgentFolderManager } from '../../managers/agentFolderManager';
 import type { ChatSessionManager } from '../../managers/chatSessionManager';
 import type {
     ClusterBroadcastResult,
@@ -26,7 +28,9 @@ import { normalizeOutgoingMessageContent } from './helpers';
 interface ClusterActionContext {
     clusterManager: ClusterManager;
     agentManager: AgentManager;
+    agentFolderManager: AgentFolderManager;
     clusterSessionManager: ChatSessionManager;
+    extensionPath: string;
     postMessage(message: Record<string, unknown>): void;
     loadAgents(): Promise<void>;
     loadClusters(selectedClusterId?: string): Promise<void>;
@@ -58,12 +62,15 @@ type PresentedChatMessage = ChatMessage;
 export async function loadClusters(context: ClusterActionContext, selectedClusterId?: string): Promise<void> {
     try {
         const clusters = await context.clusterManager.getClusters(true);
+        const memberPresets = await getClusterMemberPresets(context.extensionPath);
+        const identityPresets = await loadIdentityPresets(context.extensionPath);
         context.postMessage({
             type: 'clustersLoaded',
             clusters,
             selectedClusterId,
             workModePresets: getClusterWorkModePresets(),
-            memberPresets: getClusterMemberPresets()
+            memberPresets,
+            identityPresets
         });
     } catch (error) {
         context.postMessage({
@@ -678,6 +685,10 @@ export async function handleSaveCluster(
                     reporter.complete();
                 }
 
+                if (!clusterId) {
+                    await ensureClusterFolderForUngroupedAgents(context, cluster.name, agentIds);
+                }
+
                 context.postMessage({
                     type: 'clusterSaved',
                     cluster
@@ -722,7 +733,7 @@ export async function handleCreateClusterFromMemberPreset(
 ): Promise<void> {
     const { memberPresetId, customName, model } = params;
     
-    const memberPresets = getClusterMemberPresets();
+    const memberPresets = await getClusterMemberPresets(context.extensionPath);
     const preset = memberPresets.find(p => p.id === memberPresetId);
     
     if (!preset) {
@@ -731,6 +742,8 @@ export async function handleCreateClusterFromMemberPreset(
     }
 
     const clusterName = customName?.trim() || buildClusterNameFromTemplate(preset.nameTemplate);
+    const identityPresets = await loadIdentityPresets(context.extensionPath);
+    const identityPresetMap = new Map(identityPresets.map(item => [item.id, item]));
     
     const createdAgentIds: string[] = [];
     const agentIdMap = new Map<string, string>();
@@ -789,13 +802,25 @@ export async function handleCreateClusterFromMemberPreset(
                 const rootBlueprint = preset.memberBlueprints.find(b => b.isCoordinator) || preset.memberBlueprints[0];
                 const coordinatorAgentId = rootBlueprint ? agentIdMap.get(rootBlueprint.id) : undefined;
 
-                const memberProfiles: Record<string, { parentAgentId?: string; activation?: { keywords?: string[]; swarmModes?: ('broadcast' | 'collaborate')[] } }> = {};
+                const memberProfiles: Record<string, {
+                    parentAgentId?: string;
+                    activation?: { keywords?: string[]; swarmModes?: ('broadcast' | 'collaborate')[] };
+                    identity?: string;
+                    stance?: string;
+                    presetIdentityId?: string;
+                }> = {};
                 
                 for (const blueprint of preset.memberBlueprints) {
                     const agentId = agentIdMap.get(blueprint.id);
                     if (!agentId) continue;
 
-                    const profile: { parentAgentId?: string; activation?: { keywords?: string[]; swarmModes?: ('broadcast' | 'collaborate')[] } } = {};
+                    const profile: {
+                        parentAgentId?: string;
+                        activation?: { keywords?: string[]; swarmModes?: ('broadcast' | 'collaborate')[] };
+                        identity?: string;
+                        stance?: string;
+                        presetIdentityId?: string;
+                    } = {};
                     
                     if (blueprint.parentId) {
                         const parentAgentId = agentIdMap.get(blueprint.parentId);
@@ -806,6 +831,31 @@ export async function handleCreateClusterFromMemberPreset(
                     
                     if (blueprint.activation) {
                         profile.activation = blueprint.activation;
+                    }
+
+                    if (blueprint.profile?.identity) {
+                        profile.identity = blueprint.profile.identity;
+                    }
+                    if (blueprint.profile?.stance) {
+                        profile.stance = blueprint.profile.stance;
+                    }
+                    if (blueprint.profile?.presetIdentityId) {
+                        profile.presetIdentityId = blueprint.profile.presetIdentityId;
+                        const presetIdentity = identityPresetMap.get(blueprint.profile.presetIdentityId);
+                        if (presetIdentity) {
+                            if (!profile.identity && presetIdentity.identity) {
+                                profile.identity = presetIdentity.identity;
+                            }
+                            if (!profile.stance && presetIdentity.stance) {
+                                profile.stance = presetIdentity.stance;
+                            }
+                            if (presetIdentity.wakeKeywords && presetIdentity.wakeKeywords.length > 0) {
+                                profile.activation = {
+                                    ...(profile.activation ? profile.activation : {}),
+                                    keywords: [...presetIdentity.wakeKeywords]
+                                };
+                            }
+                        }
                     }
                     
                     if (Object.keys(profile).length > 0) {
@@ -830,6 +880,12 @@ export async function handleCreateClusterFromMemberPreset(
                 reporter.start(t('progress.refreshingAgents'));
                 await context.loadAgents();
                 reporter.complete();
+
+                await ensureClusterFolderForUngroupedAgents(
+                    context,
+                    cluster.name,
+                    cluster.agentIds
+                );
 
                 context.postMessage({
                     type: 'clusterSaved',
@@ -1036,7 +1092,7 @@ async function appendClusterSwarmProgressMessages(
     messages: PresentedChatMessage[]
 ): Promise<void> {
     const nextMessages = messages
-        .map(message => attachSwarmBatchMetadata(message, progress.batchId))
+        .map(message => normalizeSwarmProgressMessage(attachSwarmBatchMetadata(message, progress.batchId)))
         .filter(message => {
             const key = buildSwarmProgressMessageKey(message);
             if (progress.seenKeys.has(key)) {
@@ -1297,6 +1353,22 @@ function buildSwarmProgressMessageKey(message: PresentedChatMessage): string {
     return `${buildTraceDeduplicationKey(message)}:${message.displayName || ''}:${message.contextLabel || ''}`;
 }
 
+function normalizeSwarmProgressMessage(message: PresentedChatMessage): PresentedChatMessage {
+    const normalized: PresentedChatMessage = {
+        ...message
+    };
+
+    if (!normalized.id) {
+        normalized.id = `swarm-progress:${Date.now()}:${++swarmProgressMessageCounter}`;
+    }
+
+    if (!normalized.timestamp) {
+        normalized.timestamp = new Date().toISOString();
+    }
+
+    return normalized;
+}
+
 /**
  * Builds a user message for swarm operations
  * @param content - The message content
@@ -1479,6 +1551,30 @@ function buildSwarmBatchId(mode: SwarmMode): string {
  * Counter for swarm messages
  */
 let swarmMessageCounter = 0;
+let swarmProgressMessageCounter = 0;
+
+async function ensureClusterFolderForUngroupedAgents(
+    context: ClusterActionContext,
+    folderName: string,
+    agentIds: string[]
+): Promise<void> {
+    const normalizedIds = agentIds.map(agentId => String(agentId || '').trim()).filter(Boolean);
+    if (normalizedIds.length === 0) {
+        return;
+    }
+
+    const folders = await context.agentFolderManager.getFolders();
+    const groupedAgentIds = new Set(folders.flatMap(folder => folder.agentIds));
+    const anyGrouped = normalizedIds.some(agentId => groupedAgentIds.has(agentId));
+    if (anyGrouped) {
+        return;
+    }
+
+    const folder = await context.agentFolderManager.createFolder(folderName);
+    for (const agentId of normalizedIds) {
+        await context.agentFolderManager.moveAgentToFolder(agentId, folder.id);
+    }
+}
 
 /**
  * Counter for swarm batches

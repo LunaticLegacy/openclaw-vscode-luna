@@ -67,7 +67,7 @@ export class OpenClawExtensionRuntime {
         this.clusterManager = clusterManager;
         this.usageManager = usageManager;
         this.taskManager = taskManager;
-        this.sidebarTreeProvider = new OpenClawSidebarProvider(agentManager, clusterManager);
+        this.sidebarTreeProvider = new OpenClawSidebarProvider(agentManager, agentFolderManager, clusterManager);
         this.usageTreeProvider = new UsageTreeProvider(usageManager);
         this.taskTreeProvider = new TaskTreeProvider(taskManager);
 
@@ -177,6 +177,25 @@ export class OpenClawExtensionRuntime {
                 this.showPanel();
             })
         );
+
+        this.context.subscriptions.push(
+            this.sidebarView.onDidCollapseElement(async event => {
+                if (event.element && 'folderId' in event.element) {
+                    const folderId = event.element.folderId as string | null;
+                    if (folderId) {
+                        await this.agentFolderManager.setFolderCollapsed(folderId, true).catch(() => undefined);
+                    }
+                }
+            }),
+            this.sidebarView.onDidExpandElement(async event => {
+                if (event.element && 'folderId' in event.element) {
+                    const folderId = event.element.folderId as string | null;
+                    if (folderId) {
+                        await this.agentFolderManager.setFolderCollapsed(folderId, false).catch(() => undefined);
+                    }
+                }
+            })
+        );
     }
 
     /**
@@ -210,6 +229,7 @@ export class OpenClawExtensionRuntime {
     public showPanel(): OpenClawPanel {
         return OpenClawPanel.createOrShow(
             this.context.extensionUri,
+            this.context,
             this.service,
             this.agentManager,
             this.agentFolderManager,

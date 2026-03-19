@@ -4,7 +4,7 @@
     function applyAgentActionAvailability() {
         const isBusy = Boolean(state.agentMutation?.pending);
         if (elements.btnNewAgent) {
-            elements.btnNewAgent.disabled = isBusy;
+            elements.btnNewAgent.disabled = false;
         }
         if (elements.btnRefreshAgents) {
             elements.btnRefreshAgents.disabled = isBusy;

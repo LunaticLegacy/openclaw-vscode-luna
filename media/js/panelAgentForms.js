@@ -12,20 +12,25 @@
             vscode.postMessage({ type: 'switchView', view: 'chat' });
         }
 
-    function installSkill(skillId) {
+        renderConsoleOverview();
+        if (elements.modalSkillMarket?.classList.contains('active')) {
+            renderSkillMarket();
+        }
+        vscode.postMessage({ type: 'selectAgent', agentId });
+    }
+
+    function installSkill(skillId, hubId) {
         if (!skillId) {
             showError('Invalid skill ID');
             return;
         }
-        
-        // Show installing status
+
         const installBtn = document.querySelector(`[data-skill-install="${escapeHtml(skillId)}"]`);
         if (installBtn) {
             const originalText = installBtn.textContent;
             installBtn.textContent = t('skillMarket.installing') || 'Installing...';
             installBtn.disabled = true;
-            
-            // Restore button after installation
+
             setTimeout(() => {
                 if (installBtn) {
                     installBtn.textContent = originalText;
@@ -33,43 +38,38 @@
                 }
             }, 3000);
         }
-        
-        vscode.postMessage({ 
-            type: 'installSkill', 
-            skillId: skillId 
+
+        vscode.postMessage({
+            type: 'installSkill',
+            skillId: skillId,
+            hubId: hubId || null
         });
     }
 
-    function installSkill(skillId) {
+    function uninstallSkill(skillId) {
         if (!skillId) {
             showError('Invalid skill ID');
             return;
         }
-        
-        // Show installing status
-        const installBtn = document.querySelector(`[data-skill-install="${escapeHtml(skillId)}"]`);
-        if (installBtn) {
-            const originalText = installBtn.textContent;
-            installBtn.textContent = t('skillMarket.installing') || 'Installing...';
-            installBtn.disabled = true;
-            
-            // Restore button after installation
+
+        const uninstallBtn = document.querySelector(`[data-skill-uninstall="${escapeHtml(skillId)}"]`);
+        if (uninstallBtn) {
+            const originalText = uninstallBtn.textContent;
+            uninstallBtn.textContent = t('skillMarket.uninstalling') || 'Uninstalling...';
+            uninstallBtn.disabled = true;
+
             setTimeout(() => {
-                if (installBtn) {
-                    installBtn.textContent = originalText;
-                    installBtn.disabled = false;
+                if (uninstallBtn) {
+                    uninstallBtn.textContent = originalText;
+                    uninstallBtn.disabled = false;
                 }
             }, 3000);
         }
-        
-        vscode.postMessage({ 
-            type: 'installSkill', 
-            skillId: skillId 
+
+        vscode.postMessage({
+            type: 'uninstallSkill',
+            skillId: skillId
         });
-    }
-        
-        renderConsoleOverview();
-        vscode.postMessage({ type: 'selectAgent', agentId });
     }
 
     function openNewAgentModal() {
@@ -936,7 +936,11 @@
             return;
         }
 
-        renderSkillMarket();
+        if (!state.skillMarketData) {
+            refreshSkillMarket();
+        } else {
+            renderSkillMarket();
+        }
         openModal(elements.modalSkillMarket);
     }
 
@@ -949,7 +953,7 @@
         }
 
         // Request skills from extension host
-        vscode.postMessage({ type: 'loadSkillMarket' });
+        vscode.postMessage({ type: 'loadSkillMarket', filters: state.skillMarketFilters || {} });
     }
 
     function renderSkillMarket() {
@@ -958,88 +962,333 @@
         }
 
         const t = window.OpenClawI18n?.t || ((key, args) => key);
+        const overview = state.skillMarketData || { market: [], installed: [], hubs: [], errors: [] };
         const tab = state.skillMarketTab || 'market';
-        const filters = state.skillMarketFilters || { query: '', category: 'all', sortBy: 'popular' };
-        
-        // Get skills based on current tab
-        let skills = [];
-        if (tab === 'market') {
-            skills = state.skillMarketData?.skills || state.aiSkills || [];
-        } else if (tab === 'installed') {
-            skills = state.skillMarketInstalled || state.aiSkills || [];
-        } else if (tab === 'enabled') {
-            const activeAgent = state.agents.find(a => a.id === state.currentAgentId);
-            const enabledIds = new Set(activeAgent?.enabledSkills || []);
-            skills = (state.aiSkills || []).filter(s => enabledIds.has(s.id));
-        }
+        const filters = state.skillMarketFilters || { query: '', category: 'all', tags: [], sortBy: 'popular', hubId: 'all' };
+        const categoryLabelMap = {
+            coding: 'skillMarket.categoryCoding',
+            testing: 'skillMarket.categoryTesting',
+            planning: 'skillMarket.categoryPlanning',
+            analysis: 'skillMarket.categoryAnalysis',
+            documentation: 'skillMarket.categoryDocumentation',
+            communication: 'skillMarket.categoryCommunication',
+            other: 'skillMarket.categoryOther'
+        };
 
-        // Apply filters
-        if (filters.query) {
-            const query = filters.query.toLowerCase();
-            skills = skills.filter(s => 
-                (s.label || '').toLowerCase().includes(query) ||
-                (s.description || '').toLowerCase().includes(query) ||
-                (s.tags || []).some(t => t.toLowerCase().includes(query))
-            );
-        }
+        const activeAgent = state.agents.find(a => a.id === state.currentAgentId);
+        const enabledIds = new Set(activeAgent?.enabledSkills || []);
 
-        if (filters.category && filters.category !== 'all') {
-            skills = skills.filter(s => s.category === filters.category);
-        }
+        const baseSkills = (() => {
+            if (tab === 'market') return Array.isArray(overview.market) ? overview.market : [];
+            if (tab === 'installed') return Array.isArray(overview.installed) ? overview.installed : [];
+            if (tab === 'enabled') {
+                const installed = Array.isArray(overview.installed) ? overview.installed : [];
+                const known = new Map(installed.map(skill => [skill.id, skill]));
+                const enabled = [];
+                enabledIds.forEach(id => {
+                    if (known.has(id)) {
+                        enabled.push(known.get(id));
+                        return;
+                    }
+                    enabled.push({
+                        id,
+                        label: id,
+                        description: '',
+                        prompt: '',
+                        category: 'other',
+                        tags: [],
+                        source: 'custom',
+                        sourceKind: 'custom',
+                        version: '1.0.0',
+                        downloads: 0,
+                        createdAt: '',
+                        updatedAt: '',
+                        downloadUrl: ''
+                    });
+                });
+                return enabled;
+            }
+            return [];
+        })();
+
+        const normalizedQuery = String(filters.query || '').trim().toLowerCase();
+        const selectedTags = Array.isArray(filters.tags) ? filters.tags : [];
+        const selectedCategory = filters.category || 'all';
+        const selectedHub = filters.hubId || 'all';
+
+        const filterSkills = (skills) => {
+            return skills.filter(skill => {
+                if (normalizedQuery) {
+                    const haystack = `${skill.label || ''} ${skill.description || ''}`.toLowerCase();
+                    const tagMatch = (skill.tags || []).some(tag => String(tag).toLowerCase().includes(normalizedQuery));
+                    if (!haystack.includes(normalizedQuery) && !tagMatch) {
+                        return false;
+                    }
+                }
+                if (selectedHub && selectedHub !== 'all') {
+                    if ((skill.hubId || '') !== selectedHub) {
+                        return false;
+                    }
+                }
+                if (selectedCategory && selectedCategory !== 'all' && skill.category !== selectedCategory) {
+                    return false;
+                }
+                if (selectedTags.length) {
+                    const tagSet = new Set(skill.tags || []);
+                    if (!selectedTags.some(tag => tagSet.has(tag))) {
+                        return false;
+                    }
+                }
+                return true;
+            });
+        };
+
+        const filterFacetSkills = (skills) => {
+            return skills.filter(skill => {
+                if (normalizedQuery) {
+                    const haystack = `${skill.label || ''} ${skill.description || ''}`.toLowerCase();
+                    const tagMatch = (skill.tags || []).some(tag => String(tag).toLowerCase().includes(normalizedQuery));
+                    if (!haystack.includes(normalizedQuery) && !tagMatch) {
+                        return false;
+                    }
+                }
+                if (selectedHub && selectedHub !== 'all') {
+                    if ((skill.hubId || '') !== selectedHub) {
+                        return false;
+                    }
+                }
+                return true;
+            });
+        };
+
+        const facetSkills = filterFacetSkills(baseSkills.map(skill => ({ ...skill })));
+        let visibleSkills = filterSkills(baseSkills);
+
+        const sortBy = filters.sortBy || 'popular';
+        const parseDate = (value) => {
+            const ts = Date.parse(value || '');
+            return Number.isNaN(ts) ? 0 : ts;
+        };
+        visibleSkills.sort((a, b) => {
+            switch (sortBy) {
+                case 'name':
+                    return String(a.label || '').localeCompare(String(b.label || ''));
+                case 'updated':
+                    return parseDate(b.updatedAt) - parseDate(a.updatedAt);
+                case 'installed':
+                    return parseDate(b.installedAt) - parseDate(a.installedAt);
+                case 'rating':
+                    return (b.rating || 0) - (a.rating || 0);
+                case 'popular':
+                default:
+                    return (b.downloads || 0) - (a.downloads || 0);
+            }
+        });
+
+        // Update tabs active state
+        document.querySelectorAll('.skill-market-tab').forEach(tabEl => {
+            tabEl.classList.toggle('is-active', tabEl.getAttribute('data-tab') === tab);
+        });
 
         // Update subtitle
         if (elements.skillMarketSubtitle) {
-            elements.skillMarketSubtitle.textContent = t('skillMarket.subtitle');
+            const subtitleKey = tab === 'installed'
+                ? 'skillMarket.subtitleInstalled'
+                : tab === 'enabled'
+                    ? 'skillMarket.subtitleEnabled'
+                    : 'skillMarket.subtitleMarket';
+            elements.skillMarketSubtitle.textContent = t(subtitleKey);
         }
 
         // Update stats
         if (elements.skillMarketStats) {
-            const total = state.skillMarketData?.total || skills.length;
-            elements.skillMarketStats.textContent = t('skillMarket.showingSkills', { showing: skills.length, total });
+            const total = tab === 'market' ? (overview.total || baseSkills.length) : baseSkills.length;
+            const statsKey = tab === 'installed'
+                ? 'skillMarket.statsInstalled'
+                : tab === 'enabled'
+                    ? 'skillMarket.statsEnabled'
+                    : 'skillMarket.statsMarket';
+            elements.skillMarketStats.textContent = t(statsKey, { showing: visibleSkills.length, total });
         }
 
-        // Show/hide empty state
-        if (skills.length === 0) {
+        // Render hubs
+        if (elements.skillMarketHubs) {
+            const hubs = Array.isArray(overview.hubs) ? overview.hubs : [];
+            const allLabel = t('skillMarket.hubAll');
+            const hubButtons = [
+                `<button type="button" class="skill-market-hub${selectedHub === 'all' ? ' is-active' : ''}" data-hub="all">${escapeHtml(allLabel)}</button>`
+            ];
+            hubs.forEach(hub => {
+                const statusClass = hub.status === 'error' ? ' is-error' : ' is-ok';
+                hubButtons.push(`
+                    <button type="button" class="skill-market-hub${statusClass}${selectedHub === hub.id ? ' is-active' : ''}" data-hub="${escapeHtml(hub.id)}">
+                        <span class="skill-market-hub-dot"></span>
+                        <span>${escapeHtml(hub.name)}</span>
+                    </button>
+                `);
+            });
+            elements.skillMarketHubs.innerHTML = hubButtons.join('');
+        }
+
+        // Render categories
+        if (elements.skillMarketCategories) {
+            const categoryCounts = new Map();
+            facetSkills.forEach(skill => {
+                const category = skill.category || 'other';
+                categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1);
+            });
+            const categoryButtons = [];
+            categoryButtons.push(`
+                <button type="button" class="skill-market-chip${selectedCategory === 'all' ? ' is-active' : ''}" data-category="all">
+                    <span>${escapeHtml(t('skillMarket.categoryAll'))}</span>
+                    <span class="skill-market-chip-count">${facetSkills.length}</span>
+                </button>
+            `);
+            Array.from(categoryCounts.entries()).sort((a, b) => b[1] - a[1]).forEach(([category, count]) => {
+                const labelKey = categoryLabelMap[category] || 'skillMarket.categoryOther';
+                categoryButtons.push(`
+                    <button type="button" class="skill-market-chip${selectedCategory === category ? ' is-active' : ''}" data-category="${escapeHtml(category)}">
+                        <span>${escapeHtml(t(labelKey))}</span>
+                        <span class="skill-market-chip-count">${count}</span>
+                    </button>
+                `);
+            });
+            elements.skillMarketCategories.innerHTML = categoryButtons.join('');
+        }
+
+        // Render tags
+        if (elements.skillMarketTags) {
+            const tagCounts = new Map();
+            facetSkills.forEach(skill => {
+                (skill.tags || []).forEach(tag => {
+                    tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+                });
+            });
+            const tagButtons = Array.from(tagCounts.entries())
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 24)
+                .map(([tag, count]) => `
+                    <button type="button" class="skill-market-tag${selectedTags.includes(tag) ? ' is-active' : ''}" data-tag="${escapeHtml(tag)}">
+                        <span>${escapeHtml(tag)}</span>
+                        <span class="skill-market-chip-count">${count}</span>
+                    </button>
+                `);
+            elements.skillMarketTags.innerHTML = tagButtons.join('');
+        }
+
+        // Render status/errors
+        if (elements.skillMarketStatus) {
+            const hubErrors = (overview.hubs || []).filter(hub => hub.status === 'error');
+            if (hubErrors.length === 0 && (!overview.errors || overview.errors.length === 0)) {
+                elements.skillMarketStatus.innerHTML = '';
+                elements.skillMarketStatus.classList.add('hidden');
+            } else {
+                const errorItems = [];
+                hubErrors.forEach(hub => {
+                    errorItems.push(t('skillMarket.hubFailed', { name: hub.name }));
+                });
+                (overview.errors || []).forEach(error => {
+                    errorItems.push(String(error));
+                });
+                elements.skillMarketStatus.innerHTML = `
+                    <div class="skill-market-status is-error">
+                        <span class="skill-market-status-label">${escapeHtml(t('skillMarket.statusIssue'))}</span>
+                        <div class="skill-market-status-details">${errorItems.map(item => `<span>${escapeHtml(item)}</span>`).join('')}</div>
+                    </div>
+                `;
+                elements.skillMarketStatus.classList.remove('hidden');
+            }
+        }
+
+        // Empty state
+        if (visibleSkills.length === 0) {
             if (elements.skillMarketEmpty) elements.skillMarketEmpty.classList.remove('hidden');
             if (elements.skillMarketGrid) elements.skillMarketGrid.classList.add('hidden');
+            const emptyTitle = tab === 'installed'
+                ? t('skillMarket.emptyInstalled')
+                : tab === 'enabled'
+                    ? t('skillMarket.emptyEnabled')
+                    : t('skillMarket.emptyMarket');
+            const emptyHint = tab === 'installed'
+                ? t('skillMarket.emptyInstalledHint')
+                : tab === 'enabled'
+                    ? t('skillMarket.emptyEnabledHint')
+                    : t('skillMarket.emptyMarketHint');
+            const emptyTitleEl = document.getElementById('skill-market-empty-title');
+            const emptyHintEl = document.getElementById('skill-market-empty-hint');
+            if (emptyTitleEl) emptyTitleEl.textContent = emptyTitle;
+            if (emptyHintEl) emptyHintEl.textContent = emptyHint;
             return;
         }
 
         if (elements.skillMarketEmpty) elements.skillMarketEmpty.classList.add('hidden');
         if (elements.skillMarketGrid) elements.skillMarketGrid.classList.remove('hidden');
 
-        // Render skills grid
-        const activeAgent = state.agents.find(a => a.id === state.currentAgentId);
-        const enabledIds = new Set(activeAgent?.enabledSkills || []);
+        const formatDate = (value) => {
+            if (!value) return '';
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return '';
+            return date.toISOString().slice(0, 10);
+        };
 
-        elements.skillMarketGrid.innerHTML = skills.map(skill => {
+        elements.skillMarketGrid.innerHTML = visibleSkills.map(skill => {
             const isEnabled = enabledIds.has(skill.id);
-            const isInstalled = skill.isInstalled || skill.source === 'built-in';
+            const isInstalled = Boolean(skill.isInstalled) || skill.sourceKind === 'built-in' || skill.sourceKind === 'installed' || skill.source === 'built-in';
             const rating = skill.rating || 0;
             const downloads = skill.downloads || 0;
-            
+            const downloadsLabel = t('skillMarket.downloads', { count: downloads });
+            const downloadsText = downloadsLabel === 'skillMarket.downloads'
+                ? `${downloads.toLocaleString()} downloads`
+                : downloadsLabel;
+            const hubLabel = skill.hubName || (skill.sourceKind === 'built-in' ? t('skillMarket.badgeBuiltIn') : '') || t('skillMarket.sourceUnknown');
+            const categoryLabelKey = categoryLabelMap[skill.category] || 'skillMarket.categoryOther';
+            const categoryLabel = t(categoryLabelKey);
+            const version = skill.version ? `v${skill.version}` : '';
+            const updatedAt = formatDate(skill.updatedAt);
+
+            const badges = [];
+            if (skill.sourceKind === 'built-in') badges.push({ key: 'built-in', label: t('skillMarket.badgeBuiltIn') });
+            if (skill.sourceKind === 'custom') badges.push({ key: 'custom', label: t('skillMarket.badgeCustom') });
+            if (skill.sourceKind === 'remote') badges.push({ key: 'remote', label: t('skillMarket.badgeRemote') });
+            if (isInstalled && tab === 'market') badges.push({ key: 'installed', label: t('skillMarket.badgeInstalled') });
+            if (isEnabled) badges.push({ key: 'enabled', label: t('skillMarket.badgeEnabled') });
+            if (skill.updateAvailable) badges.push({ key: 'update', label: t('skillMarket.badgeUpdate') });
+
+            const showUninstall = tab !== 'market' && skill.sourceKind === 'installed';
+
             return `
                 <article class="skill-market-card">
                     <div class="skill-market-card-header">
-                        <div>
-                            <div class="skill-market-card-title">${escapeHtml(skill.label || skill.id)}</div>
-                            <div class="skill-market-card-meta">
-                                <span class="skill-market-card-category">${escapeHtml(skill.category || 'Other')}</span>
-                                ${rating ? `<span class="skill-market-card-rating"><span class="skill-market-card-rating-star">&#9733;</span> ${rating}</span>` : ''}
-                                ${downloads ? `<span class="skill-market-card-downloads">${downloads.toLocaleString()} ${t('skillMarket.downloads', { count: downloads }).split(' ')[1]}</span>` : ''}
+                        <div class="skill-market-card-title-row">
+                            <div>
+                                <div class="skill-market-card-title">${escapeHtml(skill.label || skill.id)}</div>
+                                <div class="skill-market-card-meta">
+                                    <span class="skill-market-card-category">${escapeHtml(categoryLabel)}</span>
+                                    ${hubLabel ? `<span class="skill-market-card-source">${escapeHtml(hubLabel)}</span>` : ''}
+                                    ${version ? `<span class="skill-market-card-version">${escapeHtml(version)}</span>` : ''}
+                                    ${updatedAt ? `<span class="skill-market-card-updated">${escapeHtml(t('skillMarket.updatedAt', { date: updatedAt }))}</span>` : ''}
+                                </div>
+                            </div>
+                            <div class="skill-market-card-badges">
+                                ${badges.map(badge => `<span class="skill-market-badge is-${badge.key}">${escapeHtml(badge.label)}</span>`).join('')}
                             </div>
                         </div>
                     </div>
                     <div class="skill-market-card-description">${escapeHtml(skill.description || '')}</div>
                     <div class="skill-market-card-tags">
-                        ${(skill.tags || []).slice(0, 4).map(tag => 
+                        ${(skill.tags || []).slice(0, 6).map(tag =>
                             `<span class="skill-market-card-tag">${escapeHtml(tag)}</span>`
                         ).join('')}
+                    </div>
+                    <div class="skill-market-card-metrics">
+                        ${rating ? `<span class="skill-market-card-rating"><span class="skill-market-card-rating-star">&#9733;</span> ${rating.toFixed(1)}</span>` : ''}
+                        ${downloads ? `<span class="skill-market-card-downloads">${escapeHtml(downloadsText)}</span>` : ''}
+                        ${skill.author?.name ? `<span class="skill-market-card-author">${escapeHtml(t('skillMarket.byAuthor', { name: skill.author.name }))}</span>` : ''}
                     </div>
                     <div class="skill-market-card-actions">
                         ${tab === 'market' ? `
                             <button type="button" class="btn ${isInstalled ? 'btn-secondary' : 'btn-primary'} btn-small" 
-                                ${isInstalled ? '' : `data-skill-install="${escapeHtml(skill.id)}"`}>
+                                ${isInstalled ? 'disabled' : `data-skill-install="${escapeHtml(skill.id)}" data-skill-hub="${escapeHtml(skill.hubId || '')}"`}>
                                 ${isInstalled ? t('skillMarket.installed') : t('skillMarket.install')}
                             </button>
                         ` : ''}
@@ -1047,6 +1296,11 @@
                             <button type="button" class="btn ${isEnabled ? 'btn-secondary' : 'btn-primary'} btn-small" 
                                 data-skill-toggle="${escapeHtml(skill.id)}">
                                 ${isEnabled ? t('skillMarket.disable') : t('skillMarket.enable')}
+                            </button>
+                        ` : ''}
+                        ${showUninstall ? `
+                            <button type="button" class="btn btn-tertiary btn-small" data-skill-uninstall="${escapeHtml(skill.id)}">
+                                ${t('skillMarket.uninstall')}
                             </button>
                         ` : ''}
                     </div>

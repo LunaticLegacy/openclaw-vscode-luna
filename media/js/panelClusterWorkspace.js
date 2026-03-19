@@ -115,6 +115,9 @@
             if (elements.btnExportClusterRawContext) {
                 elements.btnExportClusterRawContext.disabled = true;
             }
+            if (elements.btnExportClusterSwarm) {
+                elements.btnExportClusterSwarm.disabled = true;
+            }
             if (elements.clusterWorkmodeSummary) {
                 elements.clusterWorkmodeSummary.innerHTML = '';
             }
@@ -152,6 +155,9 @@
         }
         if (elements.btnExportClusterRawContext) {
             elements.btnExportClusterRawContext.disabled = isReplay;
+        }
+        if (elements.btnExportClusterSwarm) {
+            elements.btnExportClusterSwarm.disabled = isReplay;
         }
         if (elements.clusterReplayBanner) {
             elements.clusterReplayBanner.textContent = isReplay ? getClusterReplayBannerText(cluster) : '';
@@ -222,10 +228,11 @@
                     <span class="cluster-topology-mode">${escapeHtml(modeLabel)}</span>
                 </div>
                 <div class="cluster-topology-graph${collapsed ? ' hidden' : ''}">
+                    <svg class="cluster-topology-connectors" aria-hidden="true"></svg>
                     <div class="cluster-topology-summary">
                         ${renderClusterTopologySummary(topologyPlan.summary)}
                     </div>
-                    <div class="cluster-topology-root${target.kind === 'swarm' ? ' active' : ''}">
+                    <div class="cluster-topology-root${target.kind === 'swarm' ? ' active' : ''}" data-node-id="swarm-root">
                         <span class="cluster-topology-root-label">${escapeHtml(t('clusters.targetSwarm'))}</span>
                         <span class="cluster-topology-root-meta">${escapeHtml(t('clusterTree.agentsCount', { count: cluster.agentIds.length }))}</span>
                     </div>
@@ -237,6 +244,14 @@
                 </div>
             </div>
         `;
+
+        const graph = elements.clusterTopology.querySelector('.cluster-topology-graph');
+        if (graph) {
+            attachClusterTopologyScrollListener(graph);
+        }
+
+        scheduleClusterTopologyConnectorRender();
+        ensureClusterTopologyConnectorObservers();
     }
 
     function renderClusterTargetTabs(cluster) {
@@ -797,6 +812,17 @@
         });
     }
 
+    function exportCurrentClusterSwarm() {
+        const cluster = getCurrentCluster();
+        if (!cluster || isReplayCluster(cluster)) {
+            return;
+        }
+        vscode.postMessage({
+            type: 'exportClusterSwarm',
+            clusterId: cluster.id
+        });
+    }
+
     function promptBroadcastToCluster(clusterId) {
         vscode.postMessage({
             type: 'promptBroadcastToCluster',
@@ -1140,10 +1166,12 @@
             : t(node.routeLabel);
         const latencyBadge = renderClusterTopologyLatencyBadge(latencyByAgentId?.get(node.agentId));
 
+        const hasChildren = node.children.length > 0;
+        const parentId = node.parentAgentId || 'swarm-root';
         return `
-            <li class="cluster-topology-branch">
+            <li class="cluster-topology-branch${hasChildren ? ' has-children' : ''}">
                 <div class="cluster-topology-branch-line"></div>
-                <div class="cluster-topology-node state-${escapeHtml(node.state)}${isFocused ? ' active' : ''}">
+                <div class="cluster-topology-node state-${escapeHtml(node.state)}${isFocused ? ' active' : ''}" data-node-id="${escapeHtml(node.agentId)}" data-parent-id="${escapeHtml(parentId)}">
                     <div class="cluster-topology-node-header">
                         <div class="cluster-topology-node-copy">
                             <span class="cluster-topology-node-name">${escapeHtml(resolveClusterAgentLabel(node.agentId))}</span>
@@ -1161,6 +1189,147 @@
                 ${node.children.length > 0 ? renderClusterTopologyTree(node.children, cluster, target, coordinatorInfo, latencyByAgentId) : ''}
             </li>
         `;
+    }
+
+    let topologyConnectorFrame = null;
+    let topologyConnectorObserversReady = false;
+    let topologyScrollListenerId = 0;
+
+    function ensureClusterTopologyConnectorObservers() {
+        if (topologyConnectorObserversReady) {
+            return;
+        }
+
+        topologyConnectorObserversReady = true;
+
+        window.addEventListener('resize', scheduleClusterTopologyConnectorRender);
+
+        if (typeof ResizeObserver === 'undefined') {
+            return;
+        }
+
+        const observer = new ResizeObserver(() => {
+            scheduleClusterTopologyConnectorRender();
+        });
+
+        if (elements.clusterTopology) {
+            observer.observe(elements.clusterTopology);
+        }
+    }
+
+    function attachClusterTopologyScrollListener(graph) {
+        if (!graph || graph.dataset.scrollListenerAttached === 'true') {
+            return;
+        }
+
+        topologyScrollListenerId += 1;
+        graph.dataset.scrollListenerAttached = 'true';
+        graph.dataset.scrollListenerId = String(topologyScrollListenerId);
+        graph.addEventListener('scroll', scheduleClusterTopologyConnectorRender, { passive: true });
+    }
+
+    function scheduleClusterTopologyConnectorRender() {
+        if (topologyConnectorFrame) {
+            window.cancelAnimationFrame(topologyConnectorFrame);
+        }
+
+        topologyConnectorFrame = window.requestAnimationFrame(() => {
+            topologyConnectorFrame = null;
+            renderClusterTopologyConnectors();
+        });
+    }
+
+    function renderClusterTopologyConnectors() {
+        const graph = elements.clusterTopology?.querySelector('.cluster-topology-graph');
+        if (!graph || graph.classList.contains('hidden')) {
+            return;
+        }
+
+        const svg = graph.querySelector('.cluster-topology-connectors');
+        if (!svg) {
+            return;
+        }
+
+        const rootNode = graph.querySelector('.cluster-topology-root[data-node-id]');
+        const nodeElements = Array.from(graph.querySelectorAll('.cluster-topology-node[data-node-id]'));
+        if (!rootNode || nodeElements.length === 0) {
+            svg.innerHTML = '';
+            return;
+        }
+
+        const graphRect = graph.getBoundingClientRect();
+        const width = Math.max(graph.scrollWidth, graphRect.width);
+        const height = Math.max(graph.scrollHeight, graphRect.height);
+        svg.setAttribute('width', String(width));
+        svg.setAttribute('height', String(height));
+        svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+        svg.style.width = `${width}px`;
+        svg.style.height = `${height}px`;
+        svg.innerHTML = '';
+
+        const nodesById = new Map();
+        nodesById.set(rootNode.dataset.nodeId, rootNode);
+        nodeElements.forEach(node => {
+            nodesById.set(node.dataset.nodeId, node);
+        });
+
+        const childrenByParent = new Map();
+        nodeElements.forEach(node => {
+            const parentId = node.dataset.parentId;
+            if (!parentId) {
+                return;
+            }
+            if (!childrenByParent.has(parentId)) {
+                childrenByParent.set(parentId, []);
+            }
+            childrenByParent.get(parentId).push(node);
+        });
+
+        const drawLine = (x1, y1, x2, y2) => {
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', String(x1));
+            line.setAttribute('y1', String(y1));
+            line.setAttribute('x2', String(x2));
+            line.setAttribute('y2', String(y2));
+            svg.appendChild(line);
+        };
+
+        const getAnchor = (el, edge) => {
+            const rect = el.getBoundingClientRect();
+            const x = rect.left - graphRect.left + rect.width / 2 + graph.scrollLeft;
+            const y = (edge === 'top' ? rect.top : rect.bottom) - graphRect.top + graph.scrollTop;
+            return { x, y };
+        };
+
+        childrenByParent.forEach((children, parentId) => {
+            const parent = nodesById.get(parentId);
+            if (!parent || children.length === 0) {
+                return;
+            }
+
+            const parentAnchor = getAnchor(parent, 'bottom');
+            const childAnchors = children.map(child => ({
+                el: child,
+                anchor: getAnchor(child, 'top')
+            }));
+
+            if (childAnchors.length === 1) {
+                const childAnchor = childAnchors[0].anchor;
+                drawLine(parentAnchor.x, parentAnchor.y, childAnchor.x, childAnchor.y);
+                return;
+            }
+
+            const minChildY = Math.min(...childAnchors.map(item => item.anchor.y));
+            const connectorY = Math.max(parentAnchor.y + 12, parentAnchor.y + Math.round((minChildY - parentAnchor.y) / 2));
+            const minX = Math.min(...childAnchors.map(item => item.anchor.x));
+            const maxX = Math.max(...childAnchors.map(item => item.anchor.x));
+
+            drawLine(minX, connectorY, maxX, connectorY);
+            drawLine(parentAnchor.x, parentAnchor.y, parentAnchor.x, connectorY);
+            childAnchors.forEach(({ anchor }) => {
+                drawLine(anchor.x, anchor.y, anchor.x, connectorY);
+            });
+        });
     }
 
     function renderClusterTopologyLatencyBadge(latencyMs) {

@@ -39,6 +39,7 @@ export interface ClusterMemberProfile {
     identity?: string;
     stance?: string;
     parentAgentId?: string;
+    presetIdentityId?: string;
     activation?: {
         swarmModes?: Array<'broadcast' | 'collaborate'>;
         keywords?: string[];
@@ -238,6 +239,30 @@ export interface SendMessageOptions {
     stream?: boolean;
     temperature?: number;
     maxTokens?: number;
+    delivery?: SwarmDeliveryContext;
+    timeoutMs?: number;
+    ttlMs?: number;
+    idempotencyKey?: string;
+    laneKey?: string;
+}
+
+/**
+ * Swarm-aware delivery context for outbound messages.
+ */
+export interface SwarmDeliveryContext {
+    swarmRunId: string;
+    clusterId: string;
+    mode: 'broadcast' | 'collaborate' | 'agent';
+    round?: number;
+    phase?: string;
+    sourceAgentId?: string;
+    targetAgentId?: string;
+    messageKind?: string;
+    dependencyKey?: string;
+    transactionGroupId?: string;
+    expectedGroupSize?: number;
+    groupCompletionPolicy?: 'all' | 'any';
+    requiresDeliveryForProgress?: boolean;
 }
 
 /**

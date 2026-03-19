@@ -1,0 +1,31 @@
+flowchart LR
+  UIChat[Stop Button (Chat)] -->|stopActiveRun: chat| Router[messageRouter.ts]
+  UICluster[Stop Button (Cluster Swarm)] -->|stopActiveRun: cluster-swarm| Router
+  Router --> Panel[OpenClawPanel._handleStopActiveRun]
+
+  Panel -->|chat| AbortChat[abortSessionRun(currentSessionId)]
+  Panel -->|cluster-swarm| AbortSwarm[clusterManager.abortClusterSwarmRun]
+  AbortSwarm --> ServiceAbort[openclawService.abortSessionRun]
+
+  subgraph StopCondition[Stop Condition Evaluation]
+    JudgePrompt[buildStopConditionPrompt]
+    JudgeResp[sendMessageToAgent]
+    Parse[parseStopConditionEvaluation]
+    Extract[extractStopConditionText
+(content + parts + trace)]
+    JudgeResp --> Parse
+    Parse --> Extract
+  end
+
+  note1{{Problem: STOP signal in toolResult/parts
+was ignored -> swarm kept running}}
+  note2{{Fix: extractStopConditionText reads parts/trace}}
+  note1 -.-> Parse
+  note2 -.-> Extract
+
+  note3{{Problem: stop button did not abort
+cluster swarm sessions}}
+  note4{{Fix: abortClusterSwarmRun aborts
+all swarm sessions for cluster+mode}}
+  note3 -.-> Panel
+  note4 -.-> AbortSwarm

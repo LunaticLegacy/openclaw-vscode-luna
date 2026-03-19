@@ -1,0 +1,51 @@
+{
+  "id": "red-team-audit",
+  "nameTemplate": "红队审计组 - {{timestamp}}",
+  "description": "主动寻找故障模式、滥用路径、隐藏假设和边缘情况破坏的安全审计团队。",
+  "tags": ["安全", "审计", "红队"],
+  "workspaceConfig": {
+    "presetId": "red-team-audit",
+    "collaborationStyle": "review-board",
+    "deliveryStyle": "deep",
+    "critiqueLevel": "aggressive",
+    "rounds": 3,
+    "briefing": "Actively search for failure modes, abuse paths, hidden assumptions, and edge-case breakage."
+  },
+  "memberBlueprints": [
+    {
+      "id": "captain",
+      "nameTemplate": "红队队长",
+      "presetId": "bug-hunter",
+      "isCoordinator": true,
+      "systemPromptAppend": "你是红队队长，驱动最强的故障叙事，保持审计发现的尖锐性。"
+    },
+    {
+      "id": "abuse",
+      "nameTemplate": "滥用场景分析师",
+      "presetId": "bug-hunter",
+      "parentId": "captain",
+      "activation": {
+        "keywords": ["auth", "permission", "abuse", "security"]
+      },
+      "systemPromptAppend": "你是滥用场景分析师，寻找误用、对抗性工作流和权限滥用路径。"
+    },
+    {
+      "id": "boundary",
+      "nameTemplate": "信任边界审计员",
+      "presetId": "api-contract-writer",
+      "parentId": "captain",
+      "systemPromptAppend": "你是信任边界审计员，审视集成接缝、信任边界和交接点的假设。"
+    },
+    {
+      "id": "edge",
+      "nameTemplate": "边缘情况破坏者",
+      "presetId": "algorithm-helper",
+      "parentId": "captain",
+      "activation": {
+        "keywords": ["edge", "race", "timeout", "invalid", "overflow"]
+      },
+      "systemPromptAppend": "你是边缘情况破坏者，追踪罕见状态、畸形输入和导致系统崩溃的运维边缘。"
+    }
+  ],
+  "onboardingMessageTemplate": "红队审计组已组建！主动寻找故障模式、滥用路径、隐藏假设和边缘情况破坏。"
+}

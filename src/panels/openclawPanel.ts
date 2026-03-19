@@ -1,10 +1,12 @@
-﻿﻿﻿﻿﻿import * as fs from 'fs';
+﻿﻿import * as fs from 'fs';
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { getClusterWorkModePresets } from '../config/clusterWorkModes';
+import { getClusterWorkModePresets, normalizeClusterWorkspaceConfig } from '../config/clusterWorkModes';
 import { getAiSkills } from '../config/aiSkills';
 import { getCurrentLocale, t, MESSAGES } from '../i18n';
 import { OpenClawService, ChatMessage, ChatSession, AgentCluster, APIUsage } from '../services/openclawService';
+import { SkillMarketService } from '../services/skillMarket';
+import { MemoryService, type MemoryStatus } from '../services/memory';
 import {
     buildOpenClawRuntimeLogExport,
     inspectOpenClawEnvironment,
@@ -34,6 +36,7 @@ import {
 } from './openclawPanel/helpers';
 import {
     buildClusterContextExportBundle,
+    parseClusterSwarmStructureImport,
     parseClusterSwarmReplayImport,
     resolveContextExportPath,
     type ClusterContextExportBundle,
@@ -157,7 +160,9 @@ export class OpenClawPanel {
     private _runtimeDiagnostics: OpenClawRuntimeDiagnostics | null = null;
     private _openClawConfigState: OpenClawConfigEditorState | null = null;
     private _seenRuntimeNoticeKeys: Set<string> = new Set();
-    private _skillMarketService: any;
+    private _skillMarketService: SkillMarketService;
+    private _memoryService: MemoryService;
+    private _memoryStatus: MemoryStatus | null = null;
 
     /**
      * Creates or shows the OpenClaw panel
@@ -172,6 +177,7 @@ export class OpenClawPanel {
      */
     public static createOrShow(
         extensionUri: vscode.Uri,
+        context: vscode.ExtensionContext,
         service: OpenClawService,
         agentManager: AgentManager,
         agentFolderManager: AgentFolderManager,
@@ -199,7 +205,7 @@ export class OpenClawPanel {
             }
         );
 
-        OpenClawPanel.currentPanel = new OpenClawPanel(panel, extensionUri, service, agentManager, agentFolderManager, channelManager, clusterManager, taskManager);
+        OpenClawPanel.currentPanel = new OpenClawPanel(panel, extensionUri, context, service, agentManager, agentFolderManager, channelManager, clusterManager, taskManager);
         return OpenClawPanel.currentPanel;
     }
 
@@ -230,6 +236,7 @@ export class OpenClawPanel {
     private constructor(
         panel: vscode.WebviewPanel,
         extensionUri: vscode.Uri,
+        context: vscode.ExtensionContext,
         service: OpenClawService,
         agentManager: AgentManager,
         agentFolderManager: AgentFolderManager,
@@ -239,6 +246,8 @@ export class OpenClawPanel {
     ) {
         this._panel = panel;
         this._extensionUri = extensionUri;
+        this._skillMarketService = new SkillMarketService(context);
+        this._memoryService = new MemoryService(context, extensionUri.fsPath);
         this._service = service;
         this._agentManager = agentManager;
         this._agentFolderManager = agentFolderManager;
@@ -423,6 +432,7 @@ export class OpenClawPanel {
         }
 
         await this._loadAgents();
+        await this._loadClusters();
     }
 
     /**
@@ -448,21 +458,105 @@ export class OpenClawPanel {
     }
 
     /**
+     * Refreshes memory status and posts to webview
+     */
+    private async _refreshMemoryStatus() {
+        try {
+            this._memoryStatus = await this._memoryService.refreshStatus();
+            this._postMessage({
+                type: 'memoryStatus',
+                status: this._memoryStatus
+            });
+        } catch (error) {
+            this._postMessage({
+                type: 'memoryStatus',
+                status: {
+                    backend: 'local',
+                    root: '',
+                    ready: false,
+                    lastError: String(error)
+                }
+            });
+        }
+    }
+
+    /**
+     * Opens the local memory root if available
+     */
+    private async _openMemoryRoot() {
+        const root = await this._memoryService.getLocalRoot();
+        if (!root) {
+            vscode.window.showInformationMessage(t('memory.openRootUnavailable'));
+            return;
+        }
+        await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(root));
+    }
+
+    /**
+     * Exports the memory bundle
+     */
+    private async _exportMemoryBundle() {
+        try {
+            const [targetUri] = await vscode.window.showOpenDialog({
+                canSelectMany: false,
+                canSelectFiles: false,
+                canSelectFolders: true,
+                openLabel: t('memory.exportSelectFolder')
+            }) || [];
+
+            if (!targetUri) {
+                return;
+            }
+
+            const timestamp = buildTimestampFileSegment();
+            const targetPath = path.join(targetUri.fsPath, `openclaw-memory-${timestamp}`);
+            const result = await this._memoryService.exportBundle(targetPath);
+            await this._refreshMemoryStatus();
+            this._postMessage({ type: 'memoryExported', result });
+            showSuccessStatus(t('memory.exportSuccess', { name: path.basename(targetPath) }));
+        } catch (error) {
+            this._postMessage({ type: 'memoryExportFailed', message: String(error) });
+            vscode.window.showErrorMessage(t('memory.exportFailed', { error: String(error) }));
+        }
+    }
+
+    /**
+     * Imports a memory bundle
+     */
+    private async _importMemoryBundle() {
+        try {
+            const [sourceUri] = await vscode.window.showOpenDialog({
+                canSelectMany: false,
+                canSelectFiles: false,
+                canSelectFolders: true,
+                openLabel: t('memory.importSelectFolder')
+            }) || [];
+
+            if (!sourceUri) {
+                return;
+            }
+
+            await this._memoryService.importBundle(sourceUri.fsPath);
+            await this._refreshMemoryStatus();
+            this._postMessage({ type: 'memoryImported', sourcePath: sourceUri.fsPath });
+            showSuccessStatus(t('memory.importSuccess', { name: path.basename(sourceUri.fsPath) }));
+        } catch (error) {
+            this._postMessage({ type: 'memoryImportFailed', message: String(error) });
+            vscode.window.showErrorMessage(t('memory.importFailed', { error: String(error) }));
+        }
+    }
+
+    /**
      * Loads skills from the skill market
      * @param filters - Optional filters for the skill search
      */
     private async _loadSkillMarket(filters: any) {
         try {
-            const result = await this._skillMarketService.searchSkills(filters || {});
-            
+            const overview = await this._skillMarketService.searchSkills(filters || {});
+
             this._postMessage({
                 type: 'skillMarketLoaded',
-                skills: result.skills,
-                total: result.total,
-                page: result.page,
-                pageSize: result.pageSize,
-                categories: result.categories,
-                tags: result.tags
+                overview
             });
         } catch (error) {
             console.error('Failed to load skills from market:', error);
@@ -485,9 +579,9 @@ export class OpenClawPanel {
      * Installs a skill from the skill market
      * @param skillId - The ID of the skill to install
      */
-    private async _installSkill(skillId: string) {
+    private async _installSkill(skillId: string, hubId?: string | null) {
         try {
-            const skill = await this._skillMarketService.getSkillDetails(skillId);
+            const skill = await this._skillMarketService.getSkillDetails(skillId, hubId);
             if (!skill) {
                 throw new Error('Skill not found');
             }
@@ -1359,10 +1453,18 @@ export class OpenClawPanel {
 
             const resolvedPath = resolveContextExportPath(targetUri.fsPath, options.exportKind);
             if (options.exportKind === 'raw') {
+                const rawContent = JSON.stringify(exportPayload.body, null, 2);
                 await vscode.workspace.fs.writeFile(
                     vscode.Uri.file(resolvedPath),
-                    Buffer.from(JSON.stringify(exportPayload.body, null, 2), 'utf8')
+                    Buffer.from(rawContent, 'utf8')
                 );
+                void this._memoryService.persistClusterExport({
+                    baseName: exportPayload.baseName,
+                    kind: 'raw',
+                    content: rawContent,
+                    clusterId,
+                    mode: options.mode
+                });
                 showSuccessStatus(t('clusters.exportedRawContext', { name: path.basename(resolvedPath) }));
                 return;
             }
@@ -1371,9 +1473,98 @@ export class OpenClawPanel {
                 vscode.Uri.file(resolvedPath),
                 Buffer.from(exportPayload.readableMarkdown, 'utf8')
             );
+            void this._memoryService.persistClusterExport({
+                baseName: exportPayload.baseName,
+                kind: 'readable',
+                content: exportPayload.readableMarkdown,
+                clusterId,
+                mode: options.mode
+            });
             showSuccessStatus(t('clusters.exportedReadableContext', { name: path.basename(resolvedPath) }));
         } catch (error) {
             vscode.window.showErrorMessage(t('clusters.exportFailed', { error: String(error) }));
+        }
+    }
+
+    /**
+     * Exports the current swarm structure as JSON
+     * @param options - The export options
+     */
+    private async _exportClusterSwarm(options: { clusterId: string }) {
+        const clusterId = String(options.clusterId || '').trim();
+        if (!clusterId) {
+            return;
+        }
+
+        try {
+            const cluster = await this._clusterManager.getCluster(clusterId);
+            if (!cluster) {
+                vscode.window.showErrorMessage(t('clusters.exportSwarmFailed', { error: 'Cluster not found.' }));
+                return;
+            }
+
+            const agents = await this._agentManager.getAgents();
+            const agentMap = new Map(agents.map(agent => [agent.id, agent]));
+            const workspaceConfig = normalizeClusterWorkspaceConfig(cluster.workspaceConfig);
+
+            const members = cluster.agentIds.map(agentId => {
+                const agent = agentMap.get(agentId);
+                if (!agent) {
+                    return { id: agentId };
+                }
+                const presetId = typeof (agent as any).presetId === 'string' ? (agent as any).presetId : undefined;
+                return {
+                    id: agent.id,
+                    name: agent.name,
+                    model: agent.model,
+                    ...(agent.systemPrompt ? { systemPrompt: agent.systemPrompt } : {}),
+                    ...(presetId ? { presetId } : {}),
+                    ...(Array.isArray(agent.enabledSkills) && agent.enabledSkills.length > 0
+                        ? { enabledSkills: [...agent.enabledSkills] }
+                        : {})
+                };
+            });
+
+            const exportBody = {
+                kind: 'swarm-structure',
+                exportedAt: new Date().toISOString(),
+                swarm: {
+                    id: cluster.id,
+                    name: cluster.name,
+                    createdAt: cluster.createdAt,
+                    workspaceConfig,
+                    members
+                }
+            };
+
+            const safeName = String(cluster.name || 'swarm')
+                .replace(/[^\w\-]+/g, '-')
+                .replace(/-+/g, '-')
+                .replace(/(^-|-$)/g, '')
+                .slice(0, 80) || 'swarm';
+            const targetUri = await vscode.window.showSaveDialog({
+                defaultUri: vscode.Uri.file(this._buildExportDefaultPath(`${safeName}-swarm.json`)),
+                filters: { JSON: ['json'] }
+            });
+
+            if (!targetUri) {
+                return;
+            }
+
+            const rawContent = JSON.stringify(exportBody, null, 2);
+            await vscode.workspace.fs.writeFile(
+                targetUri,
+                Buffer.from(rawContent, 'utf8')
+            );
+            void this._memoryService.persistClusterExport({
+                baseName: `${safeName}-swarm`,
+                kind: 'raw',
+                content: rawContent,
+                clusterId
+            });
+            showSuccessStatus(t('clusters.exportSwarmSuccess', { name: path.basename(targetUri.fsPath) }));
+        } catch (error) {
+            vscode.window.showErrorMessage(t('clusters.exportSwarmFailed', { error: String(error) }));
         }
     }
 
@@ -1420,6 +1611,118 @@ export class OpenClawPanel {
             showSuccessStatus(t('clusters.importedReplay', { name: path.basename(targetUri.fsPath) }));
         } catch (error) {
             vscode.window.showErrorMessage(t('clusters.importReplayFailed', { error: String(error) }));
+        }
+    }
+
+    /**
+     * Imports a swarm structure configuration
+     */
+    private async _importClusterSwarm() {
+        try {
+            const [targetUri] = await vscode.window.showOpenDialog({
+                canSelectMany: false,
+                openLabel: t('clusters.importSwarm'),
+                filters: { JSON: ['json'] }
+            }) || [];
+
+            if (!targetUri) {
+                return;
+            }
+
+            const rawContent = Buffer.from(await vscode.workspace.fs.readFile(targetUri)).toString('utf8');
+            const importPayload = parseClusterSwarmStructureImport(targetUri.fsPath, rawContent);
+            const swarm = importPayload.body.swarm;
+            const workspaceConfig = normalizeClusterWorkspaceConfig(swarm.workspaceConfig);
+
+            const existingAgents = await this._agentManager.getAgents();
+            const agentMap = new Map(existingAgents.map(agent => [agent.id, agent]));
+            const memberIdMap = new Map<string, string>();
+            const createdAgentIds: string[] = [];
+
+            const members = swarm.members;
+            const missingMembers = members.filter(member => !agentMap.has(member.id));
+            const totalSteps = missingMembers.length + 1;
+
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: t('progress.importingSwarm'),
+                    cancellable: false
+                },
+                async progress => {
+                    const reporter = createStepProgressReporter(progress, totalSteps);
+                    try {
+                        for (const [index, member] of missingMembers.entries()) {
+                            const name = (member.name || member.id || '').trim();
+                            if (!name) {
+                                throw new Error(t('clusters.importSwarmMissingName'));
+                            }
+                            const model = (member.model || '').trim();
+                            if (!model) {
+                                throw new Error(t('clusters.importSwarmMissingModel', { name }));
+                            }
+
+                            reporter.start(t('progress.creatingClusterAgent', {
+                                current: index + 1,
+                                total: missingMembers.length,
+                                name
+                            }));
+
+                            const created = await this._agentManager.createAgent({
+                                name,
+                                model,
+                                systemPrompt: member.systemPrompt || '',
+                                presetId: member.presetId,
+                                enabledSkills: Array.isArray(member.enabledSkills) ? member.enabledSkills : undefined
+                            });
+                            memberIdMap.set(member.id, created.id);
+                            createdAgentIds.push(created.id);
+                            reporter.complete();
+                        }
+
+                        for (const member of members) {
+                            if (!memberIdMap.has(member.id)) {
+                                memberIdMap.set(member.id, member.id);
+                            }
+                        }
+
+                        const mappedAgentIds = members
+                            .map(member => memberIdMap.get(member.id))
+                            .filter(Boolean) as string[];
+                        if (mappedAgentIds.length === 0) {
+                            throw new Error(t('clusters.importSwarmNoAgents'));
+                        }
+
+                        const remappedWorkspaceConfig = remapWorkspaceConfig(workspaceConfig, memberIdMap);
+
+                        reporter.start(t('progress.creatingClusterRecord'));
+                        const cluster = await this._clusterManager.createCluster({
+                            name: swarm.name,
+                            agentIds: mappedAgentIds,
+                            workspaceConfig: remappedWorkspaceConfig as any
+                        });
+                        reporter.complete();
+
+                        reporter.start(t('progress.refreshingAgents'));
+                        await this._loadAgents();
+                        reporter.complete();
+
+                        reporter.start(t('progress.refreshingClusters'));
+                        await this._loadClusters(cluster.id);
+                        reporter.complete();
+
+                        showSuccessStatus(t('clusters.importSwarmSuccess', { name: path.basename(targetUri.fsPath) }));
+                    } catch (error) {
+                        if (createdAgentIds.length > 0) {
+                            await Promise.allSettled(createdAgentIds.map(agentId => this._agentManager.deleteAgent(agentId)));
+                            await this._loadAgents();
+                        }
+                        throw error;
+                    }
+                }
+            );
+        } catch (error) {
+            vscode.window.showErrorMessage(t('clusters.importSwarmFailed', { error: String(error) }));
         }
     }
 
@@ -1557,6 +1860,13 @@ export class OpenClawPanel {
                 vscode.Uri.file(targetPath),
                 Buffer.from(exportPayload.readableMarkdown, 'utf8')
             );
+            void this._memoryService.persistClusterExport({
+                baseName: exportPayload.baseName,
+                kind: 'readable',
+                content: exportPayload.readableMarkdown,
+                clusterId: options.clusterId,
+                mode: options.mode
+            });
             showSuccessStatus(t('clusters.autoSavedContext', { name: path.basename(targetPath) }));
         } catch (error) {
             console.warn('[OpenClaw Luna] Failed to auto-save cluster context export.', error);
@@ -1704,7 +2014,8 @@ export class OpenClawPanel {
      * Handles stopping an active run
      * @param scope - The scope of the run to stop
      */
-    private _handleStopActiveRun(scope: unknown) {
+    private _handleStopActiveRun(message: any) {
+        const scope = message?.scope;
         switch (scope) {
             case 'chat':
                 this._stopActiveChatRun();
@@ -1718,12 +2029,36 @@ export class OpenClawPanel {
                 break;
             case 'cluster-swarm':
                 this._clusterSwarmRunToken += 1;
+                if (message?.clusterId && (message?.mode === 'broadcast' || message?.mode === 'collaborate')) {
+                    void this._stopClusterSwarmRuns(message.clusterId, message.mode);
+                }
                 break;
             case 'cluster-agent':
                 this._clusterAgentRunToken += 1;
                 this._abortSessionRun(this._clusterSessionManager.getCurrentSessionId());
+                if (message?.clusterId) {
+                    void this._stopClusterSwarmRunsForAllModes(message.clusterId);
+                }
                 break;
         }
+    }
+
+    private async _stopClusterSwarmRuns(clusterId: string, mode: 'broadcast' | 'collaborate'): Promise<void> {
+        const cluster = await this._clusterManager.getCluster(clusterId).catch(() => null);
+        if (cluster) {
+            for (const agentId of cluster.agentIds) {
+                this._agentManager.endAgentRun(agentId);
+            }
+        }
+
+        await this._clusterManager.abortClusterSwarmRun(clusterId, mode).catch(() => undefined);
+    }
+
+    private async _stopClusterSwarmRunsForAllModes(clusterId: string): Promise<void> {
+        await Promise.allSettled([
+            this._stopClusterSwarmRuns(clusterId, 'broadcast'),
+            this._stopClusterSwarmRuns(clusterId, 'collaborate')
+        ]);
     }
 
     /**
@@ -1902,6 +2237,10 @@ export class OpenClawPanel {
             setOpenClawConfigState: (value: OpenClawConfigEditorState | null) => {
                 this._openClawConfigState = value;
             },
+            getMemoryStatus: () => this._memoryStatus,
+            refreshMemoryStatus: async () => {
+                this._memoryStatus = await this._memoryService.refreshStatus();
+            },
             loadAgents: this._loadAgents.bind(this),
             loadClusters: this._loadClusters.bind(this),
             loadTasks: this._loadTasks.bind(this)
@@ -1929,7 +2268,9 @@ export class OpenClawPanel {
         return {
             clusterManager: this._clusterManager,
             agentManager: this._agentManager,
+            agentFolderManager: this._agentFolderManager,
             clusterSessionManager: this._clusterSessionManager,
+            extensionPath: this._extensionUri.fsPath,
             postMessage: this._postMessage.bind(this),
             loadAgents: this._loadAgents.bind(this),
             loadClusters: this._loadClusters.bind(this),
@@ -1951,6 +2292,8 @@ export class OpenClawPanel {
     private _createAgentActionContext() {
         return {
             agentManager: this._agentManager,
+            service: this._service,
+            memoryService: this._memoryService,
             postMessage: this._postMessage.bind(this),
             ensureCapability: this._ensureCapability.bind(this),
             loadAgents: this._loadAgents.bind(this),
@@ -2024,6 +2367,8 @@ export class OpenClawPanel {
             loadClusterAgentMessages: this._loadClusterAgentMessages.bind(this),
             loadClusterAgentSwarmMessages: this._loadClusterAgentSwarmMessages.bind(this),
             exportClusterConversation: this._exportClusterConversation.bind(this),
+            exportClusterSwarm: this._exportClusterSwarm.bind(this),
+            importClusterSwarm: this._importClusterSwarm.bind(this),
             importClusterReplay: this._importClusterReplay.bind(this),
             exportRuntimeLogs: this._exportRuntimeLogs.bind(this),
             clearChat: this._clearChat.bind(this),
@@ -2075,7 +2420,11 @@ export class OpenClawPanel {
             refreshSkillMarket: this._refreshSkillMarket.bind(this),
             installSkill: this._installSkill.bind(this),
             uninstallSkill: this._uninstallSkill.bind(this),
-            toggleSkillForAgent: this._toggleSkillForAgent.bind(this)
+            toggleSkillForAgent: this._toggleSkillForAgent.bind(this),
+            refreshMemoryStatus: this._refreshMemoryStatus.bind(this),
+            openMemoryRoot: this._openMemoryRoot.bind(this),
+            exportMemoryBundle: this._exportMemoryBundle.bind(this),
+            importMemoryBundle: this._importMemoryBundle.bind(this)
         };
     }
 
@@ -2293,4 +2642,63 @@ export class OpenClawPanel {
         const channels = await this._service.getDiscoveredChannels();
         return channels.find(channel => channel.id === channelId) || null;
     }
+}
+
+function createStepProgressReporter(
+    progress: vscode.Progress<{ message?: string; increment?: number }>,
+    totalSteps: number
+): {
+    start(message: string): void;
+    complete(): void;
+} {
+    let completedSteps = 0;
+    let reportedIncrement = 0;
+
+    return {
+        start(message: string) {
+            progress.report({ message });
+        },
+        complete() {
+            completedSteps += 1;
+            const targetIncrement = Math.round((completedSteps / Math.max(1, totalSteps)) * 100);
+            const increment = Math.max(0, targetIncrement - reportedIncrement);
+            reportedIncrement = targetIncrement;
+            progress.report({ increment });
+        }
+    };
+}
+
+function remapWorkspaceConfig(
+    workspaceConfig: unknown,
+    memberIdMap: Map<string, string>
+): Record<string, unknown> {
+    const config = workspaceConfig && typeof workspaceConfig === 'object' ? { ...workspaceConfig } : {};
+    const rawProfiles = (config as { memberProfiles?: Record<string, unknown> }).memberProfiles;
+    const profiles: Record<string, unknown> = rawProfiles && typeof rawProfiles === 'object' && !Array.isArray(rawProfiles)
+        ? rawProfiles
+        : {};
+
+    const remappedProfiles: Record<string, unknown> = {};
+    Object.entries(profiles).forEach(([agentId, profile]) => {
+        const mappedId = memberIdMap.get(agentId) || agentId;
+        if (!mappedId || !profile || typeof profile !== 'object' || Array.isArray(profile)) {
+            return;
+        }
+        const normalizedProfile = { ...profile } as { parentAgentId?: string };
+        const parentId = typeof normalizedProfile.parentAgentId === 'string' ? normalizedProfile.parentAgentId.trim() : '';
+        if (parentId) {
+            normalizedProfile.parentAgentId = memberIdMap.get(parentId) || '';
+        }
+        remappedProfiles[mappedId] = normalizedProfile;
+    });
+
+    const coordinatorId = typeof (config as { coordinatorAgentId?: string }).coordinatorAgentId === 'string'
+        ? (config as { coordinatorAgentId?: string }).coordinatorAgentId!.trim()
+        : '';
+
+    return {
+        ...config,
+        coordinatorAgentId: coordinatorId ? (memberIdMap.get(coordinatorId) || coordinatorId) : '',
+        memberProfiles: remappedProfiles
+    };
 }

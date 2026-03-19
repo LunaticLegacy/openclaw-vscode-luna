@@ -25,6 +25,8 @@ interface RuntimeActionContext {
     setRuntimeDiagnostics(value: OpenClawRuntimeDiagnostics | null): void;
     getOpenClawConfigState(): OpenClawConfigEditorState | null;
     setOpenClawConfigState(value: OpenClawConfigEditorState | null): void;
+    getMemoryStatus(): { backend: string; root: string; ready: boolean; lastSyncAt?: string; lastError?: string; lastEvent?: string } | null;
+    refreshMemoryStatus(): Promise<void>;
     loadAgents(): Promise<void>;
     loadClusters(): Promise<void>;
     loadTasks(): Promise<void>;
@@ -81,7 +83,8 @@ export function postRuntimeState(context: RuntimeActionContext): void {
         capabilities,
         capabilityMatrix: context.service.getModeCapabilityMatrix(),
         diagnostics: context.getRuntimeDiagnostics(),
-        openClawConfig: context.getOpenClawConfigState()
+        openClawConfig: context.getOpenClawConfigState(),
+        memoryStatus: context.getMemoryStatus()
     });
 }
 
@@ -106,6 +109,12 @@ export async function refreshRuntimeState(context: RuntimeActionContext): Promis
         context.setOpenClawConfigState(await loadOpenClawConfigEditorState(context.extensionPath));
     } catch {
         // Ignore config editor failures and keep the last known values.
+    }
+
+    try {
+        await context.refreshMemoryStatus();
+    } catch {
+        // Ignore memory status failures.
     } finally {
         postRuntimeState(context);
     }

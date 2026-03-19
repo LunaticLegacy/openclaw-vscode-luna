@@ -321,6 +321,40 @@
                                     </div>
                                 </form>
                             </article>
+                            <article class="console-setup-card">
+                                <div class="console-next-header">
+                                    <h4 data-i18n="memory.title">Memory Storage</h4>
+                                    <button id="btn-refresh-memory-status" class="btn btn-secondary btn-small" type="button" data-i18n="common.refresh">Refresh</button>
+                                </div>
+                                <p class="console-setup-lead" data-i18n="memory.subtitle">Store Luna memory in a durable, portable location.</p>
+                                <div id="memory-status" class="memory-status">
+                                    <div class="memory-status-row">
+                                        <span data-i18n="memory.backend">Backend</span>
+                                        <span id="memory-status-backend" class="memory-status-value"></span>
+                                    </div>
+                                    <div class="memory-status-row">
+                                        <span data-i18n="memory.root">Root</span>
+                                        <span id="memory-status-root" class="memory-status-value"></span>
+                                    </div>
+                                    <div class="memory-status-row">
+                                        <span data-i18n="memory.lastSync">Last Sync</span>
+                                        <span id="memory-status-sync" class="memory-status-value"></span>
+                                    </div>
+                                    <div class="memory-status-row">
+                                        <span data-i18n="memory.lastEvent">Last Event</span>
+                                        <span id="memory-status-event" class="memory-status-value"></span>
+                                    </div>
+                                    <div class="memory-status-row memory-status-error hidden" id="memory-status-error">
+                                        <span data-i18n="memory.error">Error</span>
+                                        <span id="memory-status-error-value" class="memory-status-value"></span>
+                                    </div>
+                                </div>
+                                <div class="form-actions">
+                                    <button type="button" class="btn btn-secondary" id="btn-open-memory-root" data-i18n="memory.openRoot">Open Folder</button>
+                                    <button type="button" class="btn btn-secondary" id="btn-export-memory" data-i18n="memory.export">Export Bundle</button>
+                                    <button type="button" class="btn btn-secondary" id="btn-import-memory" data-i18n="memory.import">Import Bundle</button>
+                                </div>
+                            </article>
                         </section>
 
                         <section class="console-capability-panel">
@@ -403,6 +437,8 @@
                             <button id="btn-import-cluster-replay" class="btn btn-secondary" data-i18n="clusters.importReplay">Import Replay JSON</button>
                             <button id="btn-export-cluster-readable-context" class="btn btn-secondary" data-i18n="clusters.exportReadableContext">Export Readable Context</button>
                             <button id="btn-export-cluster-raw-context" class="btn btn-secondary" data-i18n="clusters.exportRawContext">Export Raw Context</button>
+                            <button id="btn-export-cluster-swarm" class="btn btn-secondary" data-i18n="clusters.exportSwarm">Export Swarm JSON</button>
+                            <button id="btn-import-cluster-swarm" class="btn btn-secondary" data-i18n="clusters.importSwarm">Import Swarm JSON</button>
                             <button id="btn-clear-cluster-replay" class="btn btn-secondary hidden" data-i18n="clusters.exitReplay">Exit Replay</button>
                             <button id="btn-edit-cluster" class="btn btn-secondary" data-i18n="common.edit">Edit</button>
                             <button id="btn-delete-current-cluster" class="btn btn-secondary" data-i18n="clusters.delete">Delete</button>
@@ -737,7 +773,7 @@
                 <div class="skill-market-header">
                     <div>
                         <h2 data-i18n="skillMarket.title">Skill Market</h2>
-                        <p id="skill-market-subtitle" class="channel-editor-summary" data-i18n="skillMarket.subtitle">Discover and install AI skills from SkillMarket.cc</p>
+                        <p id="skill-market-subtitle" class="channel-editor-summary" data-i18n="skillMarket.subtitleMarket">Discover and install AI skills from SkillMarket.cc</p>
                     </div>
                     <div class="skill-market-header-actions">
                         <button type="button" class="btn btn-secondary" id="btn-refresh-skills" title="Refresh">
@@ -748,11 +784,12 @@
                         </button>
                     </div>
                 </div>
-                <div class="skill-market-tabs">
+                <div class="skill-market-tabs" id="skill-market-tabs">
                     <button type="button" class="skill-market-tab is-active" data-tab="market" data-i18n="skillMarket.tabMarket">Market</button>
                     <button type="button" class="skill-market-tab" data-tab="installed" data-i18n="skillMarket.tabInstalled">Installed</button>
                     <button type="button" class="skill-market-tab" data-tab="enabled" data-i18n="skillMarket.tabEnabled">Enabled</button>
                 </div>
+                <div class="skill-market-hubs" id="skill-market-hubs"></div>
                 <div class="skill-market-filters">
                     <div class="skill-market-search-row">
                         <div class="skill-market-search">
@@ -762,30 +799,25 @@
                         <div class="skill-market-sort">
                             <select id="skill-market-sort" class="skill-market-sort-select">
                                 <option value="popular" data-i18n="skillMarket.sortPopular">Most Popular</option>
-                                <option value="newest" data-i18n="skillMarket.sortNewest">Newest</option>
+                                <option value="updated" data-i18n="skillMarket.sortUpdated">Recently Updated</option>
                                 <option value="rating" data-i18n="skillMarket.sortRating">Highest Rated</option>
                                 <option value="name" data-i18n="skillMarket.sortName">Name</option>
+                                <option value="installed" data-i18n="skillMarket.sortInstalled">Installed</option>
                             </select>
                         </div>
                     </div>
-                    <div class="skill-market-categories" id="skill-market-categories">
-                        <button type="button" class="skill-market-category-btn is-active" data-category="all" data-i18n="skillMarket.categoryAll">All</button>
-                        <button type="button" class="skill-market-category-btn" data-category="coding" data-i18n="skillMarket.categoryCoding">Coding</button>
-                        <button type="button" class="skill-market-category-btn" data-category="testing" data-i18n="skillMarket.categoryTesting">Testing</button>
-                        <button type="button" class="skill-market-category-btn" data-category="planning" data-i18n="skillMarket.categoryPlanning">Planning</button>
-                        <button type="button" class="skill-market-category-btn" data-category="analysis" data-i18n="skillMarket.categoryAnalysis">Analysis</button>
-                        <button type="button" class="skill-market-category-btn" data-category="documentation" data-i18n="skillMarket.categoryDocumentation">Documentation</button>
-                    </div>
+                    <div class="skill-market-categories" id="skill-market-categories"></div>
                     <div class="skill-market-tags" id="skill-market-tags"></div>
                     <div class="skill-market-stats" id="skill-market-stats"></div>
+                    <div class="skill-market-status" id="skill-market-status"></div>
                 </div>
                 <div id="skill-market-content" class="skill-market-content">
                     <div id="skill-market-grid" class="skill-market-grid"></div>
                 </div>
                 <div id="skill-market-empty" class="skill-market-empty hidden">
                     <div class="skill-market-empty-icon">&#128230;</div>
-                    <div data-i18n="skillMarket.noSkills">No skills found</div>
-                    <div class="skill-market-empty-hint" data-i18n="skillMarket.noSkillsHint">Try adjusting filters or search terms.</div>
+                    <div id="skill-market-empty-title" data-i18n="skillMarket.emptyMarket">No skills found</div>
+                    <div id="skill-market-empty-hint" class="skill-market-empty-hint" data-i18n="skillMarket.emptyMarketHint">Try adjusting filters or search terms.</div>
                 </div>
                 <div id="skill-market-loading" class="skill-market-loading hidden">
                     <div class="spinner"></div>

@@ -2,6 +2,8 @@
 
 export type SkillSource = 'built-in' | 'marketplace' | 'custom';
 
+export type SkillSourceKind = 'remote' | 'built-in' | 'installed' | 'custom';
+
 export type SkillCategory = 
     | 'coding' 
     | 'analysis' 
@@ -25,6 +27,10 @@ export interface SkillDefinition {
     category: SkillCategory;
     tags: string[];
     source: SkillSource;
+    sourceKind?: SkillSourceKind;
+    hubId?: string;
+    hubName?: string;
+    hubUrl?: string;
     author?: SkillAuthor;
     version: string;
     downloads: number;
@@ -41,6 +47,8 @@ export interface SkillDefinition {
     isEnabled?: boolean;
     installedAt?: string;
     localPath?: string;
+    installedVersion?: string;
+    updateAvailable?: boolean;
 }
 
 export interface SkillMarketListing {
@@ -57,7 +65,8 @@ export interface SkillSearchFilters {
     category?: SkillCategory;
     tags?: string[];
     source?: SkillSource;
-    sortBy?: 'popular' | 'newest' | 'rating' | 'name';
+    sortBy?: 'popular' | 'updated' | 'rating' | 'name' | 'installed';
+    hubId?: string;
 }
 
 export interface SkillInstallResult {
@@ -71,4 +80,31 @@ export interface SkillMarketProvider {
     name: string;
     url: string;
     isAvailable: boolean;
+}
+
+export interface SkillHubDefinition {
+    id: string;
+    name: string;
+    url: string;
+    apiUrl: string;
+    enabled?: boolean;
+}
+
+export interface SkillHubStatus {
+    id: string;
+    name: string;
+    url: string;
+    apiUrl?: string;
+    status: 'ok' | 'error';
+    error?: string;
+}
+
+export interface SkillMarketOverview {
+    market: SkillDefinition[];
+    installed: SkillDefinition[];
+    total: number;
+    categories: { id: SkillCategory; count: number }[];
+    tags: { name: string; count: number }[];
+    hubs: SkillHubStatus[];
+    errors: string[];
 }

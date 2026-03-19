@@ -447,9 +447,10 @@
 .cluster-topology-root,
 .cluster-topology-node {
     border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 12px 14px;
+    border-radius: 12px;
+    padding: 8px 10px;
     background: var(--bg-primary);
+    position: relative;
 }
 
 .cluster-topology-root {
@@ -480,6 +481,7 @@
 
 .cluster-topology-tree {
     min-width: 0;
+    position: relative;
 }
 
 .cluster-topology-branches {
@@ -487,75 +489,99 @@
     margin: 0;
     padding: 0;
     display: flex;
-    flex-direction: column;
-    gap: 10px;
+    flex-direction: row;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 20px;
 }
 
 .cluster-topology-branch {
     position: relative;
-    padding-left: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding-left: 0;
 }
 
 .cluster-topology-branch > .cluster-topology-branches {
-    margin-top: 10px;
+    margin-top: 14px;
+    margin-left: 0;
 }
 
 .cluster-topology-branch-line {
-    position: absolute;
-    top: 0;
-    left: 8px;
-    bottom: -10px;
-    width: 2px;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--accent) 28%, var(--border));
+    display: none;
 }
 
 .cluster-topology-branch::before {
-    content: '';
-    position: absolute;
-    top: 22px;
-    left: 8px;
-    width: 16px;
-    height: 2px;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--accent) 28%, var(--border));
+    content: none;
 }
 
-.cluster-topology-branch:last-child > .cluster-topology-branch-line {
-    bottom: auto;
-    height: 24px;
+.cluster-topology-branch.has-children > .cluster-topology-node::after {
+    content: none;
+}
+
+.cluster-topology-graph {
+    position: relative;
+    max-height: min(60vh, 520px);
+    overflow-y: auto;
+    overflow-x: auto;
+    overscroll-behavior: contain;
+    padding-bottom: 12px;
+}
+
+.cluster-topology-connectors {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: visible;
+}
+
+.cluster-topology-connectors line {
+    stroke: color-mix(in srgb, var(--accent) 28%, var(--border));
+    stroke-width: 2;
+    stroke-linecap: round;
 }
 
 .cluster-topology-node-header {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: 6px;
 }
 
 .cluster-topology-node-copy {
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
 }
 
 .cluster-topology-node-name {
     display: block;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 700;
 }
 
 .cluster-topology-node-meta {
     word-break: break-all;
-    text-align: right;
+    text-align: left;
+    font-size: 10px;
+    opacity: 0.75;
 }
 
 .cluster-topology-node-badges {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 10px;
+    gap: 4px;
+    margin-top: 6px;
+}
+
+.cluster-topology-node {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    max-width: 240px;
 }
 
 .cluster-topology-node.state-direct {

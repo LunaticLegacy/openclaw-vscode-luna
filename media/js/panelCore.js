@@ -32,6 +32,7 @@
         serverClusters: [],
         clusterReplays: {},
         clusterWorkModePresets: [],
+        identityPresets: [],
         clusterConversations: {},
         tasks: [],
         tasksAvailable: true,
@@ -61,7 +62,8 @@
             capabilities: null,
             capabilityMatrix: [],
             diagnostics: null,
-            openClawConfig: null
+            openClawConfig: null,
+            memoryStatus: null
         },
         connectionFormDirty: false,
         connectionSettingsStatus: null,
@@ -88,11 +90,11 @@
             query: '',
             category: 'all',
             tags: [],
-            sortBy: 'popular'
+            sortBy: 'popular',
+            hubId: 'all'
         },
         skillMarketTab: 'market',
         skillMarketData: null,
-        skillMarketInstalled: [],
         skillMarketLoading: false
     };
     let activeTraceContainer = null;
@@ -102,6 +104,7 @@
     let pendingStreamingRender = null;
     let streamRenderFrame = null;
     let agentMutationTimer = null;
+    let skillMarketRefreshTimer = null;
     const renderedChatMessageIds = new Set();
     const renderedChannelMessageIds = new Set();
     const MAX_CLUSTER_ROUNDS = 12;
@@ -417,6 +420,17 @@
         elements.openclawConfigHint = document.getElementById('openclaw-config-hint');
         elements.openclawConfigStatus = document.getElementById('openclaw-config-status');
         elements.btnRefreshOpenclawConfig = document.getElementById('btn-refresh-openclaw-config');
+        elements.memoryStatus = document.getElementById('memory-status');
+        elements.memoryStatusBackend = document.getElementById('memory-status-backend');
+        elements.memoryStatusRoot = document.getElementById('memory-status-root');
+        elements.memoryStatusSync = document.getElementById('memory-status-sync');
+        elements.memoryStatusEvent = document.getElementById('memory-status-event');
+        elements.memoryStatusError = document.getElementById('memory-status-error');
+        elements.memoryStatusErrorValue = document.getElementById('memory-status-error-value');
+        elements.btnRefreshMemoryStatus = document.getElementById('btn-refresh-memory-status');
+        elements.btnOpenMemoryRoot = document.getElementById('btn-open-memory-root');
+        elements.btnExportMemory = document.getElementById('btn-export-memory');
+        elements.btnImportMemory = document.getElementById('btn-import-memory');
         elements.consoleInstallGuide = document.getElementById('console-install-guide');
         elements.installGuideTitle = document.getElementById('install-guide-title');
         elements.installGuideSummary = document.getElementById('install-guide-summary');
@@ -448,6 +462,8 @@
         elements.btnStopCluster = document.getElementById('btn-stop-cluster');
         elements.btnExportClusterReadableContext = document.getElementById('btn-export-cluster-readable-context');
         elements.btnExportClusterRawContext = document.getElementById('btn-export-cluster-raw-context');
+        elements.btnExportClusterSwarm = document.getElementById('btn-export-cluster-swarm');
+        elements.btnImportClusterSwarm = document.getElementById('btn-import-cluster-swarm');
         elements.btnImportClusterReplay = document.getElementById('btn-import-cluster-replay');
         elements.btnImportClusterReplayEmpty = document.getElementById('btn-import-cluster-replay-empty');
         elements.btnClearClusterReplay = document.getElementById('btn-clear-cluster-replay');
@@ -553,6 +569,7 @@
         elements.agentSkillsHint = document.getElementById('settings-agent-skills-hint');
         elements.agentSkillLinks = document.getElementById('settings-agent-skill-links');
         elements.skillMarketSubtitle = document.getElementById('skill-market-subtitle');
+        elements.skillMarketTabs = document.getElementById('skill-market-tabs');
         elements.skillMarketGrid = document.getElementById('skill-market-grid');
         elements.skillMarketContent = document.getElementById('skill-market-content');
         elements.skillMarketSearchInput = document.getElementById('skill-market-search-input');
@@ -560,13 +577,27 @@
         elements.skillMarketSort = document.getElementById('skill-market-sort');
         elements.skillMarketCategories = document.getElementById('skill-market-categories');
         elements.skillMarketTags = document.getElementById('skill-market-tags');
+        elements.skillMarketHubs = document.getElementById('skill-market-hubs');
         elements.skillMarketStats = document.getElementById('skill-market-stats');
+        elements.skillMarketStatus = document.getElementById('skill-market-status');
         elements.skillMarketEmpty = document.getElementById('skill-market-empty');
         elements.skillMarketLoading = document.getElementById('skill-market-loading');
         elements.btnRefreshSkills = document.getElementById('btn-refresh-skills');
         elements.btnCreateCustomSkill = document.getElementById('btn-create-custom-skill');
         elements.modalTask = document.getElementById('modal-task');
         elements.formTask = document.getElementById('form-task');
+    }
+
+    function scheduleSkillMarketRefresh() {
+        if (skillMarketRefreshTimer) {
+            clearTimeout(skillMarketRefreshTimer);
+        }
+        skillMarketRefreshTimer = setTimeout(() => {
+            skillMarketRefreshTimer = null;
+            if (typeof refreshSkillMarket === 'function') {
+                refreshSkillMarket();
+            }
+        }, 350);
     }
 
     function bindEvents() {
@@ -635,11 +666,29 @@
             openSkillMarket();
         });
 
+        elements.skillMarketTabs?.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!(target instanceof Element)) {
+                return;
+            }
+            const tabButton = target.closest('[data-tab]');
+            if (!tabButton) {
+                return;
+            }
+            const nextTab = tabButton.getAttribute('data-tab');
+            if (!nextTab || state.skillMarketTab === nextTab) {
+                return;
+            }
+            state.skillMarketTab = nextTab;
+            renderSkillMarket();
+        });
+
         // Skill Market search and filters
         elements.skillMarketSearchInput?.addEventListener('input', (e) => {
             state.skillMarketFilters = { ...state.skillMarketFilters, query: e.target.value };
             renderSkillMarket();
             elements.skillMarketSearchClear?.classList.toggle('is-visible', e.target.value.length > 0);
+            scheduleSkillMarketRefresh();
         });
 
         elements.skillMarketSearchClear?.addEventListener('click', () => {
@@ -648,12 +697,69 @@
                 state.skillMarketFilters = { ...state.skillMarketFilters, query: '' };
                 renderSkillMarket();
                 elements.skillMarketSearchClear.classList.remove('is-visible');
+                scheduleSkillMarketRefresh();
             }
         });
 
         elements.skillMarketSort?.addEventListener('change', (e) => {
             state.skillMarketFilters = { ...state.skillMarketFilters, sortBy: e.target.value };
             renderSkillMarket();
+            scheduleSkillMarketRefresh();
+        });
+
+        elements.skillMarketCategories?.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!(target instanceof Element)) {
+                return;
+            }
+            const button = target.closest('[data-category]');
+            if (!button) {
+                return;
+            }
+            const category = button.getAttribute('data-category') || 'all';
+            state.skillMarketFilters = { ...state.skillMarketFilters, category };
+            renderSkillMarket();
+            scheduleSkillMarketRefresh();
+        });
+
+        elements.skillMarketTags?.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!(target instanceof Element)) {
+                return;
+            }
+            const button = target.closest('[data-tag]');
+            if (!button) {
+                return;
+            }
+            const tag = button.getAttribute('data-tag');
+            if (!tag) {
+                return;
+            }
+            const currentTags = Array.isArray(state.skillMarketFilters?.tags) ? [...state.skillMarketFilters.tags] : [];
+            const existingIndex = currentTags.indexOf(tag);
+            if (existingIndex >= 0) {
+                currentTags.splice(existingIndex, 1);
+            } else {
+                currentTags.push(tag);
+            }
+            state.skillMarketFilters = { ...state.skillMarketFilters, tags: currentTags };
+            renderSkillMarket();
+            scheduleSkillMarketRefresh();
+        });
+
+        elements.skillMarketHubs?.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!(target instanceof Element)) {
+                return;
+            }
+            const button = target.closest('[data-hub]');
+            if (!button) {
+                return;
+            }
+            const hubId = button.getAttribute('data-hub') || 'all';
+            state.skillMarketFilters = { ...state.skillMarketFilters, hubId };
+            renderSkillMarket();
+            scheduleSkillMarketRefresh();
         });
 
         elements.btnRefreshSkills?.addEventListener('click', () => {
@@ -749,6 +855,22 @@
             vscode.postMessage({ type: 'refreshOpenClawConfig' });
         });
 
+        elements.btnRefreshMemoryStatus?.addEventListener('click', () => {
+            vscode.postMessage({ type: 'refreshMemoryStatus' });
+        });
+
+        elements.btnOpenMemoryRoot?.addEventListener('click', () => {
+            vscode.postMessage({ type: 'openMemoryRoot' });
+        });
+
+        elements.btnExportMemory?.addEventListener('click', () => {
+            vscode.postMessage({ type: 'exportMemoryBundle' });
+        });
+
+        elements.btnImportMemory?.addEventListener('click', () => {
+            vscode.postMessage({ type: 'importMemoryBundle' });
+        });
+
         elements.btnStartOpenClaw?.addEventListener('click', () => {
             startOpenClaw();
         });
@@ -800,6 +922,12 @@
 
         elements.btnExportClusterRawContext?.addEventListener('click', () => {
             exportCurrentClusterConversation('raw');
+        });
+        elements.btnExportClusterSwarm?.addEventListener('click', () => {
+            exportCurrentClusterSwarm();
+        });
+        elements.btnImportClusterSwarm?.addEventListener('click', () => {
+            vscode.postMessage({ type: 'importClusterSwarm' });
         });
 
         [elements.btnImportClusterReplay, elements.btnImportClusterReplayEmpty].forEach(button => {
@@ -1021,7 +1149,24 @@
             renderClusterPresetSummary();
         });
         elements.clusterEditorAgentPicker?.addEventListener('change', () => {
+            if (typeof syncClusterAgentPickerRowState === 'function') {
+                syncClusterAgentPickerRowState();
+            }
             syncClusterMemberCustomizationState();
+        });
+        elements.clusterEditorMemberProfiles?.addEventListener('change', (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLSelectElement)) {
+                return;
+            }
+            const agentId = target.getAttribute('data-cluster-member-preset-identity');
+            if (!agentId) {
+                return;
+            }
+            const presetId = String(target.value || '').trim();
+            if (presetId && typeof applyClusterMemberIdentityPreset === 'function') {
+                applyClusterMemberIdentityPreset(agentId, presetId);
+            }
         });
 
         // Close modal when clicking outside
@@ -1048,7 +1193,7 @@
 
             const skillToggle = target.closest('[data-skill-toggle]');
             if (skillToggle) {
-                const skillId = skillToggle.getAttribute('data-skill-id');
+                const skillId = skillToggle.getAttribute('data-skill-toggle');
                 if (skillId) {
                     toggleSkillForActiveAgent(skillId);
                 }
@@ -1059,7 +1204,17 @@
             if (skillInstall) {
                 const skillId = skillInstall.getAttribute('data-skill-install');
                 if (skillId) {
-                    installSkill(skillId);
+                    const hubId = skillInstall.getAttribute('data-skill-hub') || null;
+                    installSkill(skillId, hubId);
+                }
+                return;
+            }
+
+            const skillUninstall = target.closest('[data-skill-uninstall]');
+            if (skillUninstall) {
+                const skillId = skillUninstall.getAttribute('data-skill-uninstall');
+                if (skillId) {
+                    uninstallSkill(skillId);
                 }
                 return;
             }

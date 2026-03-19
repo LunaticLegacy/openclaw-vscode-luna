@@ -1,157 +1,297 @@
 // Skill Market - Service
 import * as vscode from 'vscode';
 import axios from 'axios';
-import { SkillDefinition, SkillMarketListing, SkillSearchFilters, SkillInstallResult, SkillMarketProvider } from './types';
 import { EventEmitter } from 'events';
+import {
+    SkillDefinition,
+    SkillSearchFilters,
+    SkillInstallResult,
+    SkillMarketOverview,
+    SkillHubDefinition,
+    SkillHubStatus,
+    SkillCategory,
+    SkillSourceKind
+} from './types';
+import { LocalSkillRegistry } from './localSkillRegistry';
 
-const SKILL_MARKET_URL = 'https://skillmarket.cc/api/v1';
 const REQUEST_TIMEOUT = 10000;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+const DEFAULT_HUBS: SkillHubDefinition[] = [
+    {
+        id: 'skillmarket',
+        name: 'SkillMarket.cc',
+        url: 'https://skillmarket.cc',
+        apiUrl: 'https://skillmarket.cc/api/v1'
+    }
+];
+
+interface HubSkillResponse {
+    skills?: any[];
+    items?: any[];
+    total?: number;
+    data?: any[];
+}
+
+class RemoteSkillHubProvider {
+    constructor(private hub: SkillHubDefinition) {}
+
+    public getHub(): SkillHubDefinition {
+        return this.hub;
+    }
+
+    public async fetchSkills(filters: SkillSearchFilters): Promise<SkillDefinition[]> {
+        const category = filters.category;
+        const params: Record<string, string | number | undefined> = {
+            q: filters.query || undefined,
+            category: category && String(category) !== 'all' ? category : undefined,
+            tags: filters.tags?.length ? filters.tags.join(',') : undefined,
+            sort: filters.sortBy && filters.sortBy !== 'installed' ? filters.sortBy : undefined,
+            page: 1,
+            limit: 100
+        };
+
+        const response = await axios.get<HubSkillResponse>(`${this.hub.apiUrl}/skills`, {
+            params,
+            timeout: REQUEST_TIMEOUT
+        });
+
+        const payload = response.data;
+        const rawSkills = payload.skills || payload.items || payload.data || [];
+
+        return rawSkills
+            .map(skill => this.normalizeRemoteSkill(skill))
+            .filter((skill): skill is SkillDefinition => Boolean(skill));
+    }
+
+    public async fetchSkillDetails(skillId: string): Promise<SkillDefinition | null> {
+        const response = await axios.get<any>(`${this.hub.apiUrl}/skills/${skillId}`, {
+            timeout: REQUEST_TIMEOUT
+        });
+        return this.normalizeRemoteSkill(response.data);
+    }
+
+    public normalizeRemoteSkill(raw: any): SkillDefinition | null {
+        if (!raw) {
+            return null;
+        }
+
+        const id = String(raw.id || raw.slug || '').trim();
+        if (!id) {
+            return null;
+        }
+
+        const label = String(raw.label || raw.name || raw.title || id).trim();
+        const description = String(raw.description || raw.summary || '').trim();
+        const prompt = String(raw.prompt || raw.systemPrompt || raw.instructions || '').trim();
+        const category = normalizeCategory(raw.category || raw.type || 'other');
+        const tags = normalizeTags(raw.tags || raw.keywords || []);
+        const version = String(raw.version || raw.release || '1.0.0');
+        const downloads = Number(raw.downloads || raw.installs || raw.downloadCount || 0);
+        const rating = typeof raw.rating === 'number' ? raw.rating : undefined;
+        const createdAt = String(raw.createdAt || raw.created || raw.publishedAt || raw.updatedAt || new Date().toISOString());
+        const updatedAt = String(raw.updatedAt || raw.modifiedAt || raw.updated || createdAt);
+        const downloadUrl = String(raw.downloadUrl || raw.download || raw.packageUrl || raw.url || '').trim();
+
+        const authorRaw = raw.author || raw.publisher;
+        const author = authorRaw
+            ? {
+                name: String(authorRaw.name || authorRaw).trim(),
+                url: authorRaw.url,
+                avatar: authorRaw.avatar
+            }
+            : undefined;
+
+        return {
+            id,
+            label,
+            description,
+            prompt,
+            category,
+            tags,
+            source: 'marketplace',
+            sourceKind: 'remote',
+            hubId: this.hub.id,
+            hubName: this.hub.name,
+            hubUrl: this.hub.url,
+            author,
+            version,
+            downloads,
+            rating,
+            createdAt,
+            updatedAt,
+            downloadUrl,
+            homepage: raw.homepage || raw.website,
+            readme: raw.readme,
+            examples: Array.isArray(raw.examples) ? raw.examples : undefined
+        };
+    }
+}
 
 export class SkillMarketService extends EventEmitter {
-    private providers: SkillMarketProvider[] = [
-        {
-            id: 'skillmarket',
-            name: 'SkillMarket.cc',
-            url: 'https://skillmarket.cc',
-            isAvailable: false
-        },
-        {
-            id: 'github',
-            name: 'GitHub Community',
-            url: 'https://github.com/topics/openclaw-skills',
-            isAvailable: true
-        }
-    ];
-
-    private cache: Map<string, SkillMarketListing> = new Map();
+    private registry: LocalSkillRegistry;
+    private hubProviders: RemoteSkillHubProvider[] = [];
+    private cache: Map<string, SkillMarketOverview> = new Map();
     private cacheExpiry: Map<string, number> = new Map();
-    private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
     constructor(private context: vscode.ExtensionContext) {
         super();
+        this.registry = new LocalSkillRegistry(context);
+        this.hubProviders = this.loadHubDefinitions().map(def => new RemoteSkillHubProvider(def));
     }
 
-    /**
-     * Check if SkillMarket.cc is available
-     */
-    public async checkAvailability(): Promise<boolean> {
-        try {
-            const response = await axios.get(`${SKILL_MARKET_URL}/health`, {
-                timeout: 5000
-            });
-            const isAvailable = response.status === 200;
-            this.providers[0].isAvailable = isAvailable;
-            return isAvailable;
-        } catch {
-            this.providers[0].isAvailable = false;
-            return false;
-        }
-    }
-
-    /**
-     * Get available providers
-     */
-    public getProviders(): SkillMarketProvider[] {
-        return [...this.providers];
-    }
-
-    /**
-     * Search skills from marketplace
-     */
-    public async searchSkills(filters: SkillSearchFilters): Promise<SkillMarketListing> {
-        const cacheKey = JSON.stringify(filters);
-        
-        // Check cache
+    public async searchSkills(filters: SkillSearchFilters): Promise<SkillMarketOverview> {
+        const cacheKey = JSON.stringify(filters || {});
         if (this.isCacheValid(cacheKey)) {
             return this.cache.get(cacheKey)!;
         }
 
-        // If SkillMarket.cc is not available, return mock data for now
-        // In production, this would call the actual API
-        if (!this.providers[0].isAvailable) {
-            const mockListing = this.getMockListing(filters);
-            this.setCache(cacheKey, mockListing);
-            return mockListing;
-        }
+        const hubProviders = this.getHubProviders(filters?.hubId);
+        const hubStatuses: SkillHubStatus[] = [];
+        const errors: string[] = [];
 
-        try {
-            const response = await axios.get(`${SKILL_MARKET_URL}/skills`, {
-                params: {
-                    q: filters.query,
-                    category: filters.category,
-                    tags: filters.tags?.join(','),
-                    sort: filters.sortBy,
-                    page: 1,
-                    limit: 50
-                },
-                timeout: REQUEST_TIMEOUT
-            });
+        const hubResults = await Promise.allSettled(
+            hubProviders.map(provider => provider.fetchSkills(filters || {}))
+        );
 
-            const listing: SkillMarketListing = {
-                skills: response.data.skills || [],
-                total: response.data.total || 0,
-                page: response.data.page || 1,
-                pageSize: response.data.pageSize || 50,
-                categories: response.data.categories || [],
-                tags: response.data.tags || []
+        let marketSkills: SkillDefinition[] = [];
+        hubResults.forEach((result, index) => {
+            const provider = hubProviders[index];
+            const hub = provider.getHub();
+            if (result.status === 'fulfilled') {
+                hubStatuses.push({
+                    id: hub.id,
+                    name: hub.name,
+                    url: hub.url,
+                    apiUrl: hub.apiUrl,
+                    status: 'ok'
+                });
+                marketSkills = marketSkills.concat(result.value);
+            } else {
+                const errorMessage = result.reason instanceof Error ? result.reason.message : String(result.reason || 'Unknown error');
+                hubStatuses.push({
+                    id: hub.id,
+                    name: hub.name,
+                    url: hub.url,
+                    apiUrl: hub.apiUrl,
+                    status: 'error',
+                    error: errorMessage
+                });
+                errors.push(`Failed to load ${hub.name}.`);
+            }
+        });
+
+        const installedSkills = await this.getInstalledSkillInventory();
+        const installedIndex = new Map(installedSkills.map(skill => [this.getSkillKey(skill), skill]));
+        const installedById = new Map(installedSkills.map(skill => [skill.id, skill]));
+
+        marketSkills = marketSkills.map(skill => {
+            const match = installedIndex.get(this.getSkillKey(skill)) || installedById.get(skill.id);
+            const updateAvailable = match ? isVersionNewer(skill.version, match.version) : false;
+            return {
+                ...skill,
+                isInstalled: Boolean(match),
+                installedAt: match?.installedAt,
+                installedVersion: match?.version,
+                updateAvailable
             };
+        });
 
-            this.setCache(cacheKey, listing);
-            return listing;
-        } catch (error) {
-            console.warn('Failed to fetch skills from marketplace:', error);
-            // Fallback to mock data
-            const mockListing = this.getMockListing(filters);
-            this.setCache(cacheKey, mockListing);
-            return mockListing;
-        }
+        // Deduplicate by hub+id to avoid duplicates per hub
+        const seen = new Set<string>();
+        const dedupedMarket = marketSkills.filter(skill => {
+            const key = `${skill.hubId || 'hub'}:${skill.id}`;
+            if (seen.has(key)) {
+                return false;
+            }
+            seen.add(key);
+            return true;
+        });
+
+        const categories = buildCategoryCounts(dedupedMarket);
+        const tags = buildTagCounts(dedupedMarket);
+
+        const overview: SkillMarketOverview = {
+            market: dedupedMarket,
+            installed: installedSkills,
+            total: dedupedMarket.length,
+            categories,
+            tags,
+            hubs: hubStatuses,
+            errors
+        };
+
+        this.setCache(cacheKey, overview);
+        return overview;
     }
 
-    /**
-     * Get skill details
-     */
-    public async getSkillDetails(skillId: string): Promise<SkillDefinition | null> {
-        try {
-            const response = await axios.get(`${SKILL_MARKET_URL}/skills/${skillId}`, {
-                timeout: REQUEST_TIMEOUT
-            });
-            return response.data;
-        } catch {
+    public async getSkillDetails(skillId: string, hubId?: string | null): Promise<SkillDefinition | null> {
+        if (!skillId) {
             return null;
         }
+
+        const installed = await this.getInstalledSkillInventory();
+        const localMatch = installed.find(skill => skill.id === skillId);
+        if (localMatch && !hubId) {
+            return localMatch;
+        }
+
+        const providers = this.getHubProviders(hubId || undefined);
+        for (const provider of providers) {
+            try {
+                const detail = await provider.fetchSkillDetails(skillId);
+                if (detail) {
+                    return detail;
+                }
+            } catch {
+                // ignore and continue
+            }
+        }
+        return localMatch || null;
     }
 
-    /**
-     * Download and install a skill
-     */
     public async installSkill(skill: SkillDefinition): Promise<SkillInstallResult> {
+        if (!skill) {
+            return { success: false, skill, error: 'Skill not provided' };
+        }
+
+        const installed = await this.getInstalledSkillInventory();
+        const existing = installed.find(item => item.id === skill.id);
+        if (existing) {
+            return { success: true, skill: existing };
+        }
+
+        if (!skill.downloadUrl) {
+            return { success: false, skill, error: 'Skill download URL missing' };
+        }
+
         try {
             this.emit('installStart', skill);
 
-            // Download skill content
-            const response = await axios.get(skill.downloadUrl, {
-                timeout: REQUEST_TIMEOUT
-            });
+            let downloadedSkill = skill;
+            try {
+                const response = await axios.get<any>(skill.downloadUrl, { timeout: REQUEST_TIMEOUT });
+                if (response?.data && typeof response.data === 'object') {
+                    const hubProvider = this.hubProviders.find(p => p.getHub().id === skill.hubId);
+                    if (hubProvider) {
+                        const normalized = hubProvider.normalizeRemoteSkill(response.data);
+                        if (normalized) {
+                            downloadedSkill = {
+                                ...normalized,
+                                hubId: skill.hubId,
+                                hubName: skill.hubName,
+                                hubUrl: skill.hubUrl
+                            };
+                        }
+                    }
+                }
+            } catch {
+                // Download failed or not JSON; fall back to provided metadata
+            }
 
-            // Store in extension storage
-            const skillsDir = vscode.Uri.joinPath(this.context.globalStorageUri, 'skills');
-            await vscode.workspace.fs.createDirectory(skillsDir);
-
-            const skillPath = vscode.Uri.joinPath(skillsDir, `${skill.id}.json`);
-            const skillData = {
-                ...skill,
-                isInstalled: true,
-                installedAt: new Date().toISOString(),
-                localPath: skillPath.fsPath
-            };
-
-            await vscode.workspace.fs.writeFile(
-                skillPath,
-                Buffer.from(JSON.stringify(skillData, null, 2))
-            );
-
-            this.emit('installComplete', skillData);
-            return { success: true, skill: skillData };
+            await this.registry.importSkill(downloadedSkill);
+            this.emit('installComplete', downloadedSkill);
+            return { success: true, skill: downloadedSkill };
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             this.emit('installError', skill, errorMessage);
@@ -159,69 +299,77 @@ export class SkillMarketService extends EventEmitter {
         }
     }
 
-    /**
-     * Uninstall a skill
-     */
     public async uninstallSkill(skillId: string): Promise<boolean> {
         try {
-            const skillPath = vscode.Uri.joinPath(
-                this.context.globalStorageUri, 
-                'skills', 
-                `${skillId}.json`
-            );
-            
-            await vscode.workspace.fs.delete(skillPath, { useTrash: false });
-            this.emit('uninstall', skillId);
-            return true;
+            const installed = await this.getInstalledSkillInventory();
+            const target = installed.find(skill => skill.id === skillId);
+            if (!target) {
+                return false;
+            }
+            if (target.sourceKind === 'built-in') {
+                return false;
+            }
+            const success = await this.registry.removeInstalledSkill(skillId);
+            if (success) {
+                this.emit('uninstall', skillId);
+            }
+            return success;
         } catch {
             return false;
         }
     }
 
-    /**
-     * Get all installed skills
-     */
-    public async getInstalledSkills(): Promise<SkillDefinition[]> {
-        try {
-            const skillsDir = vscode.Uri.joinPath(this.context.globalStorageUri, 'skills');
-            
-            try {
-                await vscode.workspace.fs.stat(skillsDir);
-            } catch {
-                return [];
-            }
-
-            const entries = await vscode.workspace.fs.readDirectory(skillsDir);
-            const skills: SkillDefinition[] = [];
-
-            for (const [name, type] of entries) {
-                if (type === vscode.FileType.File && name.endsWith('.json')) {
-                    try {
-                        const content = await vscode.workspace.fs.readFile(
-                            vscode.Uri.joinPath(skillsDir, name)
-                        );
-                        const skill = JSON.parse(content.toString()) as SkillDefinition;
-                        skills.push(skill);
-                    } catch {
-                        // Skip invalid files
-                    }
-                }
-            }
-
-            return skills.sort((a, b) => 
-                new Date(b.installedAt!).getTime() - new Date(a.installedAt!).getTime()
-            );
-        } catch {
-            return [];
-        }
-    }
-
-    /**
-     * Clear cache
-     */
     public clearCache(): void {
         this.cache.clear();
         this.cacheExpiry.clear();
+    }
+
+    private async getInstalledSkillInventory(): Promise<SkillDefinition[]> {
+        const builtIn = this.registry.getBuiltInSkills().map(skill => ({
+            ...skill,
+            sourceKind: 'built-in' as SkillSourceKind,
+            isInstalled: true
+        }));
+        const custom = this.registry.getCustomSkills().map(skill => ({
+            ...skill,
+            sourceKind: 'custom' as SkillSourceKind,
+            isInstalled: true
+        }));
+        const installed = (await this.registry.listInstalledSkills()).map(skill => ({
+            ...skill,
+            sourceKind: (skill.source === 'custom' ? 'custom' : 'installed') as SkillSourceKind,
+            isInstalled: true
+        }));
+
+        const hubIndex = new Map(this.hubProviders.map(provider => [provider.getHub().id, provider.getHub()]));
+        const all = [...installed, ...custom, ...builtIn].map(skill => {
+            if (skill.hubId && hubIndex.has(skill.hubId)) {
+                const hub = hubIndex.get(skill.hubId)!;
+                return { ...skill, hubName: skill.hubName || hub.name, hubUrl: skill.hubUrl || hub.url };
+            }
+            return skill;
+        });
+
+        const seen = new Set<string>();
+        return all.filter(skill => {
+            const key = this.getSkillKey(skill);
+            if (seen.has(key)) {
+                return false;
+            }
+            seen.add(key);
+            return true;
+        });
+    }
+
+    private getSkillKey(skill: SkillDefinition): string {
+        return skill.hubId ? `${skill.hubId}:${skill.id}` : skill.id;
+    }
+
+    private getHubProviders(hubId?: string): RemoteSkillHubProvider[] {
+        if (!hubId || hubId === 'all') {
+            return [...this.hubProviders];
+        }
+        return this.hubProviders.filter(provider => provider.getHub().id === hubId);
     }
 
     private isCacheValid(key: string): boolean {
@@ -230,183 +378,108 @@ export class SkillMarketService extends EventEmitter {
         return Date.now() < expiry;
     }
 
-    private setCache(key: string, listing: SkillMarketListing): void {
-        this.cache.set(key, listing);
-        this.cacheExpiry.set(key, Date.now() + this.CACHE_TTL);
+    private setCache(key: string, overview: SkillMarketOverview): void {
+        this.cache.set(key, overview);
+        this.cacheExpiry.set(key, Date.now() + CACHE_TTL);
     }
 
-    /**
-     * Mock data for development/fallback
-     */
-    private getMockListing(filters: SkillSearchFilters): SkillMarketListing {
-        const mockSkills: SkillDefinition[] = [
-            {
-                id: 'code-review-pro',
-                label: 'Code Review Pro',
-                description: 'Advanced code review with security analysis, performance checks, and best practices.',
-                prompt: 'You are an expert code reviewer. Analyze code for: 1) Security vulnerabilities, 2) Performance bottlenecks, 3) Maintainability issues, 4) Testing gaps. Provide actionable feedback with examples.',
-                category: 'coding',
-                tags: ['review', 'security', 'performance', 'quality'],
-                source: 'marketplace',
-                author: { name: 'OpenClaw Team', url: 'https://skillmarket.cc' },
-                version: '1.2.0',
-                downloads: 15420,
-                rating: 4.8,
-                createdAt: '2024-01-15',
-                updatedAt: '2024-03-01',
-                downloadUrl: 'https://skillmarket.cc/skills/code-review-pro/download'
-            },
-            {
-                id: 'api-designer',
-                label: 'API Designer',
-                description: 'Design RESTful and GraphQL APIs with proper versioning, authentication, and documentation.',
-                prompt: 'You are an API design specialist. Help design APIs that are: RESTful or GraphQL, properly versioned, secure, well-documented, and developer-friendly.',
-                category: 'planning',
-                tags: ['api', 'design', 'rest', 'graphql'],
-                source: 'marketplace',
-                author: { name: 'API Experts', url: 'https://skillmarket.cc' },
-                version: '2.0.1',
-                downloads: 8930,
-                rating: 4.6,
-                createdAt: '2024-02-01',
-                updatedAt: '2024-03-10',
-                downloadUrl: 'https://skillmarket.cc/skills/api-designer/download'
-            },
-            {
-                id: 'test-master',
-                label: 'Test Master',
-                description: 'Generate comprehensive test suites including unit, integration, and e2e tests.',
-                prompt: 'You are a testing specialist. Generate tests that cover: happy paths, edge cases, error handling, boundary conditions. Use appropriate testing patterns and mocking strategies.',
-                category: 'testing',
-                tags: ['testing', 'tdd', 'unit-tests', 'integration'],
-                source: 'marketplace',
-                author: { name: 'QA Masters', url: 'https://skillmarket.cc' },
-                version: '1.5.0',
-                downloads: 12300,
-                rating: 4.7,
-                createdAt: '2024-01-20',
-                updatedAt: '2024-03-05',
-                downloadUrl: 'https://skillmarket.cc/skills/test-master/download'
-            },
-            {
-                id: 'doc-writer',
-                label: 'Documentation Writer',
-                description: 'Write clear, concise technical documentation, READMEs, and API docs.',
-                prompt: 'You are a technical writer. Create documentation that is: clear and concise, well-structured, includes examples, considers the target audience.',
-                category: 'documentation',
-                tags: ['docs', 'writing', 'readme', 'api-docs'],
-                source: 'marketplace',
-                author: { name: 'Tech Writers', url: 'https://skillmarket.cc' },
-                version: '1.0.5',
-                downloads: 6750,
-                rating: 4.5,
-                createdAt: '2024-02-15',
-                updatedAt: '2024-03-08',
-                downloadUrl: 'https://skillmarket.cc/skills/doc-writer/download'
-            },
-            {
-                id: 'security-auditor',
-                label: 'Security Auditor',
-                description: 'Security audit with OWASP checks, vulnerability scanning, and fix recommendations.',
-                prompt: 'You are a security specialist. Perform security audits covering: OWASP Top 10, injection attacks, authentication flaws, sensitive data exposure, security misconfigurations.',
-                category: 'coding',
-                tags: ['security', 'audit', 'owasp', 'vulnerabilities'],
-                source: 'marketplace',
-                author: { name: 'Security First', url: 'https://skillmarket.cc' },
-                version: '1.1.0',
-                downloads: 9870,
-                rating: 4.9,
-                createdAt: '2024-01-10',
-                updatedAt: '2024-03-12',
-                downloadUrl: 'https://skillmarket.cc/skills/security-auditor/download'
-            },
-            {
-                id: 'data-analyst',
-                label: 'Data Analyst',
-                description: 'Analyze datasets, generate insights, and create visualizations.',
-                prompt: 'You are a data analyst. Analyze data to find: trends, patterns, anomalies, correlations. Provide insights with supporting evidence.',
-                category: 'analysis',
-                tags: ['data', 'analysis', 'statistics', 'visualization'],
-                source: 'marketplace',
-                author: { name: 'Data Pros', url: 'https://skillmarket.cc' },
-                version: '1.3.0',
-                downloads: 7890,
-                rating: 4.4,
-                createdAt: '2024-02-05',
-                updatedAt: '2024-03-15',
-                downloadUrl: 'https://skillmarket.cc/skills/data-analyst/download'
-            }
-        ];
+    private loadHubDefinitions(): SkillHubDefinition[] {
+        const fromConfig = vscode.workspace.getConfiguration('openclaw').get<SkillHubDefinition[]>('skillHubs', []);
+        const fromEnv = parseHubEnv(process.env.OPENCLAW_SKILL_HUBS);
+        const combined = [...fromConfig, ...fromEnv].filter(Boolean);
+        const normalized = combined
+            .filter(hub => hub && hub.id && hub.apiUrl)
+            .map(hub => ({
+                id: String(hub.id).trim(),
+                name: String(hub.name || hub.id).trim(),
+                url: String(hub.url || '').trim() || String(hub.apiUrl || '').replace(/\/api\/.*/, ''),
+                apiUrl: String(hub.apiUrl || '').trim(),
+                enabled: hub.enabled !== false
+            }))
+            .filter(hub => hub.id && hub.apiUrl && hub.enabled !== false);
 
-        // Apply filters
-        let filtered = [...mockSkills];
-
-        if (filters.query) {
-            const query = filters.query.toLowerCase();
-            filtered = filtered.filter(s => 
-                s.label.toLowerCase().includes(query) ||
-                s.description.toLowerCase().includes(query) ||
-                s.tags.some(t => t.toLowerCase().includes(query))
-            );
+        if (normalized.length === 0) {
+            return DEFAULT_HUBS;
         }
-
-        if (filters.category) {
-            filtered = filtered.filter(s => s.category === filters.category);
-        }
-
-        if (filters.tags?.length) {
-            filtered = filtered.filter(s => 
-                filters.tags!.some(t => s.tags.includes(t))
-            );
-        }
-
-        // Apply sorting
-        if (filters.sortBy) {
-            switch (filters.sortBy) {
-                case 'popular':
-                    filtered.sort((a, b) => b.downloads - a.downloads);
-                    break;
-                case 'newest':
-                    filtered.sort((a, b) => 
-                        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-                    );
-                    break;
-                case 'rating':
-                    filtered.sort((a, b) => (b.rating || 0) - (a.rating || 0));
-                    break;
-                case 'name':
-                    filtered.sort((a, b) => a.label.localeCompare(b.label));
-                    break;
-            }
-        }
-
-        // Calculate categories
-        const categoryCounts = new Map<string, number>();
-        mockSkills.forEach(s => {
-            categoryCounts.set(s.category, (categoryCounts.get(s.category) || 0) + 1);
-        });
-
-        // Calculate tags
-        const tagCounts = new Map<string, number>();
-        mockSkills.forEach(s => {
-            s.tags.forEach(t => {
-                tagCounts.set(t, (tagCounts.get(t) || 0) + 1);
-            });
-        });
-
-        return {
-            skills: filtered,
-            total: filtered.length,
-            page: 1,
-            pageSize: 50,
-            categories: Array.from(categoryCounts.entries()).map(([id, count]) => ({ 
-                id: id as any, 
-                count 
-            })),
-            tags: Array.from(tagCounts.entries())
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 20)
-                .map(([name, count]) => ({ name, count }))
-        };
+        return normalized;
     }
+}
+
+function normalizeCategory(value: string): SkillCategory {
+    const normalized = String(value || '').toLowerCase();
+    switch (normalized) {
+        case 'coding':
+        case 'analysis':
+        case 'planning':
+        case 'communication':
+        case 'testing':
+        case 'documentation':
+            return normalized as SkillCategory;
+        default:
+            return 'other';
+    }
+}
+
+function normalizeTags(tags: unknown): string[] {
+    if (!Array.isArray(tags)) {
+        return [];
+    }
+    return tags
+        .map(tag => String(tag || '').trim())
+        .filter(Boolean);
+}
+
+function buildCategoryCounts(skills: SkillDefinition[]): { id: SkillCategory; count: number }[] {
+    const counts = new Map<SkillCategory, number>();
+    skills.forEach(skill => {
+        const category = skill.category || 'other';
+        counts.set(category, (counts.get(category) || 0) + 1);
+    });
+    return Array.from(counts.entries())
+        .map(([id, count]) => ({ id, count }))
+        .sort((a, b) => b.count - a.count);
+}
+
+function buildTagCounts(skills: SkillDefinition[]): { name: string; count: number }[] {
+    const counts = new Map<string, number>();
+    skills.forEach(skill => {
+        (skill.tags || []).forEach(tag => {
+            counts.set(tag, (counts.get(tag) || 0) + 1);
+        });
+    });
+    return Array.from(counts.entries())
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count);
+}
+
+function parseHubEnv(raw?: string): SkillHubDefinition[] {
+    if (!raw) {
+        return [];
+    }
+    try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+            return parsed;
+        }
+    } catch {
+        return [];
+    }
+    return [];
+}
+
+function isVersionNewer(remote?: string, installed?: string): boolean {
+    if (!remote || !installed) {
+        return false;
+    }
+    const parse = (value: string) => value.split(/[^0-9]+/).map(num => parseInt(num || '0', 10));
+    const remoteParts = parse(remote);
+    const installedParts = parse(installed);
+    const maxLen = Math.max(remoteParts.length, installedParts.length);
+    for (let i = 0; i < maxLen; i += 1) {
+        const a = remoteParts[i] || 0;
+        const b = installedParts[i] || 0;
+        if (a > b) return true;
+        if (a < b) return false;
+    }
+    return false;
 }

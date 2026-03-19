@@ -1,5 +1,5 @@
 {
-  "displayName": "OpenClaw Luna",
+  "displayName": "LunaClaw (OpenClaw Luna)",
   "description": "Control OpenClaw from VS Code: chat with agents, manage swarms and scheduled tasks, inspect usage.",
   "command.category": "OpenClaw Luna",
   "command.openPanel.title": "Open OpenClaw Luna",
@@ -39,6 +39,15 @@
   "configuration.authProfilesPath.description": "Optional path to the OpenClaw auth profiles file used in local mode.",
   "configuration.modelsPath.description": "Optional path to the models definition file used in local mode.",
   "configuration.stateDir.description": "Optional override for the OpenClaw state directory. Leave empty to auto-detect the current machine setup.",
+  "configuration.memoryBackend.description": "Memory storage backend for Luna/OpenClaw persistence.",
+  "configuration.memoryRoot.description": "Optional override for the memory storage root (local backend).",
+  "configuration.memoryWebDavUrl.description": "WebDAV base URL for the memory storage backend.",
+  "configuration.skillHubs.description": "Optional list of remote skill hubs to use for the Skill Market.",
+  "configuration.skillHubs.id": "Unique hub ID.",
+  "configuration.skillHubs.name": "Display name for the hub.",
+  "configuration.skillHubs.url": "Public hub website URL.",
+  "configuration.skillHubs.apiUrl": "Hub API base URL.",
+  "configuration.skillHubs.enabled": "Whether this hub is enabled.",
   "configuration.cliPath.description": "Optional override for the OpenClaw CLI executable or entry file. Leave empty to auto-detect common install locations.",
   "configuration.nodePath.description": "Optional override for the Node.js executable used to launch OpenClaw CLI when auto-detection is not enough.",
   "configuration.defaultAgent.description": "Preferred default agent ID to select when opening the panel.",
@@ -143,4 +152,5 @@
   "channel.aggregate.configFailed": "Failed to configure: {error}",
   "channel.aggregate.completed": "Processed {processed} items, created {created} messages",
   "channel.aggregate.failed": "Aggregation failed: {error}"
+}
 

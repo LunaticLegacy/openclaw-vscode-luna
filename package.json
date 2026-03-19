@@ -411,6 +411,61 @@
           "default": "",
           "description": "%configuration.stateDir.description%"
         },
+        "openclaw.memoryBackend": {
+          "type": "string",
+          "default": "local",
+          "enum": [
+            "local",
+            "webdav",
+            "custom"
+          ],
+          "description": "%configuration.memoryBackend.description%"
+        },
+        "openclaw.memoryRoot": {
+          "type": "string",
+          "default": "",
+          "description": "%configuration.memoryRoot.description%"
+        },
+        "openclaw.memoryWebDavUrl": {
+          "type": "string",
+          "default": "",
+          "description": "%configuration.memoryWebDavUrl.description%"
+        },
+        "openclaw.skillHubs": {
+          "type": "array",
+          "default": [],
+          "description": "%configuration.skillHubs.description%",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "apiUrl"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "%configuration.skillHubs.id%"
+              },
+              "name": {
+                "type": "string",
+                "description": "%configuration.skillHubs.name%"
+              },
+              "url": {
+                "type": "string",
+                "description": "%configuration.skillHubs.url%"
+              },
+              "apiUrl": {
+                "type": "string",
+                "description": "%configuration.skillHubs.apiUrl%"
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "%configuration.skillHubs.enabled%"
+              }
+            }
+          }
+        },
         "openclaw.cliPath": {
           "type": "string",
           "default": "",

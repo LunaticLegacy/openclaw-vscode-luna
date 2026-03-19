@@ -255,8 +255,11 @@ function normalizeMemberProfiles(
         const identity = typeof profile.identity === 'string' ? profile.identity.trim() : '';
         const stance = typeof profile.stance === 'string' ? profile.stance.trim() : '';
         const parentAgentId = typeof profile.parentAgentId === 'string' ? profile.parentAgentId.trim() : '';
+        const presetIdentityId = typeof (profile as any).presetIdentityId === 'string'
+            ? (profile as any).presetIdentityId.trim()
+            : '';
         const activation = normalizeMemberActivation(profile.activation);
-        if (!identity && !stance && !parentAgentId && !activation) {
+        if (!identity && !stance && !parentAgentId && !presetIdentityId && !activation) {
             continue;
         }
 
@@ -264,6 +267,7 @@ function normalizeMemberProfiles(
             ...(identity ? { identity } : {}),
             ...(stance ? { stance } : {}),
             ...(parentAgentId ? { parentAgentId } : {}),
+            ...(presetIdentityId ? { presetIdentityId } : {}),
             ...(activation ? { activation } : {})
         };
     }

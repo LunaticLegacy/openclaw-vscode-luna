@@ -1,0 +1,51 @@
+{
+  "id": "api-design-studio",
+  "nameTemplate": "API设计工作室 - {{timestamp}}",
+  "description": "专业的API设计团队，从需求到契约、实现规划到发布策略的全流程设计。",
+  "tags": ["API", "设计", "契约"],
+  "workspaceConfig": {
+    "presetId": "spec-to-build",
+    "collaborationStyle": "round-robin",
+    "deliveryStyle": "balanced",
+    "critiqueLevel": "standard",
+    "rounds": 2,
+    "briefing": "Move from requirements to execution plan, API shape, task slicing, and rollout details."
+  },
+  "memberBlueprints": [
+    {
+      "id": "translator",
+      "nameTemplate": "需求翻译官",
+      "presetId": "api-contract-writer",
+      "isCoordinator": true,
+      "systemPromptAppend": "你是需求翻译官，将产品意图转化为清晰的技术需求和决策点。"
+    },
+    {
+      "id": "api",
+      "nameTemplate": "API设计师",
+      "presetId": "api-contract-writer",
+      "parentId": "translator",
+      "activation": {
+        "keywords": ["api", "schema", "contract", "payload"]
+      },
+      "systemPromptAppend": "你是API设计师，负责设计外部契约、载荷结构、验证规则和兼容性约束。"
+    },
+    {
+      "id": "execution",
+      "nameTemplate": "实现规划师",
+      "presetId": "refactor-planner",
+      "parentId": "translator",
+      "systemPromptAppend": "你是实现规划师，将设计切分为可执行的任务、依赖和里程碑。"
+    },
+    {
+      "id": "rollout",
+      "nameTemplate": "发布策略师",
+      "presetId": "docs-editor",
+      "parentId": "translator",
+      "activation": {
+        "keywords": ["rollout", "release", "migration", "deploy"]
+      },
+      "systemPromptAppend": "你是发布策略师，定义迁移顺序、特性开关、验证方案和发布序列。"
+    }
+  ],
+  "onboardingMessageTemplate": "API设计工作室已启动！团队将从需求到实现、从契约到发布的全流程设计API。"
+}

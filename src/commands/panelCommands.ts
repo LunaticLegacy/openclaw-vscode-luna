@@ -107,6 +107,7 @@ export function registerPanelCommands(
             try {
                 await runWithNotificationProgress(t('progress.loadingAgents'), async () => {
                     await runtime.agentManager.getAgents(true);
+                    await runtime.clusterManager.getClusters(true);
                     runtime.sidebarTreeProvider.refresh();
                     const panel = runtime.getPanel();
                     if (panel) {

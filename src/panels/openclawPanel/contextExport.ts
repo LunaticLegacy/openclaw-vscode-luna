@@ -85,6 +85,37 @@ export interface ClusterSwarmReplayImport {
 }
 
 /**
+ * Body of a swarm structure export
+ */
+export interface ClusterSwarmStructureExportBody {
+    kind: 'swarm-structure';
+    exportedAt: string;
+    swarm: {
+        id: string;
+        name: string;
+        createdAt?: string;
+        workspaceConfig?: Record<string, unknown>;
+        members: Array<{
+            id: string;
+            name?: string;
+            model?: string;
+            systemPrompt?: string;
+            presetId?: string;
+            enabledSkills?: string[];
+        }>;
+    };
+}
+
+/**
+ * Import data for swarm structure
+ */
+export interface ClusterSwarmStructureImport {
+    sourcePath: string;
+    importedAt: string;
+    body: ClusterSwarmStructureExportBody;
+}
+
+/**
  * Builds a cluster context export bundle
  * @param baseName - The base file name
  * @param body - The export body data
@@ -170,6 +201,81 @@ export function parseClusterSwarmReplayImport(
             mode: body.mode,
             messageCount: normalizedMessages.length,
             messages: normalizedMessages
+        }
+    };
+}
+
+/**
+ * Parses a swarm structure import from JSON content
+ * @param sourcePath - The source file path
+ * @param rawContent - The raw JSON content
+ * @returns The parsed swarm structure import data
+ * @throws Error if the JSON is invalid or missing required fields
+ */
+export function parseClusterSwarmStructureImport(
+    sourcePath: string,
+    rawContent: string
+): ClusterSwarmStructureImport {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(rawContent);
+    } catch {
+        throw new Error('Swarm JSON is invalid.');
+    }
+
+    if (!parsed || typeof parsed !== 'object') {
+        throw new Error('Swarm JSON must be an object.');
+    }
+
+    const body = parsed as Partial<ClusterSwarmStructureExportBody>;
+    if (body.kind !== 'swarm-structure') {
+        throw new Error('Only swarm structure JSON exports can be imported.');
+    }
+
+    if (!body.swarm || typeof body.swarm !== 'object') {
+        throw new Error('Swarm JSON is missing swarm information.');
+    }
+
+    const swarm = body.swarm as ClusterSwarmStructureExportBody['swarm'];
+    if (!swarm.id || !swarm.name || !Array.isArray(swarm.members)) {
+        throw new Error('Swarm JSON is missing required swarm fields.');
+    }
+
+    const normalizedMembers = swarm.members
+        .filter(member => member && typeof member === 'object')
+        .map(member => ({
+            id: String(member.id || '').trim(),
+            name: typeof member.name === 'string' ? member.name.trim() : '',
+            model: typeof member.model === 'string' ? member.model.trim() : '',
+            systemPrompt: typeof member.systemPrompt === 'string' ? member.systemPrompt : undefined,
+            presetId: typeof member.presetId === 'string' ? member.presetId.trim() : undefined,
+            enabledSkills: Array.isArray(member.enabledSkills)
+                ? member.enabledSkills.map(skill => String(skill || '').trim()).filter(Boolean)
+                : undefined
+        }))
+        .filter(member => member.id);
+
+    if (normalizedMembers.length === 0) {
+        throw new Error('Swarm JSON contains no valid members.');
+    }
+
+    return {
+        sourcePath,
+        importedAt: new Date().toISOString(),
+        body: {
+            kind: 'swarm-structure',
+            exportedAt: typeof body.exportedAt === 'string' && body.exportedAt.trim()
+                ? body.exportedAt
+                : new Date().toISOString(),
+            swarm: {
+                id: swarm.id,
+                name: swarm.name,
+                createdAt: typeof swarm.createdAt === 'string' ? swarm.createdAt : undefined,
+                workspaceConfig: typeof swarm.workspaceConfig === 'object' && swarm.workspaceConfig && !Array.isArray(swarm.workspaceConfig)
+                    ? swarm.workspaceConfig
+                    : undefined,
+                members: normalizedMembers
+            }
         }
     };
 }

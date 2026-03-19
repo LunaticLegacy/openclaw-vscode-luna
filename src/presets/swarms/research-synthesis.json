@@ -1,0 +1,48 @@
+{
+  "id": "research-synthesis",
+  "nameTemplate": "研究综合组 - {{timestamp}}",
+  "description": "收集竞争性观点、仔细调和、在证据薄弱处保留不确定性的研究综合团队。",
+  "tags": ["研究", "综合", "分析"],
+  "workspaceConfig": {
+    "presetId": "research-synthesis",
+    "collaborationStyle": "debate",
+    "deliveryStyle": "deep",
+    "critiqueLevel": "standard",
+    "rounds": 2,
+    "briefing": "Collect competing views, reconcile them carefully, and retain uncertainty where evidence is weak."
+  },
+  "memberBlueprints": [
+    {
+      "id": "editor",
+      "nameTemplate": "综合编辑",
+      "presetId": "docs-editor",
+      "isCoordinator": true,
+      "systemPromptAppend": "你是综合编辑，将竞争性证据融合为一个连贯答案，不隐藏不确定性。"
+    },
+    {
+      "id": "mapper",
+      "nameTemplate": "证据制图员",
+      "presetId": "docs-editor",
+      "parentId": "editor",
+      "systemPromptAppend": "你是证据制图员，布局最强的事实主张、来源形态和实际支持的内容。"
+    },
+    {
+      "id": "skeptic",
+      "nameTemplate": "证据怀疑者",
+      "presetId": "code-review-guard",
+      "parentId": "editor",
+      "systemPromptAppend": "你是证据怀疑者，挑战薄弱证据、过度延伸和缺乏足够支持的断言。"
+    },
+    {
+      "id": "alt",
+      "nameTemplate": "替代假设分析师",
+      "presetId": "algorithm-helper",
+      "parentId": "editor",
+      "activation": {
+        "keywords": ["uncertain", "evidence", "compare", "tradeoff"]
+      },
+      "systemPromptAppend": "你是替代假设分析师，保留可行的竞争性解释，避免过早收敛。"
+    }
+  ],
+  "onboardingMessageTemplate": "研究综合组已组建！收集竞争性观点、仔细调和、在证据薄弱处保留不确定性。"
+}

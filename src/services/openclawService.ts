@@ -4,6 +4,11 @@ import {
     OpenClawCliServiceConfig,
     ResolvedServiceConfig
 } from './openclawConfig';
+import {
+    OutboundSendManager,
+    type OutboundQueueFilter,
+    type OutboundDeliveryEvent
+} from './outbound';
 import { GatewayTransport } from './openclaw/gatewayTransport';
 import { LocalModeRuntime } from './openclaw/localModeRuntime';
 import {
@@ -30,6 +35,7 @@ import type {
     SendMessageOptions,
     StreamChunk,
     StreamMessageOptions,
+    SwarmDeliveryContext,
     UpdateAgentParams,
     UpdateClusterParams
 } from './openclaw/types';
@@ -53,6 +59,7 @@ export type {
     SendMessageOptions,
     StreamChunk,
     StreamMessageOptions,
+    SwarmDeliveryContext,
     UpdateAgentParams,
     UpdateClusterParams
 } from './openclaw/types';
@@ -82,6 +89,7 @@ export class OpenClawService extends EventEmitter {
     private mode: ResolvedServiceConfig['mode'] = 'gateway';
     private sourceDescription = '';
     private connected = false;
+    private outboundManager: OutboundSendManager;
 
     /**
      * 创建 OpenClaw 服务实例
@@ -89,6 +97,10 @@ export class OpenClawService extends EventEmitter {
      */
     constructor(config: ResolvedServiceConfig) {
         super();
+        this.outboundManager = new OutboundSendManager();
+        this.outboundManager.on('deliveryEvent', (event: OutboundDeliveryEvent) => {
+            this.emit('deliveryEvent', event);
+        });
         this.applyConfig(config);
     }
 
@@ -352,33 +364,69 @@ export class OpenClawService extends EventEmitter {
         message: string,
         options?: SendMessageOptions
     ): Promise<ChatMessage> {
-        if (this.localRuntime) {
-            const response = await this.localRuntime.sendMessage(sessionId, message, options);
-            this.emit('usageChanged');
-            return response;
-        }
+        const normalizedSessionId = String(sessionId || '').trim();
+        const normalizedMessage = String(message ?? '');
+        const delivery = options?.delivery;
+        const timeoutMs = options?.timeoutMs;
+        const ttlMs = options?.ttlMs;
+        const idempotencyKey = options?.idempotencyKey;
+        const laneKey = options?.laneKey || normalizedSessionId || 'chat';
 
-        if (this.openClawRuntime) {
-            const response = await this.openClawRuntime.sendMessage(sessionId, message, options);
-            this.emit('usageChanged');
-            return response;
-        }
+        const transportOptions: SendMessageOptions = {
+            temperature: options?.temperature,
+            maxTokens: options?.maxTokens
+        };
 
-        const abortController = new AbortController();
-        this.trackGatewayRequest(sessionId, abortController);
+        const response = await this.outboundManager.enqueue<ChatMessage>({
+            laneKey,
+            sessionKey: normalizedSessionId || undefined,
+            payloadSummary: `chat:${normalizedSessionId || 'unknown'}`,
+            payload: { sessionId: normalizedSessionId, content: normalizedMessage },
+            idempotencyKey,
+            timeoutMs,
+            ttlMs,
+            swarm: delivery,
+            requiresDeliveryForProgress: delivery?.requiresDeliveryForProgress,
+            transactionGroupId: delivery?.transactionGroupId,
+            expectedGroupSize: delivery?.expectedGroupSize,
+            groupCompletionPolicy: delivery?.groupCompletionPolicy,
+            dispatch: async ({ idempotencyKey: resolvedKey, abortController }) => {
+                if (this.localRuntime) {
+                    const response = await this.localRuntime.sendMessage(normalizedSessionId, normalizedMessage, transportOptions);
+                    this.emit('usageChanged');
+                    return response;
+                }
 
-        try {
-            const response = await this.requireTransport().post<ChatMessage>(`/api/sessions/${sessionId}/messages`, {
-                content: message,
-                ...options
-            }, {
-                signal: abortController.signal
-            });
-            this.emit('usageChanged');
-            return response;
-        } finally {
-            this.untrackGatewayRequest(sessionId, abortController);
-        }
+                if (this.openClawRuntime) {
+                    const response = await this.openClawRuntime.sendMessage(normalizedSessionId, normalizedMessage, transportOptions);
+                    this.emit('usageChanged');
+                    return response;
+                }
+
+                this.trackGatewayRequest(normalizedSessionId, abortController);
+                try {
+                    const response = await this.requireTransport().post<ChatMessage>(
+                        `/api/sessions/${normalizedSessionId}/messages`,
+                        {
+                            content: normalizedMessage,
+                            ...transportOptions
+                        },
+                        {
+                            signal: abortController.signal,
+                            headers: {
+                                'Idempotency-Key': resolvedKey
+                            }
+                        }
+                    );
+                    this.emit('usageChanged');
+                    return response;
+                } finally {
+                    this.untrackGatewayRequest(normalizedSessionId, abortController);
+                }
+            }
+        });
+
+        return response;
     }
 
     /**
@@ -448,6 +496,7 @@ export class OpenClawService extends EventEmitter {
      * @throws Error - 中止失败时抛出
      */
     public async abortSessionRun(sessionId: string): Promise<void> {
+        this.outboundManager.cancelBySession(sessionId, 'Abort requested');
         if (this.localRuntime) {
             await this.localRuntime.abortSessionRun(sessionId);
             return;
@@ -457,7 +506,6 @@ export class OpenClawService extends EventEmitter {
             await this.openClawRuntime.abortSessionRun(sessionId);
             return;
         }
-
         this.abortTrackedGatewayRequests(sessionId);
 
         try {
@@ -491,6 +539,14 @@ export class OpenClawService extends EventEmitter {
         }
 
         return this.activeGatewayRequests.has(normalizedSessionId);
+    }
+
+    /**
+     * Lists outbound delivery entries for observability.
+     * @param filter - Optional delivery filter
+     */
+    public getOutboundDeliveries(filter: OutboundQueueFilter = {}): ReturnType<OutboundSendManager['listEntries']> {
+        return this.outboundManager.listEntries(filter);
     }
 
     /**
@@ -663,11 +719,44 @@ export class OpenClawService extends EventEmitter {
      * @returns 各成员响应映射
      * @throws Error - 广播失败时抛出
      */
-    public async sendToCluster(clusterId: string, message: string): Promise<Record<string, ChatMessage>> {
-        const response = await this.requireRemoteClusterTransport('service.clusterBroadcastUnavailable').post<{ responses?: Record<string, ChatMessage> }>(
-            `/api/clusters/${clusterId}/broadcast`,
-            { content: message }
-        );
+    public async sendToCluster(
+        clusterId: string,
+        message: string,
+        options: {
+            delivery?: SendMessageOptions['delivery'];
+            timeoutMs?: number;
+            ttlMs?: number;
+            idempotencyKey?: string;
+            laneKey?: string;
+        } = {}
+    ): Promise<Record<string, ChatMessage>> {
+        const normalizedClusterId = String(clusterId || '').trim();
+        const normalizedMessage = String(message ?? '');
+        const response = await this.outboundManager.enqueue<{ responses?: Record<string, ChatMessage> }>({
+            laneKey: options.laneKey || `cluster:${normalizedClusterId || 'unknown'}`,
+            payloadSummary: `cluster:${normalizedClusterId || 'unknown'}:broadcast`,
+            payload: { clusterId: normalizedClusterId, content: normalizedMessage },
+            idempotencyKey: options.idempotencyKey,
+            timeoutMs: options.timeoutMs,
+            ttlMs: options.ttlMs,
+            swarm: options.delivery,
+            requiresDeliveryForProgress: options.delivery?.requiresDeliveryForProgress,
+            transactionGroupId: options.delivery?.transactionGroupId,
+            expectedGroupSize: options.delivery?.expectedGroupSize,
+            groupCompletionPolicy: options.delivery?.groupCompletionPolicy,
+            dispatch: async ({ idempotencyKey, abortController }) => {
+                return this.requireRemoteClusterTransport('service.clusterBroadcastUnavailable').post<{ responses?: Record<string, ChatMessage> }>(
+                    `/api/clusters/${normalizedClusterId}/broadcast`,
+                    { content: normalizedMessage },
+                    {
+                        signal: abortController.signal,
+                        headers: {
+                            'Idempotency-Key': idempotencyKey
+                        }
+                    }
+                );
+            }
+        });
         return response.responses || {};
     }
 

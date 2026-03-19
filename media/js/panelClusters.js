@@ -101,20 +101,22 @@
             }
 
             const normalizedAgentId = String(agentId || '').trim();
-            const identity = String(profile.identity || '').trim();
-            const stance = String(profile.stance || '').trim();
-            const parentAgentId = String(profile.parentAgentId || '').trim();
-            const activation = normalizeClusterMemberActivation(profile.activation);
-            if (!normalizedAgentId || (!identity && !stance && !parentAgentId && !activation)) {
-                return;
-            }
+        const identity = String(profile.identity || '').trim();
+        const stance = String(profile.stance || '').trim();
+        const parentAgentId = String(profile.parentAgentId || '').trim();
+        const presetIdentityId = String(profile.presetIdentityId || '').trim();
+        const activation = normalizeClusterMemberActivation(profile.activation);
+        if (!normalizedAgentId || (!identity && !stance && !parentAgentId && !presetIdentityId && !activation)) {
+            return;
+        }
 
-            normalized[normalizedAgentId] = {
-                ...(identity ? { identity } : {}),
-                ...(stance ? { stance } : {}),
-                ...(parentAgentId ? { parentAgentId } : {}),
-                ...(activation ? { activation } : {})
-            };
+        normalized[normalizedAgentId] = {
+            ...(identity ? { identity } : {}),
+            ...(stance ? { stance } : {}),
+            ...(parentAgentId ? { parentAgentId } : {}),
+            ...(presetIdentityId ? { presetIdentityId } : {}),
+            ...(activation ? { activation } : {})
+        };
         });
 
         return normalized;
@@ -163,6 +165,62 @@
         return Array.isArray(selectedAgentIds) && selectedAgentIds.includes(normalizedParentId)
             ? normalizedParentId
             : '';
+    }
+
+    function getIdentityPresets() {
+        return Array.isArray(state.identityPresets) ? state.identityPresets : [];
+    }
+
+    function resolveIdentityPresetById(presetId) {
+        const normalizedId = String(presetId || '').trim();
+        if (!normalizedId) {
+            return null;
+        }
+        return getIdentityPresets().find(preset => String(preset?.id || '').trim() === normalizedId) || null;
+    }
+
+    function resolveIdentityPresetLabel(preset) {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        if (!preset || typeof preset !== 'object') {
+            return '';
+        }
+        const key = String(preset.nameKey || '').trim();
+        const name = String(preset.name || '').trim();
+        return key ? (t(key) || key) : (name || String(preset.id || '').trim());
+    }
+
+    function applyClusterMemberIdentityPreset(agentId, presetId) {
+        if (!elements.clusterEditorMemberProfiles) {
+            return;
+        }
+        const normalizedAgentId = String(agentId || '').trim();
+        if (!normalizedAgentId) {
+            return;
+        }
+        const preset = resolveIdentityPresetById(presetId);
+        if (!preset) {
+            return;
+        }
+
+        const identityInput = elements.clusterEditorMemberProfiles.querySelector(
+            `[data-cluster-member-identity="${normalizedAgentId}"]`
+        );
+        const stanceInput = elements.clusterEditorMemberProfiles.querySelector(
+            `[data-cluster-member-stance="${normalizedAgentId}"]`
+        );
+        const keywordsInput = elements.clusterEditorMemberProfiles.querySelector(
+            `[data-cluster-member-keywords="${normalizedAgentId}"]`
+        );
+
+        if (identityInput && typeof preset.identity === 'string') {
+            identityInput.value = preset.identity;
+        }
+        if (stanceInput && typeof preset.stance === 'string') {
+            stanceInput.value = preset.stance;
+        }
+        if (keywordsInput && Array.isArray(preset.wakeKeywords) && preset.wakeKeywords.length > 0) {
+            keywordsInput.value = preset.wakeKeywords.join(', ');
+        }
     }
 
     function buildClusterPresetMemberProfiles(selectedAgentIds, preset, options = {}) {
@@ -307,15 +365,36 @@
         }
 
         const selected = new Set(Array.isArray(selectedAgentIds) ? selectedAgentIds : []);
-        elements.clusterEditorAgentPicker.innerHTML = state.agents.map(agent => `
-            <label class="cluster-agent-option">
-                <input type="checkbox" value="${escapeHtml(agent.id)}"${selected.has(agent.id) ? ' checked' : ''}>
-                <div>
-                    <div class="cluster-agent-option-title">${escapeHtml(agent.name)}</div>
-                    <div class="cluster-agent-option-meta">${escapeHtml(agent.model || agent.id)}</div>
-                </div>
-            </label>
-        `).join('');
+        elements.clusterEditorAgentPicker.innerHTML = state.agents.map(agent => {
+            const isSelected = selected.has(agent.id);
+            return `
+                <label class="cluster-agent-option${isSelected ? ' is-selected' : ''}" data-agent-id="${escapeHtml(agent.id)}">
+                    <input type="checkbox" value="${escapeHtml(agent.id)}"${isSelected ? ' checked' : ''}>
+                    <div class="cluster-agent-option-body">
+                        <div class="cluster-agent-option-title">${escapeHtml(agent.name)}</div>
+                        <div class="cluster-agent-option-meta">${escapeHtml(agent.model || agent.id)}</div>
+                    </div>
+                </label>
+            `;
+        }).join('');
+
+        syncClusterAgentPickerRowState();
+    }
+
+    function syncClusterAgentPickerRowState() {
+        if (!elements.clusterEditorAgentPicker) {
+            return;
+        }
+
+        const rows = Array.from(elements.clusterEditorAgentPicker.querySelectorAll('.cluster-agent-option'));
+        rows.forEach(row => {
+            const checkbox = row.querySelector('input[type="checkbox"]');
+            if (!(checkbox instanceof HTMLInputElement)) {
+                row.classList.remove('is-selected');
+                return;
+            }
+            row.classList.toggle('is-selected', checkbox.checked);
+        });
     }
 
     function getSelectedClusterEditorAgentIds() {
@@ -362,6 +441,14 @@
             const activation = resolveClusterMemberActivation(profile);
             const parentAgentId = resolveClusterMemberParentAgentId(profile, agentId, selectedAgentIds);
             const wakeKeywords = activation.keywords.join(', ');
+            const presetIdentityId = String(profile.presetIdentityId || '').trim();
+            const identityPresets = getIdentityPresets();
+            const hasPresetIdentity = presetIdentityId
+                ? identityPresets.some(preset => String(preset?.id || '').trim() === presetIdentityId)
+                : false;
+            const missingPresetOption = presetIdentityId && !hasPresetIdentity
+                ? `<option value="${escapeHtml(presetIdentityId)}" selected>${escapeHtml(presetIdentityId)}</option>`
+                : '';
             const parentOptions = [
                 `<option value="">${escapeHtml(t('clusters.form.memberParentRoot'))}</option>`,
                 ...selectedAgentIds
@@ -401,6 +488,21 @@
                             data-cluster-member-stance="${escapeHtml(agentId)}"
                             placeholder="${escapeHtml(t('clusters.form.memberStancePlaceholder'))}"
                         >${escapeHtml(profile.stance || '')}</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="cluster-member-preset-identity-${escapeHtml(agentId)}">${escapeHtml(t('clusters.form.memberPresetIdentity'))}</label>
+                        <select
+                            id="cluster-member-preset-identity-${escapeHtml(agentId)}"
+                            data-cluster-member-preset-identity="${escapeHtml(agentId)}"
+                        >
+                            <option value="">${escapeHtml(t('common.none'))}</option>
+                            ${missingPresetOption}
+                            ${identityPresets.map(preset => `
+                                <option value="${escapeHtml(preset.id)}"${preset.id === presetIdentityId ? ' selected' : ''}>
+                                    ${escapeHtml(resolveIdentityPresetLabel(preset))}
+                                </option>
+                            `).join('')}
+                        </select>
                     </div>
                     <div class="form-group">
                         <label for="cluster-member-parent-${escapeHtml(agentId)}">${escapeHtml(t('clusters.form.memberParent'))}</label>
@@ -459,6 +561,7 @@
             const identity = String(elements.clusterEditorMemberProfiles?.querySelector(`[data-cluster-member-identity="${agentId}"]`)?.value || '').trim();
             const stance = String(elements.clusterEditorMemberProfiles?.querySelector(`[data-cluster-member-stance="${agentId}"]`)?.value || '').trim();
             const parentAgentId = String(elements.clusterEditorMemberProfiles?.querySelector(`[data-cluster-member-parent="${agentId}"]`)?.value || '').trim();
+            const presetIdentityId = String(elements.clusterEditorMemberProfiles?.querySelector(`[data-cluster-member-preset-identity="${agentId}"]`)?.value || '').trim();
             const selectedModes = Array.from(elements.clusterEditorMemberProfiles?.querySelectorAll(`[data-cluster-member-mode="${agentId}"]:checked`) || [])
                 .map(input => String(input.value || '').trim())
                 .filter(mode => mode === 'broadcast' || mode === 'collaborate');
@@ -471,7 +574,7 @@
                 keywords
             });
 
-            if (!identity && !stance && !parentAgentId && !activation) {
+            if (!identity && !stance && !parentAgentId && !presetIdentityId && !activation) {
                 return;
             }
 
@@ -479,6 +582,7 @@
                 ...(identity ? { identity } : {}),
                 ...(stance ? { stance } : {}),
                 ...(parentAgentId ? { parentAgentId } : {}),
+                ...(presetIdentityId ? { presetIdentityId } : {}),
                 ...(activation ? { activation } : {})
             };
         });

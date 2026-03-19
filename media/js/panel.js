@@ -15,7 +15,8 @@
                     capabilities: message.capabilities || null,
                     capabilityMatrix: Array.isArray(message.capabilityMatrix) ? message.capabilityMatrix : [],
                     diagnostics: message.diagnostics || null,
-                    openClawConfig: message.openClawConfig || null
+                    openClawConfig: message.openClawConfig || null,
+                    memoryStatus: message.memoryStatus || null
                 };
                 updateConnectionBadge();
                 renderConsoleOverview();
@@ -103,6 +104,9 @@
             case 'clustersLoaded':
                 if (Array.isArray(message.workModePresets)) {
                     state.clusterWorkModePresets = message.workModePresets;
+                }
+                if (Array.isArray(message.identityPresets)) {
+                    state.identityPresets = message.identityPresets;
                 }
                 if (message.selectedClusterId) {
                     state.currentClusterId = message.selectedClusterId;
@@ -427,14 +431,7 @@
                 break;
 
             case 'skillMarketLoaded':
-                state.skillMarketData = {
-                    skills: message.skills || [],
-                    total: message.total || 0,
-                    page: message.page || 1,
-                    pageSize: message.pageSize || 50,
-                    categories: message.categories || [],
-                    tags: message.tags || []
-                };
+                state.skillMarketData = message.overview || message.data || message;
                 renderSkillMarket();
                 if (elements.skillMarketLoading) {
                     elements.skillMarketLoading.classList.add('hidden');
@@ -451,7 +448,7 @@
                 if (elements.skillMarketContent) {
                     elements.skillMarketContent.classList.remove('hidden');
                 }
-                showNotification(message.message || 'Failed to load skills from market');
+                showNotification(message.message || (window.OpenClawI18n ? window.OpenClawI18n.t('skillMarket.loadFailed') : 'Failed to load skills from market'));
                 break;
 
             case 'skillInstalled':
@@ -461,17 +458,17 @@
                 break;
 
             case 'skillInstallFailed':
-                showNotification(message.message || 'Failed to install skill');
+                showNotification(message.message || (window.OpenClawI18n ? window.OpenClawI18n.t('skillMarket.installError') : 'Failed to install skill'));
                 break;
 
             case 'skillUninstalled':
-                showNotification('Skill uninstalled');
+                showNotification(window.OpenClawI18n ? window.OpenClawI18n.t('skillMarket.uninstallSuccess') : 'Skill uninstalled');
                 // Refresh installed skills list
                 void refreshSkillMarket();
                 break;
 
             case 'skillUninstallFailed':
-                showNotification(message.message || 'Failed to uninstall skill');
+                showNotification(message.message || (window.OpenClawI18n ? window.OpenClawI18n.t('skillMarket.uninstallError') : 'Failed to uninstall skill'));
                 break;
 
             case 'skillToggledForAgent':
@@ -481,6 +478,28 @@
 
             case 'skillToggleFailed':
                 showNotification(message.message || 'Failed to toggle skill');
+                break;
+
+            case 'memoryStatus':
+                state.runtime = state.runtime || {};
+                state.runtime.memoryStatus = message.status || null;
+                renderMemoryStatus();
+                break;
+
+            case 'memoryExported':
+                showNotification(window.OpenClawI18n ? window.OpenClawI18n.t('memory.exportSuccess', { name: message.result?.targetPath || '' }) : 'Memory exported.');
+                break;
+
+            case 'memoryExportFailed':
+                showNotification(message.message || (window.OpenClawI18n ? window.OpenClawI18n.t('memory.exportFailed', { error: '' }) : 'Memory export failed.'));
+                break;
+
+            case 'memoryImported':
+                showNotification(window.OpenClawI18n ? window.OpenClawI18n.t('memory.importSuccess', { name: message.sourcePath || '' }) : 'Memory imported.');
+                break;
+
+            case 'memoryImportFailed':
+                showNotification(message.message || (window.OpenClawI18n ? window.OpenClawI18n.t('memory.importFailed', { error: '' }) : 'Memory import failed.'));
                 break;
         }
     });

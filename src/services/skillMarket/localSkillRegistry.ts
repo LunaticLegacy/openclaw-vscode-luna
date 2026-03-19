@@ -127,6 +127,27 @@ export class LocalSkillRegistry extends EventEmitter {
     }
 
     /**
+     * Get built-in skills
+     */
+    public getBuiltInSkills(): SkillDefinition[] {
+        return BUILT_IN_SKILLS.map(skill => ({ ...skill }));
+    }
+
+    /**
+     * Get custom skills
+     */
+    public getCustomSkills(): SkillDefinition[] {
+        return Array.from(this.customSkills.values()).map(skill => ({ ...skill }));
+    }
+
+    /**
+     * Get installed skills from storage
+     */
+    public async listInstalledSkills(): Promise<SkillDefinition[]> {
+        return this.getInstalledSkills();
+    }
+
+    /**
      * Get skills enabled for a specific agent
      */
     public getEnabledSkillsForAgent(agentId: string): SkillDefinition[] {
@@ -230,6 +251,23 @@ export class LocalSkillRegistry extends EventEmitter {
         );
 
         this.emit('skillImported', skillData);
+    }
+
+    /**
+     * Remove an installed skill by id
+     */
+    public async removeInstalledSkill(skillId: string): Promise<boolean> {
+        try {
+            const skillsDir = vscode.Uri.joinPath(this.context.globalStorageUri, 'skills');
+            const skillPath = vscode.Uri.joinPath(skillsDir, `${skillId}.json`);
+            await vscode.workspace.fs.delete(skillPath, { useTrash: false });
+            this.skillStates.delete(skillId);
+            this.saveStates();
+            this.emit('skillRemoved', skillId);
+            return true;
+        } catch {
+            return false;
+        }
     }
 
     /**
