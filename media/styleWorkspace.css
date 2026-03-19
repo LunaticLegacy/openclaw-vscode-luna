@@ -436,19 +436,25 @@
     display: flex;
     gap: 10px;
     min-width: 0;
+    flex: 1 1 auto;
 }
 
 .cluster-run-select-wrap {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     margin-left: auto;
     white-space: nowrap;
+    min-width: fit-content;
+    max-width: none;
+    flex: 0 0 auto;
 }
 
 .cluster-run-select-label {
     font-size: 11px;
     color: var(--text-secondary);
+    line-height: 1.2;
+    flex: 0 0 auto;
 }
 
 .cluster-run-select {
@@ -456,9 +462,16 @@
     background: var(--bg-primary);
     color: var(--text-primary);
     border-radius: 999px;
-    padding: 7px 30px 7px 12px;
-    font-size: 12px;
-    min-width: 180px;
+    padding: 6px 26px 6px 10px;
+    font-size: 11px;
+    line-height: 1.2;
+    min-width: 170px;
+    width: 220px;
+    max-width: 220px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 0 0 auto;
 }
 
 .cluster-sidebar-item.is-replay {
@@ -904,6 +917,22 @@
 }
 
 @media (max-width: 880px) {
+    .cluster-output-mode-strip {
+        flex-wrap: wrap;
+        align-items: flex-start;
+    }
+
+    .cluster-run-select-wrap {
+        margin-left: 0;
+        width: 100%;
+    }
+
+    .cluster-run-select {
+        min-width: 0;
+        width: 100%;
+        max-width: 100%;
+    }
+
     .cluster-topology-root,
     .cluster-topology-node-header {
         flex-direction: column;

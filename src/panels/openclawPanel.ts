@@ -637,8 +637,50 @@ export class OpenClawPanel {
             if (!skill) {
                 throw new Error('Skill not found');
             }
-            
-            const result = await this._skillMarketService.installSkill(skill);
+
+            const result = await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: `Installing skill: ${skill.label || skill.id}`,
+                    cancellable: false
+                },
+                async progress => {
+                    let reportedPercent = 0;
+                    let lastReportedSecond = -1;
+                    progress.report({ message: 'Preparing download...' });
+
+                    return await this._skillMarketService.installSkill(skill, {
+                        onProgress: update => {
+                            if (update.phase === 'importing') {
+                                const increment = Math.max(0, 100 - reportedPercent);
+                                reportedPercent = 100;
+                                progress.report({
+                                    message: 'Importing skill files...',
+                                    increment
+                                });
+                                return;
+                            }
+
+                            const currentSecond = Math.floor(Date.now() / 1000);
+                            const nextPercent = typeof update.percent === 'number'
+                                ? Math.max(0, Math.min(100, Math.floor(update.percent)))
+                                : reportedPercent;
+                            const increment = Math.max(0, nextPercent - reportedPercent);
+
+                            if (currentSecond === lastReportedSecond && increment === 0) {
+                                return;
+                            }
+
+                            lastReportedSecond = currentSecond;
+                            reportedPercent = nextPercent;
+                            progress.report({
+                                message: buildSkillDownloadProgressMessage(update),
+                                increment
+                            });
+                        }
+                    });
+                }
+            );
             
             if (result.success) {
                 this._postMessage({
@@ -2758,4 +2800,42 @@ function remapWorkspaceConfig(
         coordinatorAgentId: coordinatorId ? (memberIdMap.get(coordinatorId) || coordinatorId) : '',
         memberProfiles: remappedProfiles
     };
+}
+
+function buildSkillDownloadProgressMessage(progress: {
+    downloadedBytes: number;
+    totalBytes?: number;
+    bytesPerSecond?: number;
+    percent?: number;
+}): string {
+    const downloaded = formatByteSize(progress.downloadedBytes);
+    const total = typeof progress.totalBytes === 'number' && progress.totalBytes > 0
+        ? formatByteSize(progress.totalBytes)
+        : '?';
+    const speed = typeof progress.bytesPerSecond === 'number' && progress.bytesPerSecond > 0
+        ? `${formatByteSize(progress.bytesPerSecond)}/s`
+        : 'calculating...';
+    const percent = typeof progress.percent === 'number'
+        ? `${Math.max(0, Math.min(100, Math.floor(progress.percent)))}%`
+        : 'downloading';
+
+    return `${percent} • ${downloaded}/${total} • ${speed}`;
+}
+
+function formatByteSize(bytes: number): string {
+    if (!Number.isFinite(bytes) || bytes <= 0) {
+        return '0 B';
+    }
+
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let value = bytes;
+    let unitIndex = 0;
+
+    while (value >= 1024 && unitIndex < units.length - 1) {
+        value /= 1024;
+        unitIndex += 1;
+    }
+
+    const digits = value >= 100 || unitIndex === 0 ? 0 : value >= 10 ? 1 : 2;
+    return `${value.toFixed(digits)} ${units[unitIndex]}`;
 }
