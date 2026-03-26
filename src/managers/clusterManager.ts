@@ -148,6 +148,11 @@ export interface ClusterSwarmMessagesRequest extends ClusterSwarmRequest {
     messages: ChatMessage[];
 }
 
+interface SwarmSessionConversationRequest extends ClusterSwarmRequest {
+    agentId?: string;
+    includeInputs?: boolean;
+}
+
 interface SwarmSendContext {
     swarmRunId: string;
     phase: string;
@@ -1808,6 +1813,37 @@ export class ClusterManager extends EventEmitter {
         );
     }
 
+    public async getClusterAgentSwarmSessionMessages({
+        clusterId,
+        agentId,
+        mode,
+        swarmRunId
+    }: ClusterAgentSwarmRequest): Promise<ChatMessage[]> {
+        await this.ensurePersistedStateLoaded();
+        const resolvedRunId = swarmRunId || this.resolveLatestSwarmRunId({ clusterId, mode });
+        if (!resolvedRunId) {
+            return [];
+        }
+
+        const sessionMessages = await this.buildSwarmSessionConversationMessages({
+            clusterId,
+            agentId,
+            mode,
+            swarmRunId: resolvedRunId,
+            includeInputs: true
+        });
+        if (sessionMessages.length > 0) {
+            return cloneChatMessages(sessionMessages);
+        }
+
+        return this.getClusterAgentSwarmMessages({
+            clusterId,
+            agentId,
+            mode,
+            swarmRunId: resolvedRunId
+        });
+    }
+
     public async replaceClusterAgentSwarmMessages({
         clusterId,
         agentId,
@@ -1883,6 +1919,212 @@ export class ClusterManager extends EventEmitter {
                 swarmRunId: resolvedRunId
             })) || []
         );
+    }
+
+    public async getClusterSwarmSessionMessages({
+        clusterId,
+        mode,
+        swarmRunId
+    }: ClusterSwarmRequest): Promise<ChatMessage[]> {
+        await this.ensurePersistedStateLoaded();
+        const resolvedRunId = swarmRunId || this.resolveLatestSwarmRunId({ clusterId, mode });
+        if (!resolvedRunId) {
+            return [];
+        }
+
+        const aggregateMessages = this.clusterSwarmMessages.get(this.buildClusterSwarmStorageKey({
+            clusterId,
+            mode,
+            swarmRunId: resolvedRunId
+        })) || [];
+        const seedUserMessage = aggregateMessages.find((message: any) =>
+            message?.role === 'user' && hasRenderableMessageBody(message)
+        );
+        const sessionMessages = await this.buildSwarmSessionConversationMessages({
+            clusterId,
+            mode,
+            swarmRunId: resolvedRunId,
+            includeInputs: false
+        });
+
+        const merged = [
+            ...(seedUserMessage ? [seedUserMessage] : []),
+            ...sessionMessages
+        ].sort(compareReconstructedSwarmMessages);
+
+        if (merged.length > 0) {
+            return cloneChatMessages(merged);
+        }
+
+        return this.getClusterSwarmMessages({
+            clusterId,
+            mode,
+            swarmRunId: resolvedRunId
+        });
+    }
+
+    public async rehydrateClusterSwarmMessages({
+        clusterId,
+        mode,
+        swarmRunId
+    }: ClusterSwarmRequest): Promise<void> {
+        await this.ensurePersistedStateLoaded();
+        const resolvedRunId = swarmRunId || this.resolveLatestSwarmRunId({ clusterId, mode });
+        if (!resolvedRunId) {
+            return;
+        }
+
+        const aggregateKey = this.buildClusterSwarmStorageKey({
+            clusterId,
+            mode,
+            swarmRunId: resolvedRunId
+        });
+        const aggregateMessages = this.clusterSwarmMessages.get(aggregateKey) || [];
+        const sessionPrefix = `cluster:${clusterId}:swarm:${mode}:run:${resolvedRunId}:agent:`;
+        const hydratedById = new Map<string, ChatMessage>();
+
+        let changed = false;
+
+        for (const [key, sessionId] of this.swarmSessionIds.entries()) {
+            if (!key.startsWith(sessionPrefix) || !sessionId) {
+                continue;
+            }
+
+            const agentId = key.slice(sessionPrefix.length).trim();
+            if (!agentId) {
+                continue;
+            }
+
+            const history = normalizePersistedChatMessages(
+                await this.service.getChatHistory(sessionId).catch(() => [])
+            );
+            const historyById = new Map<string, ChatMessage>(
+                history
+                    .filter((message: any) => typeof message.id === 'string' && message.id.trim())
+                    .map((message: any) => [message.id.trim(), message] as const)
+            );
+
+            for (const [messageId, message] of historyById.entries()) {
+                const existing = hydratedById.get(messageId);
+                if (!existing || computeHydrationMessageRichness(message) >= computeHydrationMessageRichness(existing)) {
+                    hydratedById.set(messageId, message);
+                }
+            }
+
+            const rawKey = this.buildClusterAgentSwarmStorageKey({
+                clusterId,
+                agentId,
+                mode,
+                swarmRunId: resolvedRunId
+            });
+            const rawMessages = this.clusterAgentSwarmMessages.get(rawKey) || [];
+            const hydratedRawMessages = rawMessages.map((message: any) =>
+                hydratePersistedSwarmMessage(message, historyById.get(String(message.id || '').trim()))
+            );
+
+            if (didChatMessageCollectionChange(rawMessages, hydratedRawMessages)) {
+                changed = true;
+                if (hydratedRawMessages.length > 0) {
+                    this.clusterAgentSwarmMessages.set(rawKey, hydratedRawMessages);
+                } else {
+                    this.clusterAgentSwarmMessages.delete(rawKey);
+                }
+            }
+        }
+
+        const hydratedAggregateMessages = aggregateMessages.map((message: any) =>
+            hydratePersistedSwarmMessage(message, hydratedById.get(String(message.id || '').trim()))
+        );
+
+        if (didChatMessageCollectionChange(aggregateMessages, hydratedAggregateMessages)) {
+            changed = true;
+            if (hydratedAggregateMessages.length > 0) {
+                this.clusterSwarmMessages.set(aggregateKey, hydratedAggregateMessages);
+            } else {
+                this.clusterSwarmMessages.delete(aggregateKey);
+            }
+        }
+
+        if (changed) {
+            await this.persistState();
+        }
+    }
+
+    private async buildSwarmSessionConversationMessages({
+        clusterId,
+        mode,
+        swarmRunId,
+        agentId,
+        includeInputs = false
+    }: SwarmSessionConversationRequest): Promise<ChatMessage[]> {
+        const resolvedRunId = typeof swarmRunId === 'string' && swarmRunId.trim()
+            ? swarmRunId.trim()
+            : this.resolveLatestSwarmRunId({ clusterId, mode });
+        if (!resolvedRunId) {
+            return [];
+        }
+
+        const sessionEntries = this.listSwarmSessionEntries({
+            clusterId,
+            mode,
+            swarmRunId: resolvedRunId,
+            agentId
+        });
+        const reconstructed: ChatMessage[] = [];
+
+        for (const entry of sessionEntries) {
+            const history = normalizePersistedChatMessages(
+                await this.service.getChatHistory(entry.sessionId).catch(() => [])
+            );
+            reconstructed.push(...reconstructSwarmSessionMessagesFromHistory({
+                history,
+                agentId: entry.agentId,
+                mode,
+                swarmRunId: resolvedRunId,
+                includeInputs
+            }));
+        }
+
+        return reconstructed.sort(compareReconstructedSwarmMessages);
+    }
+
+    private listSwarmSessionEntries({
+        clusterId,
+        mode,
+        swarmRunId,
+        agentId
+    }: {
+        clusterId: string;
+        mode: 'broadcast' | 'collaborate';
+        swarmRunId: string;
+        agentId?: string;
+    }): Array<{ agentId: string; sessionId: string }> {
+        const prefix = typeof agentId === 'string' && agentId.trim()
+            ? this.buildSwarmSessionKey({
+                clusterId,
+                mode,
+                swarmRunId,
+                agentId: agentId.trim()
+            })
+            : `cluster:${clusterId}:swarm:${mode}:run:${swarmRunId}:agent:`;
+        const entries: Array<{ agentId: string; sessionId: string }> = [];
+
+        for (const [key, sessionId] of this.swarmSessionIds.entries()) {
+            if (!key.startsWith(prefix) || !sessionId) {
+                continue;
+            }
+
+            const resolvedAgentId = typeof agentId === 'string' && agentId.trim()
+                ? agentId.trim()
+                : key.slice(prefix.length).trim();
+            if (!resolvedAgentId) {
+                continue;
+            }
+
+            entries.push({ agentId: resolvedAgentId, sessionId });
+        }
+
+        return entries;
     }
 
     public async listClusterSwarmRunIds({
@@ -3243,6 +3485,281 @@ function normalizePersistedChatMessages(messages: ChatMessage[] | undefined): Ch
     }
 
     return normalized;
+}
+
+function hydratePersistedSwarmMessage(message: ChatMessage, source?: ChatMessage): ChatMessage {
+    if (!source) {
+        return message;
+    }
+
+    const sourceHasRenderableBody = hasRenderableMessageBody(source);
+    const messageHasRenderableBody = hasRenderableMessageBody(message);
+
+    return {
+        ...message,
+        role: source.role || message.role,
+        content: sourceHasRenderableBody || !messageHasRenderableBody
+            ? source.content
+            : message.content,
+        agentId: message.agentId || source.agentId,
+        tokenCount: source.tokenCount ?? message.tokenCount,
+        parts: sourceHasRenderableBody && Array.isArray(source.parts) && source.parts.length > 0
+            ? [...source.parts]
+            : message.parts,
+        toolCallId: source.toolCallId || message.toolCallId,
+        toolName: source.toolName || message.toolName,
+        toolArguments: source.toolArguments !== undefined ? source.toolArguments : message.toolArguments,
+        toolDetails: source.toolDetails !== undefined ? source.toolDetails : message.toolDetails,
+        isError: typeof source.isError === 'boolean' ? source.isError : message.isError,
+        metadata: mergeHydratedMessageMetadata(message.metadata, source.metadata)
+    };
+}
+
+function mergeHydratedMessageMetadata(
+    messageMetadata?: Record<string, unknown>,
+    sourceMetadata?: Record<string, unknown>
+): Record<string, unknown> | undefined {
+    const merged = {
+        ...(sourceMetadata || {}),
+        ...(messageMetadata || {})
+    };
+    return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+function computeHydrationMessageRichness(message: ChatMessage | undefined): number {
+    if (!message) {
+        return -1;
+    }
+
+    return [
+        message.content || '',
+        Array.isArray(message.parts) ? JSON.stringify(message.parts) : '',
+        message.toolCallId || '',
+        message.toolName || '',
+        message.toolArguments !== undefined ? JSON.stringify(message.toolArguments) : '',
+        message.toolDetails !== undefined ? JSON.stringify(message.toolDetails) : ''
+    ].join('|').length;
+}
+
+function didChatMessageCollectionChange(left: ChatMessage[], right: ChatMessage[]): boolean {
+    if (left.length !== right.length) {
+        return true;
+    }
+
+    for (let index = 0; index < left.length; index += 1) {
+        if (JSON.stringify(left[index]) !== JSON.stringify(right[index])) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function reconstructSwarmSessionMessagesFromHistory({
+    history,
+    agentId,
+    mode,
+    swarmRunId,
+    includeInputs
+}: {
+    history: ChatMessage[];
+    agentId: string;
+    mode: 'broadcast' | 'collaborate';
+    swarmRunId: string;
+    includeInputs: boolean;
+}): ChatMessage[] {
+    const reconstructed: ChatMessage[] = [];
+    let currentStageKind = mode === 'broadcast' ? 'broadcast' : '';
+
+    for (const message of history) {
+        if (!message) {
+            continue;
+        }
+
+        if (message.role === 'user') {
+            const parsedKind = parseSwarmSessionStageKind(message.content, mode);
+            if (parsedKind) {
+                currentStageKind = parsedKind;
+            }
+
+            if (!includeInputs || !hasRenderableMessageBody(message) || !shouldRenderSwarmSessionStage(currentStageKind, 'input', includeInputs)) {
+                continue;
+            }
+
+            reconstructed.push(buildReconstructedSwarmSessionMessage({
+                message,
+                agentId,
+                swarmRunId,
+                stageKind: currentStageKind,
+                direction: 'input'
+            }));
+            continue;
+        }
+
+        if (!shouldRenderSwarmSessionStage(currentStageKind, 'output', includeInputs)) {
+            continue;
+        }
+
+        if (message.role !== 'assistant') {
+            continue;
+        }
+
+        if (!hasRenderableMessageBody(message)) {
+            continue;
+        }
+
+        reconstructed.push(buildReconstructedSwarmSessionMessage({
+            message,
+            agentId,
+            swarmRunId,
+            stageKind: currentStageKind,
+            direction: 'output'
+        }));
+    }
+
+    return reconstructed;
+}
+
+function buildReconstructedSwarmSessionMessage({
+    message,
+    agentId,
+    swarmRunId,
+    stageKind,
+    direction
+}: {
+    message: ChatMessage;
+    agentId: string;
+    swarmRunId: string;
+    stageKind: string;
+    direction: 'input' | 'output';
+}): ChatMessage {
+    return {
+        ...message,
+        agentId: message.agentId || agentId,
+        contextLabel: buildSwarmSessionContextLabel(stageKind, direction),
+        metadata: {
+            ...(message.metadata || {}),
+            swarmRunId,
+            swarmSourceAgentId: agentId,
+            swarmSessionReconstructed: true,
+            swarmSessionStageKind: stageKind,
+            swarmSessionDirection: direction
+        }
+    };
+}
+
+function parseSwarmSessionStageKind(
+    prompt: string,
+    mode: 'broadcast' | 'collaborate'
+): string {
+    const content = String(prompt || '');
+    if (!content.trim()) {
+        return mode === 'broadcast' ? 'broadcast' : '';
+    }
+
+    if (mode === 'broadcast') {
+        return 'broadcast';
+    }
+
+    if (/You are coordinating the agent swarm/i.test(content)) {
+        return 'synthesis';
+    }
+
+    if (/Debate stage:\s*opening/i.test(content)) {
+        return 'opening';
+    }
+
+    const critiqueMatch = content.match(/Debate stage:\s*critique round\s+(\d+)/i);
+    if (critiqueMatch) {
+        return `critique-${Number(critiqueMatch[1] || '1')}`;
+    }
+
+    const revisionMatch = content.match(/Debate stage:\s*revision round\s+(\d+)/i);
+    if (revisionMatch) {
+        return `revision-${Number(revisionMatch[1] || '1')}`;
+    }
+
+    const stopConditionMatch = content.match(/Current review round:\s*(\d+)/i);
+    if (stopConditionMatch) {
+        return `stop-check-${Number(stopConditionMatch[1] || '1')}`;
+    }
+
+    return '';
+}
+
+function shouldRenderSwarmSessionStage(
+    stageKind: string,
+    direction: 'input' | 'output',
+    includeAllStages: boolean
+): boolean {
+    if (!stageKind) {
+        return false;
+    }
+
+    if (stageKind.startsWith('stop-check-')) {
+        return includeAllStages;
+    }
+
+    if (stageKind === 'synthesis' && direction === 'input') {
+        return includeAllStages;
+    }
+
+    return true;
+}
+
+function buildSwarmSessionContextLabel(stageKind: string, direction: 'input' | 'output'): string {
+    const stageLabel = buildSwarmSessionStageLabel(stageKind);
+    if (!stageLabel) {
+        return '';
+    }
+
+    return direction === 'input'
+        ? `Input · ${stageLabel}`
+        : stageLabel;
+}
+
+function buildSwarmSessionStageLabel(stageKind: string): string {
+    if (!stageKind) {
+        return '';
+    }
+
+    if (stageKind === 'broadcast') {
+        return t('clusters.broadcast');
+    }
+
+    if (stageKind === 'synthesis') {
+        return 'Final Synthesis';
+    }
+
+    if (stageKind === 'opening' || stageKind.startsWith('critique-') || stageKind.startsWith('revision-')) {
+        const descriptor = buildCollaborationRoundDescriptor(stageKind as ClusterCollaborationRoundKind);
+        const translated = t(descriptor.labelKey, { round: descriptor.reviewRound });
+        return translated && translated !== descriptor.labelKey
+            ? translated
+            : descriptor.fallbackLabel;
+    }
+
+    if (stageKind.startsWith('stop-check-')) {
+        return `Stop Condition Review ${Number(stageKind.slice('stop-check-'.length) || '1')}`;
+    }
+
+    return stageKind;
+}
+
+function compareReconstructedSwarmMessages(left: ChatMessage, right: ChatMessage): number {
+    const leftTime = Date.parse(left.timestamp || '') || 0;
+    const rightTime = Date.parse(right.timestamp || '') || 0;
+    if (leftTime !== rightTime) {
+        return leftTime - rightTime;
+    }
+
+    const leftDirection = String(left.metadata?.swarmSessionDirection || '');
+    const rightDirection = String(right.metadata?.swarmSessionDirection || '');
+    if (leftDirection !== rightDirection) {
+        return leftDirection === 'input' ? -1 : 1;
+    }
+
+    return String(left.id || '').localeCompare(String(right.id || ''));
 }
 
 /**

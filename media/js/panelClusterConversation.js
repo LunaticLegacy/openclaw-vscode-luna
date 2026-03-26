@@ -139,14 +139,20 @@
 
         // Agent目标信息
         if (state.currentClusterTargetKind === 'agent' && state.currentClusterAgentId) {
+            const agentViewMode = state.currentClusterAgentViewMode || 'chat';
+            const swarmRunId = agentViewMode === 'broadcast' || agentViewMode === 'collaborate'
+                ? getSelectedSwarmConversationRunId(cluster.id, agentViewMode)
+                : undefined;
             return {
                 kind: 'agent',
                 agentId: state.currentClusterAgentId,
-                agentViewMode: state.currentClusterAgentViewMode || 'chat',
+                agentViewMode,
+                swarmRunId,
                 key: getClusterConversationKey(cluster.id, {
                     targetKind: 'agent',
                     agentId: state.currentClusterAgentId,
-                    agentViewMode: state.currentClusterAgentViewMode || 'chat'
+                    agentViewMode,
+                    swarmRunId
                 })
             };
         }
@@ -183,7 +189,13 @@
     function getClusterConversationKey(clusterId, options = {}) {
         const targetKind = options.targetKind || state.currentClusterTargetKind;
         if (targetKind === 'agent') {
-            return `cluster:${clusterId}:agent:${options.agentId || state.currentClusterAgentId || ''}:${options.agentViewMode || state.currentClusterAgentViewMode || 'chat'}`;
+            const agentViewMode = options.agentViewMode || state.currentClusterAgentViewMode || 'chat';
+            const swarmRunId = agentViewMode === 'broadcast' || agentViewMode === 'collaborate'
+                ? (typeof options.swarmRunId === 'string' && options.swarmRunId.trim()
+                    ? options.swarmRunId.trim()
+                    : getSelectedSwarmConversationRunId(clusterId, agentViewMode))
+                : '';
+            return `cluster:${clusterId}:agent:${options.agentId || state.currentClusterAgentId || ''}:${agentViewMode}:run:${swarmRunId || 'latest'}`;
         }
 
         const mode = options.mode || state.currentClusterSwarmMode || 'broadcast';
@@ -468,11 +480,12 @@
             message?.content || '',
             message?.displayName || '',
             message?.contextLabel || '',
-            String(message?.metadata?.swarmBatchId || ''),
-            String(message?.metadata?.swarmRunId || ''),
             message?.toolCallId || '',
             message?.toolName || '',
-            Array.isArray(message?.parts) ? message.parts.length : 0
+            JSON.stringify(message?.toolArguments ?? null),
+            JSON.stringify(message?.toolDetails ?? null),
+            JSON.stringify(message?.parts || []),
+            JSON.stringify(message?.metadata || {})
         ].join('|'))).join('||');
 
         return [
@@ -640,16 +653,18 @@
      * @param {string} mode - Swarm模式
      * @param {boolean} loading - 是否加载中
      */
-    function setClusterAgentSwarmConversationLoading(clusterId, agentId, mode, loading) {
+    function setClusterAgentSwarmConversationLoading(clusterId, agentId, mode, loading, options = {}) {
         const key = getClusterConversationKey(clusterId, {
             targetKind: 'agent',
             agentId,
-            agentViewMode: mode
+            agentViewMode: mode,
+            swarmRunId: options.swarmRunId
         });
         const conversation = ensureClusterConversation(key);
         const nextSignature = buildConversationRenderSignature(conversation.messages, {
             loading: Boolean(loading),
-            pending: conversation.pending
+            pending: conversation.pending,
+            swarmRunId: options.swarmRunId || conversation.swarmRunId
         });
         if (conversation.renderSignature === nextSignature) {
             return;
@@ -657,6 +672,9 @@
         conversation.loading = Boolean(loading);
         if (!loading) {
             conversation.loaded = true;
+        }
+        if (options.swarmRunId) {
+            conversation.swarmRunId = options.swarmRunId;
         }
         conversation.renderSignature = nextSignature;
         refreshClusterConversationIfVisible(key);
@@ -669,17 +687,19 @@
      * @param {string} mode - Swarm模式
      * @param {Array} messages - 新消息数组
      */
-    function replaceClusterAgentSwarmConversationMessages(clusterId, agentId, mode, messages) {
+    function replaceClusterAgentSwarmConversationMessages(clusterId, agentId, mode, messages, options = {}) {
         const key = getClusterConversationKey(clusterId, {
             targetKind: 'agent',
             agentId,
-            agentViewMode: mode
+            agentViewMode: mode,
+            swarmRunId: options.swarmRunId
         });
         const conversation = ensureClusterConversation(key);
         const nextMessages = Array.isArray(messages) ? messages : [];
         const nextSignature = buildConversationRenderSignature(nextMessages, {
             loading: false,
-            pending: false
+            pending: false,
+            swarmRunId: options.swarmRunId || conversation.swarmRunId
         });
         if (conversation.renderSignature === nextSignature) {
             return;
@@ -688,6 +708,7 @@
         conversation.loading = false;
         conversation.loaded = true;
         conversation.pending = false;
+        conversation.swarmRunId = options.swarmRunId || conversation.swarmRunId || null;
         conversation.renderSignature = nextSignature;
         refreshClusterConversationIfVisible(key);
     }

@@ -960,6 +960,216 @@ suite('clusterManager', () => {
         }
     });
 
+    test('rehydrates collaborate swarm messages from current session history', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-rehydrate-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Rehydrate Swarm',
+                agentIds: ['alpha']
+            });
+            const swarmRunId = 'run-rehydrate';
+            const sessionKey = `cluster:${cluster.id}:swarm:collaborate:run:${swarmRunId}:agent:alpha`;
+            (manager as any).swarmSessionIds.set(sessionKey, 'session-1');
+            (service as any).sessionAgentIds.set('session-1', 'alpha');
+            (service as any).sessionMessages.set('session-1', [{
+                id: 'agent-msg-1',
+                role: 'assistant',
+                content: 'Hydrated full answer',
+                timestamp: '2026-03-19T00:00:00.000Z',
+                agentId: 'alpha',
+                parts: [{
+                    type: 'text',
+                    text: 'Hydrated full answer'
+                }]
+            }]);
+
+            await manager.replaceClusterSwarmMessages({
+                clusterId: cluster.id,
+                mode: 'collaborate',
+                swarmRunId,
+                messages: [{
+                    id: 'agent-msg-1',
+                    role: 'assistant',
+                    content: '',
+                    timestamp: '2026-03-19T00:00:00.000Z',
+                    agentId: 'alpha',
+                    displayName: 'ALPHA',
+                    contextLabel: 'Round 1 - Opening Positions'
+                }]
+            });
+            await manager.replaceClusterAgentSwarmMessages({
+                clusterId: cluster.id,
+                agentId: 'alpha',
+                mode: 'collaborate',
+                swarmRunId,
+                messages: [{
+                    id: 'agent-msg-1',
+                    role: 'assistant',
+                    content: '',
+                    timestamp: '2026-03-19T00:00:00.000Z',
+                    agentId: 'alpha',
+                    metadata: {
+                        swarmLogKind: 'inbound-final'
+                    }
+                }]
+            });
+
+            await manager.rehydrateClusterSwarmMessages({
+                clusterId: cluster.id,
+                mode: 'collaborate',
+                swarmRunId
+            });
+
+            const aggregateMessages = await manager.getClusterSwarmMessages({
+                clusterId: cluster.id,
+                mode: 'collaborate',
+                swarmRunId
+            });
+            const rawMessages = await manager.getClusterAgentSwarmMessages({
+                clusterId: cluster.id,
+                agentId: 'alpha',
+                mode: 'collaborate',
+                swarmRunId
+            });
+
+            assert.equal(aggregateMessages[0]?.content, 'Hydrated full answer');
+            assert.equal(aggregateMessages[0]?.displayName, 'ALPHA');
+            assert.equal(rawMessages[0]?.content, 'Hydrated full answer');
+            assert.equal(rawMessages[0]?.metadata?.swarmLogKind, 'inbound-final');
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
+
+    test('reconstructs collaborate frontend flow from swarm session outputs', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-session-flow-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Session Flow Swarm',
+                agentIds: ['alpha']
+            });
+            const swarmRunId = 'run-session-flow';
+            const sessionKey = `cluster:${cluster.id}:swarm:collaborate:run:${swarmRunId}:agent:alpha`;
+            (manager as any).swarmSessionIds.set(sessionKey, 'session-1');
+            (service as any).sessionAgentIds.set('session-1', 'alpha');
+            (service as any).sessionMessages.set('session-1', [
+                {
+                    id: 'opening-prompt',
+                    role: 'user',
+                    content: 'Debate stage: opening using debate.',
+                    timestamp: '2026-03-19T00:00:01.000Z'
+                },
+                {
+                    id: 'opening-answer',
+                    role: 'assistant',
+                    content: 'Opening from alpha',
+                    timestamp: '2026-03-19T00:00:02.000Z'
+                },
+                {
+                    id: 'revision-prompt',
+                    role: 'user',
+                    content: 'Debate stage: revision round 2 using debate.',
+                    timestamp: '2026-03-19T00:00:03.000Z'
+                },
+                {
+                    id: 'revision-answer',
+                    role: 'assistant',
+                    content: 'Revision Round 2 content',
+                    timestamp: '2026-03-19T00:00:04.000Z'
+                }
+            ]);
+
+            await manager.replaceClusterSwarmMessages({
+                clusterId: cluster.id,
+                mode: 'collaborate',
+                swarmRunId,
+                messages: [{
+                    id: 'swarm-user',
+                    role: 'user',
+                    content: 'Summarize the project',
+                    timestamp: '2026-03-19T00:00:00.000Z'
+                }]
+            });
+
+            const messages = await manager.getClusterSwarmSessionMessages({
+                clusterId: cluster.id,
+                mode: 'collaborate',
+                swarmRunId
+            });
+
+            assert.deepEqual(
+                messages.map((message: any) => [message.role, message.content, message.contextLabel]),
+                [
+                    ['user', 'Summarize the project', undefined],
+                    ['assistant', 'Opening from alpha', 'Opening Positions'],
+                    ['assistant', 'Revision Round 2 content', 'Review Round 2: Revision']
+                ]
+            );
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
+
+    test('reconstructs collaborate agent session with both inputs and outputs', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-agent-session-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Agent Session Swarm',
+                agentIds: ['alpha']
+            });
+            const swarmRunId = 'run-agent-session';
+            const sessionKey = `cluster:${cluster.id}:swarm:collaborate:run:${swarmRunId}:agent:alpha`;
+            (manager as any).swarmSessionIds.set(sessionKey, 'session-1');
+            (service as any).sessionAgentIds.set('session-1', 'alpha');
+            (service as any).sessionMessages.set('session-1', [
+                {
+                    id: 'synth-prompt',
+                    role: 'user',
+                    content: 'You are coordinating the agent swarm "Test".',
+                    timestamp: '2026-03-19T00:00:01.000Z'
+                },
+                {
+                    id: 'synth-answer',
+                    role: 'assistant',
+                    content: 'Final synthesis by alpha',
+                    timestamp: '2026-03-19T00:00:02.000Z'
+                }
+            ]);
+
+            const messages = await manager.getClusterAgentSwarmSessionMessages({
+                clusterId: cluster.id,
+                agentId: 'alpha',
+                mode: 'collaborate',
+                swarmRunId
+            });
+
+            assert.deepEqual(
+                messages.map((message: any) => [message.role, message.content, message.contextLabel]),
+                [
+                    ['user', 'You are coordinating the agent swarm "Test".', 'Input · Final Synthesis'],
+                    ['assistant', 'Final synthesis by alpha', 'Final Synthesis']
+                ]
+            );
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
+
     test('forbids workers from finalizing during critique and reserves finalization for synthesis coordinator', async () => {
         const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-phase-guards-'));
         const storagePath = path.join(root, 'clusters.json');

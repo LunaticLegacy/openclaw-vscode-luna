@@ -479,7 +479,15 @@
              * 设置集群智能体Swarm上下文加载状态
              */
             case 'setClusterAgentSwarmContextLoading':
-                setClusterAgentSwarmConversationLoading(message.clusterId, message.agentId, message.mode, message.loading);
+                setClusterAgentSwarmConversationLoading(
+                    message.clusterId,
+                    message.agentId,
+                    message.mode,
+                    message.loading,
+                    {
+                        swarmRunId: message.swarmRunId
+                    }
+                );
                 break;
 
             /**
@@ -493,7 +501,15 @@
              * 替换集群智能体Swarm消息列表
              */
             case 'replaceClusterAgentSwarmMessages':
-                replaceClusterAgentSwarmConversationMessages(message.clusterId, message.agentId, message.mode, message.messages || []);
+                replaceClusterAgentSwarmConversationMessages(
+                    message.clusterId,
+                    message.agentId,
+                    message.mode,
+                    message.messages || [],
+                    {
+                        swarmRunId: message.swarmRunId
+                    }
+                );
                 break;
 
             /**

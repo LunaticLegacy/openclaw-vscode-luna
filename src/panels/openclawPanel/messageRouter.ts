@@ -40,7 +40,12 @@ interface MessageRouterContext {
         swarmRunId?: string
     ): Promise<void>;
     loadClusterAgentMessages(clusterId: string, agentId: string): Promise<void>;
-    loadClusterAgentSwarmMessages(clusterId: string, agentId: string, mode: 'broadcast' | 'collaborate'): Promise<void>;
+    loadClusterAgentSwarmMessages(
+        clusterId: string,
+        agentId: string,
+        mode: 'broadcast' | 'collaborate',
+        swarmRunId?: string
+    ): Promise<void>;
     exportClusterConversation(options: ClusterConversationExportOptions): Promise<void>;
     exportClusterSwarm(options: ClusterSwarmExportOptions): Promise<void>;
     importClusterSwarm(): Promise<void>;
@@ -143,7 +148,14 @@ export async function handlePanelMessage(context: MessageRouterContext, message:
 
         case 'loadClusterAgentSwarmMessages':
             if (message.mode === 'broadcast' || message.mode === 'collaborate') {
-                await context.loadClusterAgentSwarmMessages(message.clusterId, message.agentId, message.mode);
+                await context.loadClusterAgentSwarmMessages(
+                    message.clusterId,
+                    message.agentId,
+                    message.mode,
+                    typeof message.swarmRunId === 'string' && message.swarmRunId.trim()
+                        ? message.swarmRunId.trim()
+                        : undefined
+                );
             }
             break;
 

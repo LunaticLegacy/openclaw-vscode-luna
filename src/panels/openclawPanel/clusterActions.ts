@@ -278,6 +278,10 @@ export async function loadClusterSwarmMessages(
     }
 
     try {
+        if (!(mode === 'collaborate' && outputMode === 'frontend')) {
+            await context.clusterManager.rehydrateClusterSwarmMessages({ clusterId, mode, swarmRunId });
+        }
+
         context.postMessage({
             type: 'setClusterSwarmContextLoading',
             clusterId,
@@ -290,7 +294,9 @@ export async function loadClusterSwarmMessages(
         const [messages, knownRunIds, agents] = await Promise.all([
             outputMode === 'raw' && mode === 'collaborate'
                 ? buildClusterSwarmRawLogMessages(context, clusterId, mode, swarmRunId)
-                : context.clusterManager.getClusterSwarmMessages({ clusterId, mode, swarmRunId }),
+                : mode === 'collaborate' && outputMode === 'frontend'
+                    ? context.clusterManager.getClusterSwarmSessionMessages({ clusterId, mode, swarmRunId })
+                    : context.clusterManager.getClusterSwarmMessages({ clusterId, mode, swarmRunId }),
             context.clusterManager.listClusterSwarmRunIds({ clusterId, mode }),
             outputMode === 'frontend'
                 ? context.agentManager.getAgents()
@@ -488,7 +494,8 @@ export async function loadClusterAgentSwarmMessages(
     context: ClusterActionContext,
     clusterId: string,
     agentId: string,
-    mode: SwarmMode
+    mode: SwarmMode,
+    swarmRunId?: string
 ): Promise<void> {
     if (!clusterId || !agentId || (mode !== 'broadcast' && mode !== 'collaborate')) {
         return;
@@ -500,20 +507,30 @@ export async function loadClusterAgentSwarmMessages(
             clusterId,
             agentId,
             mode,
-            loading: true
+            loading: true,
+            swarmRunId
         });
 
-        const messages = await context.clusterManager.getClusterAgentSwarmMessages({
-            clusterId,
-            agentId,
-            mode
-        });
+        const messages = mode === 'collaborate'
+            ? await context.clusterManager.getClusterAgentSwarmSessionMessages({
+                clusterId,
+                agentId,
+                mode,
+                swarmRunId
+            })
+            : await context.clusterManager.getClusterAgentSwarmMessages({
+                clusterId,
+                agentId,
+                mode,
+                swarmRunId
+            });
         context.postMessage({
             type: 'replaceClusterAgentSwarmMessages',
             clusterId,
             agentId,
             mode,
-            messages: decorateClusterAgentLogMessages(messages, mode)
+            messages: decorateClusterAgentLogMessages(messages, mode),
+            swarmRunId
         });
     } catch (error) {
         context.postMessage({
@@ -526,7 +543,8 @@ export async function loadClusterAgentSwarmMessages(
             clusterId,
             agentId,
             mode,
-            loading: false
+            loading: false,
+            swarmRunId
         });
     }
 }

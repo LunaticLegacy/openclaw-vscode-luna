@@ -1473,9 +1473,10 @@ export class OpenClawPanel {
     private async _loadClusterAgentSwarmMessages(
         clusterId: string,
         agentId: string,
-        mode: 'broadcast' | 'collaborate'
+        mode: 'broadcast' | 'collaborate',
+        swarmRunId?: string
     ) {
-        await loadClusterAgentSwarmMessagesAction(this._createClusterActionContext(), clusterId, agentId, mode);
+        await loadClusterAgentSwarmMessagesAction(this._createClusterActionContext(), clusterId, agentId, mode, swarmRunId);
     }
 
     /**

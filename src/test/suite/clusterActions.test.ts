@@ -49,6 +49,8 @@ suite('clusterActions', () => {
         const replaceMessage = posted.find((message: any) => message.type === 'replaceSwarmMessages');
         assert.deepEqual(replaceMessage?.messages, persistedMessages);
         assert.deepEqual(replaceMessage?.knownRunIds, ['default']);
+        assert.equal(clusterManager.getClusterSwarmSessionMessagesCalls.length, 1);
+        assert.equal(clusterManager.rehydrateClusterSwarmMessagesCalls.length, 0);
     });
 
     test('loads raw collaborate swarm logs by aggregating per-agent swarm transcripts', async () => {
@@ -238,6 +240,7 @@ suite('clusterActions', () => {
             { ...persistedMessages[0], contextLabel: 'Collaborate Log' },
             { ...persistedMessages[1], contextLabel: 'Collaborate Log' }
         ]);
+        assert.equal(clusterManager.getClusterAgentSwarmSessionMessagesCalls.length, 1);
     });
 
     test('persists refreshed cluster-agent messages after send completes', async () => {
@@ -1026,6 +1029,9 @@ class FakeClusterManager {
     public clearCalls: Array<{ clusterId: string; agentId: string }> = [];
     public replaceSwarmCalls: Array<{ clusterId: string; mode: 'broadcast' | 'collaborate'; messages: ChatMessage[]; swarmRunId?: string }> = [];
     public replaceAgentSwarmCalls: Array<{ clusterId: string; agentId: string; mode: 'broadcast' | 'collaborate'; messages: ChatMessage[]; swarmRunId?: string }> = [];
+    public getClusterSwarmSessionMessagesCalls: ClusterSwarmRequest[] = [];
+    public getClusterAgentSwarmSessionMessagesCalls: ClusterAgentSwarmRequest[] = [];
+    public rehydrateClusterSwarmMessagesCalls: ClusterSwarmRequest[] = [];
     public cluster: AgentCluster = {
         id: 'cluster-1',
         name: 'Cluster 1',
@@ -1090,6 +1096,20 @@ class FakeClusterManager {
         return cloneMessages(this.swarmMessagesByKey.get(this.swarmKey(clusterId, mode, this.resolveSwarmRunId(clusterId, mode, swarmRunId))) || []);
     }
 
+    public async getClusterSwarmSessionMessages({
+        clusterId,
+        mode,
+        swarmRunId
+    }: ClusterSwarmRequest): Promise<ChatMessage[]> {
+        this.getClusterSwarmSessionMessagesCalls.push({ clusterId, mode, swarmRunId });
+        return this.getClusterSwarmMessages({ clusterId, mode, swarmRunId });
+    }
+
+    public async rehydrateClusterSwarmMessages(request: ClusterSwarmRequest): Promise<void> {
+        this.rehydrateClusterSwarmMessagesCalls.push(request);
+        return;
+    }
+
     public async listClusterSwarmRunIds({
         clusterId,
         mode
@@ -1121,6 +1141,18 @@ class FakeClusterManager {
         }: ClusterAgentSwarmRequest
     ): Promise<ChatMessage[]> {
         return cloneMessages(this.swarmAgentMessagesByKey.get(this.swarmAgentKey(clusterId, agentId, mode, this.resolveSwarmRunId(clusterId, mode, swarmRunId))) || []);
+    }
+
+    public async getClusterAgentSwarmSessionMessages(
+        {
+            clusterId,
+            agentId,
+            mode,
+            swarmRunId
+        }: ClusterAgentSwarmRequest
+    ): Promise<ChatMessage[]> {
+        this.getClusterAgentSwarmSessionMessagesCalls.push({ clusterId, agentId, mode, swarmRunId });
+        return this.getClusterAgentSwarmMessages({ clusterId, agentId, mode, swarmRunId });
     }
 
     public async replaceClusterSwarmMessages(

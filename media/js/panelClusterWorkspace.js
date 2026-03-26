@@ -646,7 +646,7 @@
             sections.push(
                 isRawClusterSwarmView(target)
                     ? buildRawClusterConversationEntries(conversation.messages).map(renderClusterConversationEntry).join('')
-                    : buildClusterConversationEntries(conversation.messages).map(renderClusterConversationEntry).join('')
+                    : buildClusterConversationEntries(conversation.messages, target).map(renderClusterConversationEntry).join('')
             );
         }
 
@@ -665,9 +665,14 @@
      * @param {Array} messages - 消息数组
      * @returns {Array} 条目数组
      */
-    function buildClusterConversationEntries(messages) {
+    function buildClusterConversationEntries(messages, target) {
         const entries = [];
-        const sanitizedMessages = sanitizeClusterConversationMessages(messages);
+        const preserveSessionFlow = isFullClusterSessionFlowTarget(target)
+            && Array.isArray(messages)
+            && messages.some(msg => Boolean(msg?.metadata?.swarmSessionReconstructed));
+        const sanitizedMessages = sanitizeClusterConversationMessages(messages, {
+            preserveSessionFlow
+        });
 
         sanitizedMessages.forEach(msg => {
             if (!msg || shouldHideMessage(msg)) {
@@ -684,7 +689,7 @@
             }
 
             // 检查是否应追加到现有跟踪条目
-            if (shouldAppendToClusterTrace(msg)) {
+            if (shouldAppendToClusterTrace(msg, target)) {
                 const currentEntry = entries[entries.length - 1];
                 const batchKey = getClusterTraceBatchKey(msg);
                 const shouldReuseTraceEntry = currentEntry?.kind === 'trace'
@@ -745,11 +750,29 @@
     }
 
     /**
+     * 检查是否应以完整session结果流渲染
+     * @param {Object} target - 目标信息对象
+     * @returns {boolean} 是否为完整session流视图
+     */
+    function isFullClusterSessionFlowTarget(target) {
+        if (!target) {
+            return false;
+        }
+
+        return (target.kind === 'swarm' && target.mode === 'collaborate' && target.outputMode === 'frontend')
+            || (target.kind === 'agent' && target.agentViewMode === 'collaborate');
+    }
+
+    /**
      * 检查消息是否应追加到集群跟踪记录
      * @param {Object} msg - 消息对象
      * @returns {boolean} 是否应追加
      */
-    function shouldAppendToClusterTrace(msg) {
+    function shouldAppendToClusterTrace(msg, target) {
+        if (isFullClusterSessionFlowTarget(target) && msg?.metadata?.swarmSessionReconstructed) {
+            return false;
+        }
+
         // 工具消息总是追加到跟踪
         if (msg?.role === 'tool') {
             return true;
@@ -812,8 +835,11 @@
      * @param {Array} messages - 原始消息数组
      * @returns {Array} 清理后的消息数组
      */
-    function sanitizeClusterConversationMessages(messages) {
+    function sanitizeClusterConversationMessages(messages, options = {}) {
         const source = Array.isArray(messages) ? messages : [];
+        if (options.preserveSessionFlow) {
+            return source.filter(Boolean);
+        }
         const resolvedToolKeys = new Set();
 
         // 第一轮：收集所有已解决的工具调用ID
@@ -1191,7 +1217,8 @@
             type: 'loadClusterAgentSwarmMessages',
             clusterId: cluster.id,
             agentId: target.agentId,
-            mode: target.agentViewMode
+            mode: target.agentViewMode,
+            swarmRunId: target.swarmRunId || undefined
         });
     }
 

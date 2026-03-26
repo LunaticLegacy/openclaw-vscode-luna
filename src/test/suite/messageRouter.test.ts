@@ -29,6 +29,30 @@ suite('messageRouter', () => {
             agentViewMode: 'chat'
         }]);
     });
+
+    test('forwards selected swarm run id during cluster agent swarm load', async () => {
+        const loadCalls: any[] = [];
+        const context = createMessageRouterContext({
+            loadClusterAgentSwarmMessages: async (clusterId: string, agentId: string, mode: string, swarmRunId?: string) => {
+                loadCalls.push({ clusterId, agentId, mode, swarmRunId });
+            }
+        });
+
+        await handlePanelMessage(context as any, {
+            type: 'loadClusterAgentSwarmMessages',
+            clusterId: 'cluster-1',
+            agentId: 'alpha',
+            mode: 'collaborate',
+            swarmRunId: 'run-11'
+        });
+
+        assert.deepEqual(loadCalls, [{
+            clusterId: 'cluster-1',
+            agentId: 'alpha',
+            mode: 'collaborate',
+            swarmRunId: 'run-11'
+        }]);
+    });
 });
 
 function createMessageRouterContext(overrides: Record<string, unknown> = {}): Record<string, unknown> {
