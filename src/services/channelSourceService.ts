@@ -11,6 +11,7 @@ import type {
   AggregatedItem,
   ChannelSyncResult,
 } from '../types/channel';
+import type { ChannelSyncOptions, ProcessItemsConfig } from '../types/serviceParams';
 
 // Storage keys for VS Code SecretStorage
 const CREDENTIAL_PREFIX = 'openclaw:channel:cred:';
@@ -100,17 +101,17 @@ export class ChannelSourceService extends EventEmitter {
   /**
    * 获取频道的凭证
    * @param channelId - 频道 ID
-   * @returns 凭证对象或 null
+   * @returns 凭证对象或 undefined
    */
-  public async getCredentials(channelId: string): Promise<SourceCredentials | null> {
+  public async getCredentials(channelId: string): Promise<SourceCredentials | undefined> {
     const key = `${CREDENTIAL_PREFIX}${channelId}`;
     const encrypted = await this.secretStorage.get(key);
-    if (!encrypted) return null;
+    if (!encrypted) return undefined;
     
     try {
       return JSON.parse(encrypted) as SourceCredentials;
     } catch {
-      return null;
+      return undefined;
     }
   }
 
@@ -179,7 +180,7 @@ export class ChannelSourceService extends EventEmitter {
    */
   public async syncChannel(
     channel: ChannelConfig,
-    options?: { force?: boolean; since?: Date }
+    options?: ChannelSyncOptions
   ): Promise<ChannelSyncResult> {
     if (channel.type !== 'external' || !channel.externalConfig) {
       return {
@@ -320,16 +321,13 @@ export class ChannelSourceService extends EventEmitter {
    * @param processing - 处理选项
    * @returns 处理后的数组
    */
-  private async processItems(
-    items: AggregatedItem[],
-    processing: { deduplicate: boolean; summarize: boolean; translate?: string; maxLength?: number }
-  ): Promise<AggregatedItem[]> {
+  private async processItems(items: AggregatedItem[], processing: ProcessItemsConfig): Promise<AggregatedItem[]> {
     let result = items;
 
     // Deduplicate by URL or content hash
     if (processing.deduplicate) {
       const seen = new Set<string>();
-      result = result.filter(item => {
+      result = result.filter((item: any) => {
         const key = item.original.url || item.original.content.slice(0, 100);
         if (seen.has(key)) return false;
         seen.add(key);
@@ -339,7 +337,7 @@ export class ChannelSourceService extends EventEmitter {
 
     // Truncate long content
     if (processing.maxLength) {
-      result = result.map(item => ({
+      result = result.map((item: any) => ({
         ...item,
         original: {
           ...item.original,
@@ -431,7 +429,7 @@ class RSSAdapter implements SourceProviderAdapter {
     const itemRegex = /<item>([\s\S]*?)<\/item>/g;
     const entryRegex = /<entry>([\s\S]*?)<\/entry>/g;
     
-    const processMatch = (content: string): AggregatedItem | null => {
+    const processMatch = (content: string): AggregatedItem | undefined => {
       const title = this.extractTag(content, 'title');
       const link = this.extractTag(content, 'link');
       const description = this.extractTag(content, 'description') || 
@@ -443,12 +441,12 @@ class RSSAdapter implements SourceProviderAdapter {
       const author = this.extractTag(content, 'author') || 
                     this.extractTag(content, 'creator');
 
-      if (!title && !description) return null;
+      if (!title && !description) return undefined;
 
       const publishedAt = pubDate ? new Date(pubDate).toISOString() : new Date().toISOString();
       
       if (since && new Date(publishedAt) < since) {
-        return null;
+        return undefined;
       }
 
       return {
@@ -468,11 +466,11 @@ class RSSAdapter implements SourceProviderAdapter {
     };
 
     let match;
-    while ((match = itemRegex.exec(xml)) !== null) {
+    while ((match = itemRegex.exec(xml)) !== undefined) {
       const item = processMatch(match[1]);
       if (item) items.push(item);
     }
-    while ((match = entryRegex.exec(xml)) !== null) {
+    while ((match = entryRegex.exec(xml)) !== undefined) {
       const item = processMatch(match[1]);
       if (item) items.push(item);
     }
@@ -759,11 +757,11 @@ class GitHubAdapter implements SourceProviderAdapter {
     }>;
 
     return releases
-      .filter(release => {
+      .filter((release: any) => {
         if (!since || !release.published_at) return true;
         return new Date(release.published_at) >= since;
       })
-      .map(release => ({
+      .map((release: any) => ({
         id: `github:release:${owner}/${repo}:${release.tag_name}`,
         channelId: '', // Will be set by caller
         sourceType: 'external',

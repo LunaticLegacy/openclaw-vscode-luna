@@ -7,11 +7,12 @@ import { AGENT_SETTINGS_FILE, CORE_FILES, MEMORY_LAYOUT, MEMORY_LAYOUT_VERSION }
 import { LocalMemoryAdapter } from './localAdapter';
 import { WebDavMemoryAdapter } from './webDavAdapter';
 import type { MemoryBackendKind, MemoryExportResult, MemoryStatus, MemoryStorageAdapter } from './types';
+import type { PersistClusterExportOptions, RecordSyncOptions } from '../../types/serviceParams';
 
 const MEMORY_STATUS_FILE = `${MEMORY_LAYOUT.meta}/status.json`;
 
 export class MemoryService {
-    private adapter: MemoryStorageAdapter | null = null;
+    private adapter: MemoryStorageAdapter | undefined = undefined;
     private status: MemoryStatus = {
         backend: 'local',
         root: '',
@@ -49,7 +50,7 @@ export class MemoryService {
             CORE_FILES.identity,
             CORE_FILES.soul,
             CORE_FILES.user
-        ].map(fileName => ({
+        ].map((fileName: any) => ({
             source: path.join(workspacePath, fileName),
             destination: path.join(MEMORY_LAYOUT.agents, safeAgentId, MEMORY_LAYOUT.core, fileName)
         }));
@@ -62,7 +63,7 @@ export class MemoryService {
         let wrote = 0;
         for (const target of targets) {
             const content = await safeReadFile(target.source);
-            if (content === null) {
+            if (content === undefined) {
                 continue;
             }
             await this.adapter.writeFile(target.destination, content);
@@ -77,13 +78,7 @@ export class MemoryService {
         }
     }
 
-    public async persistClusterExport(options: {
-        baseName: string;
-        kind: 'raw' | 'readable';
-        content: string;
-        clusterId: string;
-        mode?: string;
-    }): Promise<void> {
+    public async persistClusterExport(options: PersistClusterExportOptions): Promise<void> {
         await this.ensureInitialized();
         if (!this.adapter?.ready) {
             this.markError('Memory backend not ready.');
@@ -117,7 +112,7 @@ export class MemoryService {
         await fs.mkdir(targetDir, { recursive: true });
 
         const entries = await this.adapter.list('');
-        const files = entries.filter(entry => entry.kind === 'file');
+        const files = entries.filter((entry: any) => entry.kind === 'file');
         for (const entry of files) {
             const content = await this.adapter.readFile(entry.path);
             const targetPath = path.join(targetDir, entry.path);
@@ -133,7 +128,7 @@ export class MemoryService {
             root: this.status.root,
             fileCount: files.length
         };
-        await fs.writeFile(path.join(targetDir, 'memory-manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
+        await fs.writeFile(path.join(targetDir, 'memory-manifest.json'), JSON.stringify(manifest, undefined, 2), 'utf8');
         await this.recordSync({ event: 'export', summary: `Exported memory bundle (${files.length} files).` });
 
         return {
@@ -162,12 +157,12 @@ export class MemoryService {
         await this.recordSync({ event: 'import', summary: `Imported memory bundle (${entries.length} files).` });
     }
 
-    public async getLocalRoot(): Promise<string | null> {
+    public async getLocalRoot(): Promise<string | undefined> {
         await this.ensureInitialized();
         if (this.adapter?.kind === 'local') {
             return this.adapter.root;
         }
-        return null;
+        return undefined;
     }
 
     private async ensureInitialized(): Promise<void> {
@@ -218,14 +213,14 @@ export class MemoryService {
         if (!this.adapter) {
             return;
         }
-        const baseFolders = Object.values(MEMORY_LAYOUT).filter(value => value !== MEMORY_LAYOUT.meta);
+        const baseFolders = Object.values(MEMORY_LAYOUT).filter((value: any) => value !== MEMORY_LAYOUT.meta);
         for (const folder of baseFolders) {
             await this.adapter.ensureDir(folder);
         }
         await this.adapter.ensureDir(MEMORY_LAYOUT.meta);
     }
 
-    private async recordSync(options: { event: string; summary: string }): Promise<void> {
+    private async recordSync(options: RecordSyncOptions): Promise<void> {
         const now = new Date().toISOString();
         this.status.lastSyncAt = now;
         this.status.lastEvent = options.event;
@@ -245,7 +240,7 @@ export class MemoryService {
         };
 
         try {
-            await this.adapter.writeFile(MEMORY_STATUS_FILE, JSON.stringify(payload, null, 2));
+            await this.adapter.writeFile(MEMORY_STATUS_FILE, JSON.stringify(payload, undefined, 2));
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             this.markError(message);
@@ -278,11 +273,11 @@ export class MemoryService {
     }
 }
 
-async function safeReadFile(targetPath: string): Promise<Buffer | null> {
+async function safeReadFile(targetPath: string): Promise<Buffer | undefined> {
     try {
         return await fs.readFile(targetPath);
     } catch {
-        return null;
+        return undefined;
     }
 }
 
@@ -307,7 +302,7 @@ async function listLocalFiles(root: string): Promise<Array<{ absolutePath: strin
         const relativePath = dirent.name;
         if (dirent.isDirectory()) {
             const nested = await listLocalFiles(absolutePath);
-            nested.forEach(entry => {
+            nested.forEach((entry: any) => {
                 entries.push({
                     absolutePath: entry.absolutePath,
                     relativePath: path.join(relativePath, entry.relativePath).replace(/\\/g, '/')

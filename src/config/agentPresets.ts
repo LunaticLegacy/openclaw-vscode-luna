@@ -125,7 +125,7 @@ const AGENT_PRESET_DEFINITIONS: readonly AgentPresetDefinition[] = [
  * @returns 智能体预设选项数组
  */
 export function getAgentPresets(): AgentPresetOption[] {
-    return AGENT_PRESET_DEFINITIONS.map(definition => ({
+    return AGENT_PRESET_DEFINITIONS.map((definition: any) => ({
         id: definition.id,
         defaultName: definition.defaultName,
         label: t(definition.labelKey),
@@ -141,12 +141,12 @@ export function getAgentPresets(): AgentPresetOption[] {
 /**
  * 根据预设ID获取对应的智能体预设选项
  * @param presetId - 预设标识符
- * @returns 智能体预设选项，如果不存在则返回 null
+ * @returns 智能体预设选项，如果不存在则返回 undefined
  */
-export function getAgentPreset(presetId?: string | null): AgentPresetOption | null {
+export function getAgentPreset(presetId?: string): AgentPresetOption | undefined {
     if (!presetId || presetId === CUSTOM_AGENT_PRESET_ID) {
-        return null;
+        return undefined;
     }
 
-    return getAgentPresets().find(preset => preset.id === presetId) || null;
+    return getAgentPresets().find((preset: any) => preset.id === presetId) || undefined;
 }

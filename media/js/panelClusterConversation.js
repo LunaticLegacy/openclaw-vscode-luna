@@ -1,10 +1,22 @@
 // OpenClaw Luna - Panel Cluster Conversation
+// 集群对话管理面板 - 负责集群对话的加载、渲染、消息处理和状态管理
 'use strict';
 
+    /**
+     * 获取当前选中的集群
+     * @returns {Object|null} 当前集群对象或null
+     */
     function getCurrentCluster() {
         return state.clusters.find(cluster => cluster.id === state.currentClusterId) || null;
     }
 
+    /**
+     * 获取协作轮次标签
+     * 根据轮次描述符生成本地化的轮次标签
+     * @param {Object} round - 轮次对象
+     * @param {Function} t - 翻译函数
+     * @returns {string} 轮次标签
+     */
     function getCollaborationRoundLabel(round, t) {
         const descriptor = round?.descriptor || buildFallbackCollaborationRoundDescriptor(round?.kind || 'opening');
         const translated = t(descriptor.labelKey, { round: descriptor.reviewRound });
@@ -13,7 +25,14 @@
             : descriptor.fallbackLabel;
     }
 
+    /**
+     * 构建回退协作轮次描述符
+     * 当没有预定义描述符时，根据轮次类型生成默认描述
+     * @param {string} kind - 轮次类型
+     * @returns {Object} 轮次描述符对象
+     */
     function buildFallbackCollaborationRoundDescriptor(kind) {
+        // 开场轮次
         if (kind === 'opening') {
             return {
                 kind,
@@ -26,6 +45,7 @@
             };
         }
 
+        // 批评轮次（格式：critique-N）
         if (String(kind).startsWith('critique-')) {
             const reviewRound = Number(String(kind).slice('critique-'.length) || '1');
             return {
@@ -39,6 +59,7 @@
             };
         }
 
+        // 修改轮次（格式：revision-N）
         const reviewRound = Number(String(kind).slice('revision-'.length) || '1');
         return {
             kind,
@@ -51,6 +72,10 @@
         };
     }
 
+    /**
+     * 确保当前集群选择有效
+     * 验证并修正当前集群的目标类型和视图模式设置
+     */
     function ensureCurrentClusterSelection() {
         const cluster = getCurrentCluster();
         if (!cluster) {
@@ -59,11 +84,13 @@
             return;
         }
 
+        // 验证Agent目标是否有效
         if (state.currentClusterTargetKind === 'agent' && !cluster.agentIds.includes(state.currentClusterAgentId)) {
             state.currentClusterTargetKind = 'swarm';
             state.currentClusterAgentId = null;
         }
 
+        // 回放集群使用固定的视图设置
         if (isReplayCluster(cluster)) {
             const replay = getClusterReplay(cluster);
             state.currentClusterTargetKind = 'swarm';
@@ -74,6 +101,7 @@
             return;
         }
 
+        // 设置默认模式
         if (!state.currentClusterSwarmMode) {
             state.currentClusterSwarmMode = 'broadcast';
         }
@@ -87,6 +115,12 @@
         }
     }
 
+    /**
+     * 获取当前集群目标信息
+     * 根据当前选择的目标类型（Swarm/Agent）返回相应的信息对象
+     * @param {Object} cluster - 集群对象（默认为当前集群）
+     * @returns {Object} 目标信息对象
+     */
     function getCurrentClusterTargetInfo(cluster = getCurrentCluster()) {
         if (!cluster) {
             return {
@@ -100,6 +134,7 @@
             };
         }
 
+        // Agent目标信息
         if (state.currentClusterTargetKind === 'agent' && state.currentClusterAgentId) {
             return {
                 kind: 'agent',
@@ -113,6 +148,7 @@
             };
         }
 
+        // Swarm目标信息
         return {
             kind: 'swarm',
             mode: state.currentClusterSwarmMode,
@@ -128,6 +164,19 @@
         };
     }
 
+    /**
+     * 获取集群对话键
+     * 生成用于标识特定对话的唯一键
+     * @param {string} clusterId - 集群ID
+     * @param {Object} options - 选项
+     * @param {string} options.targetKind - 目标类型
+     * @param {string} options.agentId - Agent ID
+     * @param {string} options.agentViewMode - Agent视图模式
+     * @param {string} options.mode - Swarm模式
+     * @param {string} options.outputMode - 输出模式
+     * @param {string} options.swarmRunId - Swarm运行ID
+     * @returns {string} 对话键
+     */
     function getClusterConversationKey(clusterId, options = {}) {
         const targetKind = options.targetKind || state.currentClusterTargetKind;
         if (targetKind === 'agent') {
@@ -144,6 +193,12 @@
         return `cluster:${clusterId}:swarm:${mode}:run:${swarmRunId || 'latest'}:view:${outputMode}`;
     }
 
+    /**
+     * 确保集群对话存在
+     * 如果指定键的对话不存在，则创建一个新的对话对象
+     * @param {string} key - 对话键
+     * @returns {Object} 对话对象
+     */
     function ensureClusterConversation(key) {
         if (!state.clusterConversations[key]) {
             state.clusterConversations[key] = {
@@ -159,16 +214,36 @@
         return state.clusterConversations[key];
     }
 
+    /**
+     * 获取Swarm对话注册表键
+     * @param {string} clusterId - 集群ID
+     * @param {string} mode - Swarm模式
+     * @returns {string} 注册表键
+     */
     function getSwarmConversationRegistryKey(clusterId, mode) {
         return `cluster:${clusterId}:swarm:${mode}`;
     }
 
+    /**
+     * 获取已知的Swarm对话运行列表
+     * @param {string} clusterId - 集群ID
+     * @param {string} mode - Swarm模式
+     * @returns {Array} 运行ID数组
+     */
     function getKnownSwarmConversationRuns(clusterId, mode) {
         return Array.isArray(state.clusterSwarmRunHistory?.[getSwarmConversationRegistryKey(clusterId, mode)])
             ? state.clusterSwarmRunHistory[getSwarmConversationRegistryKey(clusterId, mode)]
             : [];
     }
 
+    /**
+     * 记录已知的Swarm对话运行ID
+     * @param {string} clusterId - 集群ID
+     * @param {string} mode - Swarm模式
+     * @param {string} swarmRunId - 运行ID
+     * @param {Object} options - 选项
+     * @param {boolean} options.select - 是否选中新运行
+     */
     function recordKnownSwarmConversationRunId(clusterId, mode, swarmRunId, options = {}) {
         const normalizedRunId = typeof swarmRunId === 'string' ? swarmRunId.trim() : '';
         if (!normalizedRunId) {
@@ -181,6 +256,7 @@
 
         const registryKey = getSwarmConversationRegistryKey(clusterId, mode);
         const existing = getKnownSwarmConversationRuns(clusterId, mode).filter(runId => runId !== normalizedRunId);
+        // 保持最多12个运行记录，新记录放在前面
         state.clusterSwarmRunHistory[registryKey] = [normalizedRunId, ...existing].slice(0, 12);
 
         if (!state.currentClusterSwarmRunSelections) {
@@ -192,10 +268,22 @@
         }
     }
 
+    /**
+     * 获取活动的Swarm对话运行ID
+     * @param {string} clusterId - 集群ID
+     * @param {string} mode - Swarm模式
+     * @returns {string|null} 运行ID或null
+     */
     function getActiveSwarmConversationRunId(clusterId, mode) {
         return state.activeClusterSwarmRuns?.[getSwarmConversationRegistryKey(clusterId, mode)] || null;
     }
 
+    /**
+     * 设置活动的Swarm对话运行ID
+     * @param {string} clusterId - 集群ID
+     * @param {string} mode - Swarm模式
+     * @param {string} swarmRunId - 运行ID
+     */
     function setActiveSwarmConversationRunId(clusterId, mode, swarmRunId) {
         if (!state.activeClusterSwarmRuns) {
             state.activeClusterSwarmRuns = {};
@@ -210,6 +298,13 @@
         delete state.activeClusterSwarmRuns[registryKey];
     }
 
+    /**
+     * 获取选中的Swarm对话运行ID
+     * 优先级：用户选择 > 活动运行 > 最新运行
+     * @param {string} clusterId - 集群ID
+     * @param {string} mode - Swarm模式
+     * @returns {string|null} 运行ID或null
+     */
     function getSelectedSwarmConversationRunId(clusterId, mode) {
         const registryKey = getSwarmConversationRegistryKey(clusterId, mode);
         const selectedRunId = state.currentClusterSwarmRunSelections?.[registryKey];
@@ -225,6 +320,12 @@
         return getKnownSwarmConversationRuns(clusterId, mode)[0] || null;
     }
 
+    /**
+     * 设置选中的Swarm对话运行ID
+     * @param {string} clusterId - 集群ID
+     * @param {string} mode - Swarm模式
+     * @param {string} swarmRunId - 运行ID
+     */
     function setSelectedSwarmConversationRunId(clusterId, mode, swarmRunId) {
         const normalizedRunId = typeof swarmRunId === 'string' ? swarmRunId.trim() : '';
         if (!normalizedRunId) {
@@ -239,6 +340,11 @@
         state.currentClusterSwarmRunSelections[getSwarmConversationRegistryKey(clusterId, mode)] = normalizedRunId;
     }
 
+    /**
+     * 检查指定键的对话是否当前可见
+     * @param {string} key - 对话键
+     * @returns {boolean} 是否可见
+     */
     function isVisibleClusterConversationKey(key) {
         const cluster = getCurrentCluster();
         if (!cluster || state.viewMode !== 'clusters') {
@@ -248,12 +354,26 @@
         return getCurrentClusterTargetInfo(cluster).key === key;
     }
 
+    /**
+     * 如果指定对话可见，则刷新集群工作区
+     * @param {string} key - 对话键
+     */
     function refreshClusterConversationIfVisible(key) {
         if (isVisibleClusterConversationKey(key)) {
             renderClusterWorkspace();
         }
     }
 
+    /**
+     * 构建对话渲染签名
+     * 用于检测对话内容是否有变化，避免不必要的重新渲染
+     * @param {Array} messages - 消息数组
+     * @param {Object} options - 选项
+     * @param {boolean} options.loading - 是否加载中
+     * @param {boolean} options.pending - 是否等待中
+     * @param {string} options.swarmRunId - Swarm运行ID
+     * @returns {string} 渲染签名
+     */
     function buildConversationRenderSignature(messages, options = {}) {
         const source = Array.isArray(messages) ? messages : [];
         const messageSignature = source.map(message => ([
@@ -278,10 +398,22 @@
         ].join(':::');
     }
 
+    /**
+     * 判断是否应接受Swarm对话更新
+     * 处理运行初始化和运行记录更新逻辑
+     * @param {string} clusterId - 集群ID
+     * @param {string} mode - Swarm模式
+     * @param {Array} messages - 消息数组
+     * @param {Object} options - 选项
+     * @param {boolean} options.keepPending - 是否保持等待状态
+     * @param {string} options.swarmRunId - Swarm运行ID
+     * @returns {boolean} 是否接受更新
+     */
     function shouldAcceptSwarmConversationUpdate(clusterId, mode, messages, options = {}) {
         const incomingRunId = typeof options.swarmRunId === 'string' && options.swarmRunId.trim()
             ? options.swarmRunId.trim()
             : '';
+        // 检测是否为运行初始化（第一条用户消息）
         const isRunInitialization = options.keepPending === true
             && Array.isArray(messages)
             && messages.length > 0
@@ -293,6 +425,7 @@
             });
         }
 
+        // 运行初始化时设置活动和选中状态
         if (isRunInitialization && incomingRunId) {
             setActiveSwarmConversationRunId(clusterId, mode, incomingRunId);
             setSelectedSwarmConversationRunId(clusterId, mode, incomingRunId);
@@ -301,6 +434,12 @@
         return true;
     }
 
+    /**
+     * 设置集群对话加载状态
+     * @param {string} clusterId - 集群ID
+     * @param {string} agentId - Agent ID
+     * @param {boolean} loading - 是否加载中
+     */
     function setClusterConversationLoading(clusterId, agentId, loading) {
         const conversation = ensureClusterConversation(getClusterConversationKey(clusterId, {
             targetKind: 'agent',
@@ -314,6 +453,15 @@
         renderClusterWorkspace();
     }
 
+    /**
+     * 设置Swarm对话加载状态
+     * @param {string} clusterId - 集群ID
+     * @param {string} mode - Swarm模式
+     * @param {boolean} loading - 是否加载中
+     * @param {Object} options - 选项
+     * @param {string} options.outputMode - 输出模式
+     * @param {string} options.swarmRunId - Swarm运行ID
+     */
     function setSwarmConversationLoading(clusterId, mode, loading, options = {}) {
         const key = getClusterConversationKey(clusterId, {
             targetKind: 'swarm',
@@ -330,6 +478,7 @@
             pending: conversation.pending,
             swarmRunId: options.swarmRunId || conversation.swarmRunId
         });
+        // 签名未变化时跳过渲染
         if (conversation.renderSignature === nextSignature) {
             return;
         }
@@ -344,6 +493,12 @@
         refreshClusterConversationIfVisible(key);
     }
 
+    /**
+     * 替换集群对话消息
+     * @param {string} clusterId - 集群ID
+     * @param {string} agentId - Agent ID
+     * @param {Array} messages - 新消息数组
+     */
     function replaceClusterConversationMessages(clusterId, agentId, messages) {
         const key = getClusterConversationKey(clusterId, {
             targetKind: 'agent',
@@ -367,6 +522,14 @@
         refreshClusterConversationIfVisible(key);
     }
 
+    /**
+     * 追加集群对话消息
+     * @param {string} clusterId - 集群ID
+     * @param {string} agentId - Agent ID
+     * @param {Object} message - 消息对象
+     * @param {Object} options - 选项
+     * @param {boolean} options.keepPending - 是否保持等待状态
+     */
     function appendClusterConversationMessage(clusterId, agentId, message, options = {}) {
         const key = getClusterConversationKey(clusterId, {
             targetKind: 'agent',
@@ -385,6 +548,13 @@
         refreshClusterConversationIfVisible(key);
     }
 
+    /**
+     * 设置集群Agent Swarm对话加载状态
+     * @param {string} clusterId - 集群ID
+     * @param {string} agentId - Agent ID
+     * @param {string} mode - Swarm模式
+     * @param {boolean} loading - 是否加载中
+     */
     function setClusterAgentSwarmConversationLoading(clusterId, agentId, mode, loading) {
         const key = getClusterConversationKey(clusterId, {
             targetKind: 'agent',
@@ -407,6 +577,13 @@
         refreshClusterConversationIfVisible(key);
     }
 
+    /**
+     * 替换集群Agent Swarm对话消息
+     * @param {string} clusterId - 集群ID
+     * @param {string} agentId - Agent ID
+     * @param {string} mode - Swarm模式
+     * @param {Array} messages - 新消息数组
+     */
     function replaceClusterAgentSwarmConversationMessages(clusterId, agentId, mode, messages) {
         const key = getClusterConversationKey(clusterId, {
             targetKind: 'agent',
@@ -430,6 +607,12 @@
         refreshClusterConversationIfVisible(key);
     }
 
+    /**
+     * 追加Swarm对话消息
+     * @param {string} clusterId - 集群ID
+     * @param {string} mode - Swarm模式
+     * @param {Array} messages - 消息数组
+     */
     function appendSwarmConversationMessages(clusterId, mode, messages) {
         const key = getClusterConversationKey(clusterId, {
             targetKind: 'swarm',
@@ -449,6 +632,16 @@
         refreshClusterConversationIfVisible(key);
     }
 
+    /**
+     * 替换Swarm对话消息
+     * @param {string} clusterId - 集群ID
+     * @param {string} mode - Swarm模式
+     * @param {Array} messages - 新消息数组
+     * @param {Object} options - 选项
+     * @param {string} options.outputMode - 输出模式
+     * @param {string} options.swarmRunId - Swarm运行ID
+     * @param {boolean} options.keepPending - 是否保持等待状态
+     */
     function replaceSwarmConversationMessages(clusterId, mode, messages, options = {}) {
         if (!shouldAcceptSwarmConversationUpdate(clusterId, mode, messages, options)) {
             return;
@@ -483,6 +676,14 @@
         refreshClusterConversationIfVisible(key);
     }
 
+    /**
+     * 清除Swarm对话等待状态
+     * @param {string} clusterId - 集群ID
+     * @param {string} mode - Swarm模式
+     * @param {Object} options - 选项
+     * @param {string} options.outputMode - 输出模式
+     * @param {string} options.swarmRunId - Swarm运行ID
+     */
     function clearSwarmConversationPending(clusterId, mode, options = {}) {
         if (!shouldAcceptSwarmConversationUpdate(clusterId, mode, [], options)) {
             return;
@@ -513,6 +714,9 @@
         refreshClusterConversationIfVisible(key);
     }
 
+    /**
+     * 清除当前集群等待状态
+     */
     function clearCurrentClusterPendingState() {
         const cluster = getCurrentCluster();
         if (!cluster) {
@@ -530,6 +734,12 @@
         renderClusterWorkspace();
     }
 
+    /**
+     * 构建广播对话消息
+     * 将各Agent的响应转换为统一的对话消息格式
+     * @param {Object} responses - 各Agent的响应对象
+     * @returns {Array} 消息数组
+     */
     function buildBroadcastConversationMessages(responses) {
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
         const messages = [];
@@ -552,6 +762,14 @@
         return messages;
     }
 
+    /**
+     * 构建Agent跟踪消息
+     * 将Agent的执行跟踪和最终消息合并为对话消息
+     * @param {Object} entry - Agent响应条目
+     * @param {string} displayName - 显示名称
+     * @param {string} contextLabel - 上下文标签
+     * @returns {Array} 消息数组
+     */
     function buildAgentTraceMessages(entry, displayName, contextLabel) {
         const trace = Array.isArray(entry?.trace) ? entry.trace : [];
         const source = mergeTraceWithFinalMessage(trace, entry?.message);
@@ -566,6 +784,7 @@
             const key = message.id || `${message.role}:${message.timestamp || ''}:${message.content || ''}`;
             const existingIndex = byKey.get(key);
             if (existingIndex !== undefined) {
+                // 选择内容更丰富的消息
                 if (shouldPreferClusterTraceMessage(message, deduped[existingIndex])) {
                     deduped[existingIndex] = {
                         ...message,
@@ -587,10 +806,22 @@
         return deduped;
     }
 
+    /**
+     * 判断是否应优先使用候选消息
+     * @param {Object} candidate - 候选消息
+     * @param {Object} existing - 现有消息
+     * @returns {boolean} 是否优先使用候选
+     */
     function shouldPreferClusterTraceMessage(candidate, existing) {
         return computeClusterTraceMessageRichness(candidate) >= computeClusterTraceMessageRichness(existing);
     }
 
+    /**
+     * 计算集群跟踪消息的丰富度
+     * 用于去重时选择更完整的消息
+     * @param {Object} message - 消息对象
+     * @returns {number} 丰富度得分
+     */
     function computeClusterTraceMessageRichness(message) {
         const contentLength = typeof message?.content === 'string' ? message.content.length : 0;
         const partsLength = Array.isArray(message?.parts)
@@ -600,6 +831,13 @@
         return contentLength + partsLength + metadataLength;
     }
 
+    /**
+     * 合并跟踪与最终消息
+     * 确保最终消息被包含在跟踪中（如果不存在）
+     * @param {Array} trace - 跟踪消息数组
+     * @param {Object} finalMessage - 最终消息
+     * @returns {Array} 合并后的消息数组
+     */
     function mergeTraceWithFinalMessage(trace, finalMessage) {
         if (!finalMessage) {
             return trace;
@@ -619,10 +857,21 @@
         return hasAssistantResult ? trace : [...trace, finalMessage];
     }
 
+    /**
+     * 构建跟踪去重键
+     * @param {Object} message - 消息对象
+     * @returns {string} 去重键
+     */
     function buildTraceDeduplicationKey(message) {
         return message.id || `${message.role}:${message.timestamp || ''}:${message.content || ''}`;
     }
 
+    /**
+     * 构建协作对话消息
+     * 将协作结果转换为对话消息格式
+     * @param {Object} result - 协作结果对象
+     * @returns {Array} 消息数组
+     */
     function buildCollaborationConversationMessages(result) {
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
         if (!result) {
@@ -630,6 +879,7 @@
         }
 
         const messages = [];
+        // 标准化轮次数据
         const rounds = Array.isArray(result.rounds) && result.rounds.length > 0
             ? result.rounds
             : [{
@@ -641,6 +891,7 @@
             ? resolveAgentLabel(result.coordinatorAgentId)
             : t('clusters.targetSwarm');
 
+        // 处理每个轮次
         rounds.forEach(round => {
             const roundLabel = getCollaborationRoundLabel(round, t);
             Object.entries(round.entries || {}).forEach(([agentId, entry]) => {
@@ -663,6 +914,7 @@
             });
         });
 
+        // 添加最终综合结果
         messages.push(result.synthesis?.ok && result.synthesis.message
             ? {
                 ...result.synthesis.message,
@@ -680,6 +932,13 @@
         return messages;
     }
 
+    /**
+     * 获取集群空对话提示文本
+     * 根据目标类型和模式返回相应的空状态提示
+     * @param {Object} cluster - 集群对象
+     * @param {Object} target - 目标信息对象
+     * @returns {string} 提示文本
+     */
     function getClusterEmptyConversationCopy(cluster, target) {
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
         if (target.kind === 'agent') {
@@ -705,6 +964,12 @@
             : t('clusters.emptyBroadcastConversation', { count: cluster.agentIds.length });
     }
 
+    /**
+     * 获取集群输入框占位符文本
+     * @param {Object} cluster - 集群对象
+     * @param {Object} target - 目标信息对象
+     * @returns {string} 占位符文本
+     */
     function getClusterInputPlaceholder(cluster, target) {
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
         if (!cluster) {
@@ -732,6 +997,12 @@
             : t('clusters.chatPlaceholderBroadcast');
     }
 
+    /**
+     * 获取集群目标提示文本
+     * @param {Object} cluster - 集群对象
+     * @param {Object} target - 目标信息对象
+     * @returns {string} 提示文本
+     */
     function getClusterTargetHint(cluster, target) {
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
         if (!cluster) {
@@ -765,6 +1036,11 @@
             : t('clusters.hintBroadcast', { count: cluster.agentIds.length });
     }
 
+    /**
+     * 获取集群等待中标签
+     * @param {Object} target - 目标信息对象
+     * @returns {string} 等待中标签
+     */
     function getClusterPendingLabel(target) {
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
         if (target.kind === 'agent') {
@@ -774,6 +1050,9 @@
         return t(target.mode === 'broadcast' ? 'clusters.broadcast' : 'clusters.collaborate');
     }
 
+    /**
+     * 滚动集群消息到底部
+     */
     function scrollClusterToBottom() {
         if (!elements.clusterMessages) {
             return;
@@ -782,6 +1061,11 @@
         elements.clusterMessages.scrollTop = elements.clusterMessages.scrollHeight;
     }
 
+    /**
+     * 获取集群可用Agent列表
+     * @param {Object} cluster - 集群对象
+     * @returns {Array} 可用Agent数组
+     */
     function getAvailableAgentsForCluster(cluster) {
         if (!cluster) {
             return [];
@@ -790,6 +1074,11 @@
         return state.agents.filter(agent => !cluster.agentIds.includes(agent.id));
     }
 
+    /**
+     * 解析集群状态标签
+     * @param {string} status - 状态值
+     * @returns {string} 本地化状态标签
+     */
     function resolveClusterStatusLabel(status) {
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
         if (status === 'active') {
@@ -801,6 +1090,12 @@
         return t('clusters.statusUnknown');
     }
 
+    /**
+     * 解析Agent标签
+     * 返回包含名称和模型的完整标签
+     * @param {string} agentId - Agent ID
+     * @returns {string} Agent标签
+     */
     function resolveAgentLabel(agentId) {
         if (!agentId) {
             return '—';
@@ -814,6 +1109,12 @@
         return `${agent.name} (${agent.model})`;
     }
 
+    /**
+     * 解析集群Agent标签
+     * 返回仅包含名称的简短标签
+     * @param {string} agentId - Agent ID
+     * @returns {string} Agent名称
+     */
     function resolveClusterAgentLabel(agentId) {
         if (!agentId) {
             return '-';
@@ -823,6 +1124,11 @@
         return agent?.name || agentId;
     }
 
+    /**
+     * 解析任务Agent标签
+     * @param {string} agentId - Agent ID
+     * @returns {string} Agent标签
+     */
     function resolveTaskAgentLabel(agentId) {
         const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
         if (!agentId) {
@@ -831,4 +1137,3 @@
 
         return resolveAgentLabel(agentId);
     }
-

@@ -66,10 +66,10 @@ export class LocalAgentSessionRepository {
 
     /**
      * Gets the ID of the first available agent.
-     * @returns The preferred agent ID or null if no agents exist
+     * @returns The preferred agent ID or undefined if no agents exist
      */
-    public getPreferredAgentId(): string | null {
-        return this.agents.values().next().value?.id ?? null;
+    public getPreferredAgentId(): string | undefined {
+        return this.agents.values().next().value?.id ?? undefined;
     }
 
     /**
@@ -83,10 +83,10 @@ export class LocalAgentSessionRepository {
     /**
      * Gets a specific agent by ID.
      * @param agentId - The agent ID to look up
-     * @returns The agent or null if not found
+     * @returns The agent or undefined if not found
      */
-    public getAgent(agentId: string): Agent | null {
-        return this.agents.get(agentId) || null;
+    public getAgent(agentId: string): Agent | undefined {
+        return this.agents.get(agentId) || undefined;
     }
 
     /**

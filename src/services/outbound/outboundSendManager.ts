@@ -79,13 +79,13 @@ export class OutboundSendManager extends EventEmitter {
         return deferred.promise;
     }
 
-    public getEntry(id: string): OutboundQueueEntry | null {
-        return this.entries.get(id) || null;
+    public getEntry(id: string): OutboundQueueEntry | undefined {
+        return this.entries.get(id) || undefined;
     }
 
     public listEntries(filter: OutboundQueueFilter = {}): OutboundQueueEntry[] {
         const entries = Array.from(this.entries.values());
-        return entries.filter(entry => {
+        return entries.filter((entry: any) => {
             if (filter.status && entry.status !== filter.status) return false;
             if (filter.transactionGroupId && entry.transactionGroupId !== filter.transactionGroupId) return false;
             const swarm = entry.swarm;
@@ -244,7 +244,7 @@ export class OutboundSendManager extends EventEmitter {
             entry.lastError = undefined;
             entry.failureClass = undefined;
             this.emitDeliveryEvent('delivery_succeeded', entry);
-            this.finalizeEntry(entry, null, response);
+            this.finalizeEntry(entry, undefined, response);
             lane.queue.shift();
         } catch (error) {
             if (timeoutHandle) {
@@ -349,10 +349,10 @@ export class OutboundSendManager extends EventEmitter {
         if (!group) {
             return;
         }
-        const entries = group.entryIds.map(id => this.entries.get(id)).filter(Boolean) as OutboundQueueEntry[];
-        group.delivered = entries.filter(entry => entry.status === 'sent').length;
-        group.failed = entries.filter(entry => entry.status === 'failed' || entry.status === 'dead-letter' || entry.status === 'expired').length;
-        group.pending = entries.filter(entry => !isTerminalStatus(entry.status)).length;
+        const entries = group.entryIds.map((id: any) => this.entries.get(id)).filter(Boolean) as OutboundQueueEntry[];
+        group.delivered = entries.filter((entry: any) => entry.status === 'sent').length;
+        group.failed = entries.filter((entry: any) => entry.status === 'failed' || entry.status === 'dead-letter' || entry.status === 'expired').length;
+        group.pending = entries.filter((entry: any) => !isTerminalStatus(entry.status)).length;
 
         const policy = group.completionPolicy || 'all';
         if (policy === 'any' && group.delivered > 0) {
@@ -375,7 +375,7 @@ export class OutboundSendManager extends EventEmitter {
         } satisfies OutboundDeliveryEvent);
     }
 
-    private finalizeEntry<T>(entry: OutboundQueueEntry<T>, error: OutboundDeliveryError | null, response?: T) {
+    private finalizeEntry<T>(entry: OutboundQueueEntry<T>, error: OutboundDeliveryError | undefined, response?: T) {
         const deferred = this.deferred.get(entry.id);
         if (!deferred) {
             return;
@@ -393,7 +393,7 @@ export class OutboundSendManager extends EventEmitter {
 function createDeferred<T>(): Deferred<T> {
     let resolve!: (value: T) => void;
     let reject!: (reason?: unknown) => void;
-    const promise = new Promise<T>((innerResolve, innerReject) => {
+    const promise = new Promise<T>((innerResolve: any, innerReject: any) => {
         resolve = innerResolve;
         reject = innerReject;
     });

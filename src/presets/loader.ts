@@ -94,7 +94,7 @@ async function resolvePresetRoots(extensionPath: string): Promise<PresetRoots> {
 
 async function readPresetDirectory<T>(
     dirPath: string,
-    normalize: (value: unknown) => T | null
+    normalize: (value: unknown) => T | undefined
 ): Promise<T[]> {
     let entries: Array<{ name: string; isFile: () => boolean }>;
     try {
@@ -131,23 +131,23 @@ async function readPresetDirectory<T>(
 
 function mergePresets<T extends { id: string }>(bundled: T[], user: T[]): T[] {
     const byId = new Map<string, T>();
-    bundled.forEach(preset => {
+    bundled.forEach((preset: any) => {
         byId.set(preset.id, preset);
     });
-    user.forEach(preset => {
+    user.forEach((preset: any) => {
         byId.set(preset.id, preset);
     });
     return Array.from(byId.values());
 }
 
-function normalizeIdentityPreset(value: unknown): IdentityPreset | null {
+function normalizeIdentityPreset(value: unknown): IdentityPreset | undefined {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
-        return null;
+        return undefined;
     }
     const record = value as Record<string, unknown>;
     const id = typeof record.id === 'string' ? record.id.trim() : '';
     if (!id) {
-        return null;
+        return undefined;
     }
     const name = typeof record.name === 'string' ? record.name.trim() : '';
     const nameKey = typeof record.nameKey === 'string' ? record.nameKey.trim() : '';
@@ -155,7 +155,7 @@ function normalizeIdentityPreset(value: unknown): IdentityPreset | null {
     const stance = typeof record.stance === 'string' ? record.stance.trim() : '';
     const wakeKeywords = Array.isArray(record.wakeKeywords)
         ? record.wakeKeywords
-            .map(keyword => typeof keyword === 'string' ? keyword.trim() : '')
+            .map((keyword: any) => typeof keyword === 'string' ? keyword.trim() : '')
             .filter(Boolean)
         : undefined;
 
@@ -169,28 +169,28 @@ function normalizeIdentityPreset(value: unknown): IdentityPreset | null {
     };
 }
 
-function normalizeSwarmPreset(value: unknown): SwarmPreset | null {
+function normalizeSwarmPreset(value: unknown): SwarmPreset | undefined {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
-        return null;
+        return undefined;
     }
     const record = value as Record<string, unknown>;
     const id = typeof record.id === 'string' ? record.id.trim() : '';
     const nameTemplate = typeof record.nameTemplate === 'string' ? record.nameTemplate.trim() : '';
     if (!id || !nameTemplate) {
-        return null;
+        return undefined;
     }
     const name = typeof record.name === 'string' ? record.name.trim() : '';
     const nameKey = typeof record.nameKey === 'string' ? record.nameKey.trim() : '';
     const description = typeof record.description === 'string' ? record.description.trim() : '';
     const descriptionKey = typeof record.descriptionKey === 'string' ? record.descriptionKey.trim() : '';
     const tags = Array.isArray(record.tags)
-        ? record.tags.map(tag => typeof tag === 'string' ? tag.trim() : '').filter(Boolean)
+        ? record.tags.map((tag: any) => typeof tag === 'string' ? tag.trim() : '').filter(Boolean)
         : undefined;
     const workspaceConfig = record.workspaceConfig && typeof record.workspaceConfig === 'object' && !Array.isArray(record.workspaceConfig)
         ? { ...(record.workspaceConfig as Record<string, unknown>) }
         : undefined;
     const recommendedSkills = Array.isArray(record.recommendedSkills)
-        ? record.recommendedSkills.map(skill => typeof skill === 'string' ? skill.trim() : '').filter(Boolean)
+        ? record.recommendedSkills.map((skill: any) => typeof skill === 'string' ? skill.trim() : '').filter(Boolean)
         : undefined;
     const onboardingMessageTemplate = typeof record.onboardingMessageTemplate === 'string'
         ? record.onboardingMessageTemplate.trim()
@@ -198,8 +198,8 @@ function normalizeSwarmPreset(value: unknown): SwarmPreset | null {
 
     const memberBlueprints = Array.isArray(record.memberBlueprints)
         ? record.memberBlueprints
-            .map(raw => normalizeSwarmPresetMemberBlueprint(raw))
-            .filter((item): item is SwarmPresetMemberBlueprint => Boolean(item))
+            .map((raw: any) => normalizeSwarmPresetMemberBlueprint(raw))
+            .filter((item: any): item is SwarmPresetMemberBlueprint => Boolean(item))
         : [];
 
     return {
@@ -217,16 +217,16 @@ function normalizeSwarmPreset(value: unknown): SwarmPreset | null {
     };
 }
 
-function normalizeSwarmPresetMemberBlueprint(value: unknown): SwarmPresetMemberBlueprint | null {
+function normalizeSwarmPresetMemberBlueprint(value: unknown): SwarmPresetMemberBlueprint | undefined {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
-        return null;
+        return undefined;
     }
     const record = value as Record<string, unknown>;
     const id = typeof record.id === 'string' ? record.id.trim() : '';
     const nameTemplate = typeof record.nameTemplate === 'string' ? record.nameTemplate.trim() : '';
     const presetId = typeof record.presetId === 'string' ? record.presetId.trim() : '';
     if (!id || !nameTemplate || !presetId) {
-        return null;
+        return undefined;
     }
 
     const model = typeof record.model === 'string' ? record.model.trim() : '';
@@ -248,16 +248,16 @@ function normalizeSwarmPresetMemberBlueprint(value: unknown): SwarmPresetMemberB
     };
 }
 
-function normalizeSwarmPresetProfile(value: unknown): SwarmPresetMemberProfile | null {
+function normalizeSwarmPresetProfile(value: unknown): SwarmPresetMemberProfile | undefined {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
-        return null;
+        return undefined;
     }
     const record = value as Record<string, unknown>;
     const identity = typeof record.identity === 'string' ? record.identity.trim() : '';
     const stance = typeof record.stance === 'string' ? record.stance.trim() : '';
     const presetIdentityId = typeof record.presetIdentityId === 'string' ? record.presetIdentityId.trim() : '';
     if (!identity && !stance && !presetIdentityId) {
-        return null;
+        return undefined;
     }
     return {
         ...(identity ? { identity } : {}),
@@ -272,10 +272,10 @@ function normalizeSwarmActivation(value: unknown): SwarmPresetMemberBlueprint['a
     }
     const record = value as Record<string, unknown>;
     const swarmModes = Array.isArray(record.swarmModes)
-        ? record.swarmModes.filter((mode): mode is 'broadcast' | 'collaborate' => mode === 'broadcast' || mode === 'collaborate')
+        ? record.swarmModes.filter((mode: any): mode is 'broadcast' | 'collaborate' => mode === 'broadcast' || mode === 'collaborate')
         : undefined;
     const keywords = Array.isArray(record.keywords)
-        ? record.keywords.map(keyword => typeof keyword === 'string' ? keyword.trim() : '').filter(Boolean)
+        ? record.keywords.map((keyword: any) => typeof keyword === 'string' ? keyword.trim() : '').filter(Boolean)
         : undefined;
     if ((!swarmModes || swarmModes.length === 0) && (!keywords || keywords.length === 0)) {
         return undefined;

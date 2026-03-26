@@ -20,8 +20,8 @@ suite('agentFolderManager', () => {
             await manager.setFolderCollapsed(review.id, true);
 
             let folders = await manager.getFolders();
-            const deliveryFolder = folders.find(folder => folder.id === delivery.id);
-            const reviewFolder = folders.find(folder => folder.id === review.id);
+            const deliveryFolder = folders.find((folder: any) => folder.id === delivery.id);
+            const reviewFolder = folders.find((folder: any) => folder.id === review.id);
 
             assert.deepEqual(deliveryFolder?.agentIds, ['agent-b']);
             assert.deepEqual(reviewFolder?.agentIds, ['agent-a']);
@@ -31,15 +31,15 @@ suite('agentFolderManager', () => {
             try {
                 await reloaded.pruneMissingAgents(['agent-a']);
                 folders = await reloaded.getFolders();
-                const prunedDelivery = folders.find(folder => folder.id === delivery.id);
-                const prunedReview = folders.find(folder => folder.id === review.id);
+                const prunedDelivery = folders.find((folder: any) => folder.id === delivery.id);
+                const prunedReview = folders.find((folder: any) => folder.id === review.id);
 
                 assert.deepEqual(prunedDelivery?.agentIds, []);
                 assert.deepEqual(prunedReview?.agentIds, ['agent-a']);
 
-                await reloaded.moveAgentToFolder('agent-a', null);
+                await reloaded.moveAgentToFolder('agent-a', undefined);
                 folders = await reloaded.getFolders();
-                const clearedReview = folders.find(folder => folder.id === review.id);
+                const clearedReview = folders.find((folder: any) => folder.id === review.id);
                 assert.deepEqual(clearedReview?.agentIds, []);
             } finally {
                 reloaded.dispose();

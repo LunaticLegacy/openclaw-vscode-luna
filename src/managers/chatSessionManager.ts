@@ -20,9 +20,9 @@ import { ChatMessage, ChatSession, CreateChatSessionOptions, OpenClawService } f
  * ```
  */
 export class ChatSessionManager extends EventEmitter {
-    private service: OpenClawService;
-    private sessions: Map<string, ChatSession> = new Map();
-    private currentSessionId: string | null = null;
+    private service: OpenClawService; // OpenClaw 服务实例
+    private sessions: Map<string, ChatSession> = new Map(); // 会话缓存
+    private currentSessionId: string | undefined = undefined; // 当前会话ID
 
     /**
      * 创建 ChatSessionManager 实例
@@ -92,44 +92,44 @@ export class ChatSessionManager extends EventEmitter {
      * 根据智能体查找会话
      * 
      * @param agentId - 智能体ID
-     * @returns 会话对象或 null
+     * @returns 会话对象或 undefined
      */
-    public findSessionByAgent(agentId: string): ChatSession | null {
+    public findSessionByAgent(agentId: string): ChatSession | undefined {
         for (const session of this.sessions.values()) {
             if (session.agentId === agentId) {
                 return session;
             }
         }
 
-        return null;
+        return undefined;
     }
 
     /**
      * 获取指定会话
      * 
      * @param sessionId - 会话ID
-     * @returns 会话对象或 null
+     * @returns 会话对象或 undefined
      */
-    public getSession(sessionId: string): ChatSession | null {
-        return this.sessions.get(sessionId) || null;
+    public getSession(sessionId: string): ChatSession | undefined {
+        return this.sessions.get(sessionId) || undefined;
     }
 
     /**
      * 获取当前会话
      * 
-     * @returns 当前会话或 null
+     * @returns 当前会话或 undefined
      */
-    public getCurrentSession(): ChatSession | null {
-        if (!this.currentSessionId) return null;
-        return this.sessions.get(this.currentSessionId) || null;
+    public getCurrentSession(): ChatSession | undefined {
+        if (!this.currentSessionId) return undefined;
+        return this.sessions.get(this.currentSessionId) || undefined;
     }
 
     /**
      * 获取当前会话ID
      * 
-     * @returns 当前会话ID或 null
+     * @returns 当前会话ID或 undefined
      */
-    public getCurrentSessionId(): string | null {
+    public getCurrentSessionId(): string | undefined {
         return this.currentSessionId;
     }
 
@@ -206,7 +206,7 @@ export class ChatSessionManager extends EventEmitter {
                     emittedStructuredMessage = true;
                 }
 
-                if (!isTransient && !session.messages.some(message => message.id === chunk.message!.id)) {
+                if (!isTransient && !session.messages.some((message: any) => message.id === chunk.message!.id)) {
                     session.messages.push(chunk.message);
                     session.updatedAt = chunk.message.timestamp || new Date().toISOString();
                 }
@@ -308,7 +308,7 @@ export class ChatSessionManager extends EventEmitter {
         this.sessions.delete(id);
 
         if (this.currentSessionId === id) {
-            this.currentSessionId = null;
+            this.currentSessionId = undefined;
         }
 
         this.emit('sessionClosed', id);
@@ -338,6 +338,6 @@ export class ChatSessionManager extends EventEmitter {
     public dispose() {
         this.removeAllListeners();
         this.sessions.clear();
-        this.currentSessionId = null;
+        this.currentSessionId = undefined;
     }
 }

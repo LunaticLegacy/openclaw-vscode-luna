@@ -2,8 +2,9 @@ import * as assert from 'assert';
 import WebSocket, { RawData } from 'ws';
 import { OpenClawCliRunner } from '../../services/openclawCli';
 import type { OpenClawCliServiceConfig } from '../../services/openclawConfig';
-const WebSocketServer = require('ws').Server as new (options: { port: number }) => {
-    address(): { port: number } | string | null;
+import type { WebSocketServerOptions } from '../../types/test';
+const WebSocketServer = require('ws').Server as new (options: WebSocketServerOptions) => {
+    address(): { port: number } | string | undefined;
     on(event: 'connection', listener: (socket: WebSocket) => void): unknown;
     close(callback: () => void): void;
 };
@@ -55,7 +56,7 @@ suite('openclawCli', () => {
         const calls: string[][] = [];
 
         const runner = new OpenClawCliRunner(config, {
-            executor: async ({ args }) => {
+            executor: async ({ args }: any) => {
                 calls.push(args);
                 return {
                     stdout: '{"id":"job-1"}',
@@ -199,7 +200,7 @@ suite('openclawCli', () => {
                 echoedLength: 12000
             });
         } finally {
-            await new Promise<void>(resolve => server.close(() => resolve()));
+            await new Promise<void>((resolve: any) => server.close(() => resolve()));
         }
     });
 });

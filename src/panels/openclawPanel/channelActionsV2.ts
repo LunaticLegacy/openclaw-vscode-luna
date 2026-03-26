@@ -13,6 +13,7 @@ import type {
   ChannelSourceConfig,
   ChannelAggregateConfig,
   SourceCredentials,
+  DeleteChannelOptions,
 } from '../../types/channel';
 
 /**
@@ -23,10 +24,10 @@ interface ChannelActionContext {
   channelSourceService: ChannelSourceService;
   channelAggregateService: ChannelAggregateService;
   postMessage(message: Record<string, unknown>): void;
-  getCurrentChannelId(): string | null;
-  setCurrentChannelId(channelId: string | null): void;
-  getCurrentChannelSessionId(): string | null;
-  setCurrentChannelSessionId(sessionId: string | null): void;
+  getCurrentChannelId(): string | undefined;
+  setCurrentChannelId(channelId: string | undefined): void;
+  getCurrentChannelSessionId(): string | undefined;
+  setCurrentChannelSessionId(sessionId: string | undefined): void;
   isPanelVisible(): boolean;
 }
 
@@ -49,7 +50,7 @@ export async function loadChannelTree(context: ChannelActionContext, selectedCha
       ? selectedChannelId
       : currentChannelId && findChannelInTree(tree, currentChannelId)
         ? currentChannelId
-        : tree.roots[0]?.id || null;
+        : tree.roots[0]?.id || undefined;
 
     context.postMessage({
       type: 'channelsLoadedV2',
@@ -146,11 +147,11 @@ export async function handleMoveChannel(
     if (direction) {
       // Swap order with sibling
       const channels = await context.channelManager.getChannels();
-      const channel = channels.find(c => c.id === channelId);
+      const channel = channels.find((c: any) => c.id === channelId);
       if (!channel) return;
 
-      const siblings = channels.filter(c => c.parentId === channel.parentId);
-      const currentIndex = siblings.findIndex(c => c.id === channelId);
+      const siblings = channels.filter((c: any) => c.parentId === channel.parentId);
+      const currentIndex = siblings.findIndex((c: any) => c.id === channelId);
       
       if (direction === 'up' && currentIndex > 0) {
         await context.channelManager.swapOrder(channelId, siblings[currentIndex - 1].id);
@@ -180,7 +181,7 @@ export async function handleMoveChannel(
 export async function handleDeleteChannel(
   context: ChannelActionContext,
   channelId: string,
-  options?: { recursive?: boolean; moveChildrenToParent?: boolean }
+  options?: DeleteChannelOptions
 ): Promise<void> {
   try {
     const result = await context.channelManager.deleteChannel(channelId, options);
@@ -197,8 +198,8 @@ export async function handleDeleteChannel(
     context.channelSourceService.stopAutoSync(channelId);
 
     if (context.getCurrentChannelId() === channelId) {
-      context.setCurrentChannelId(null);
-      context.setCurrentChannelSessionId(null);
+      context.setCurrentChannelId(undefined);
+      context.setCurrentChannelSessionId(undefined);
     }
 
     await loadChannelTree(context);
@@ -426,7 +427,7 @@ export async function handleRunAggregation(
 
     const tree = await context.channelManager.getChannelTree();
     const sourceChannels = Array.from(tree.all.values())
-      .map(n => n as unknown as ChannelConfig);
+      .map((n: any) => n as unknown as ChannelConfig);
 
     const result = await context.channelAggregateService.aggregateChannel(
       channel,
@@ -456,7 +457,7 @@ export async function handleRunAggregation(
  */
 export async function activateChannel(
   context: ChannelActionContext,
-  channelId: string | null | undefined
+  channelId: string | undefined
 ): Promise<void> {
   if (!channelId) {
     clearChannelSelection(context);
@@ -484,7 +485,7 @@ export async function activateChannel(
     // Resolve effective agent (inheritance)
     const effectiveAgentId = context.channelManager.getEffectiveAgentId(channelId);
     
-    context.setCurrentChannelSessionId(channel.sessionId || null);
+    context.setCurrentChannelSessionId(channel.sessionId || undefined);
     
     // Load messages if session exists
     if (channel.sessionId) {
@@ -515,15 +516,15 @@ export async function activateChannel(
  * @param context - The channel action context
  */
 export function clearChannelSelection(context: ChannelActionContext): void {
-  context.setCurrentChannelId(null);
-  context.setCurrentChannelSessionId(null);
+  context.setCurrentChannelId(undefined);
+  context.setCurrentChannelSessionId(undefined);
   context.postMessage({
     type: 'setActiveChannel',
-    channelId: null,
+    channelId: undefined,
   });
   context.postMessage({
     type: 'replaceChannelMessages',
-    channelId: null,
+    channelId: undefined,
     messages: [],
   });
 }

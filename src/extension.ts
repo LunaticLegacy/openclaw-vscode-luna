@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { registerCommands } from './commands/registerCommands';
 import { OpenClawExtensionRuntime } from './extension/runtime';
 
-let runtime: OpenClawExtensionRuntime | null = null;
+let runtime: OpenClawExtensionRuntime | undefined = undefined;
 
 /**
  * 激活 OpenClaw VS Code 插件。
@@ -46,5 +46,5 @@ export async function activate(context: vscode.ExtensionContext) {
 export function deactivate() {
     console.log('👋 OpenClaw Luna extension is now deactivated');
     runtime?.dispose();
-    runtime = null;
+    runtime = undefined;
 }

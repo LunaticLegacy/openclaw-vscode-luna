@@ -41,7 +41,7 @@ export function registerAgentCommands(
             if (availableModels.length > 0) {
                 const selectedModel = await vscode.window.showQuickPick(
                     [
-                        ...availableModels.map(modelName => ({
+                        ...availableModels.map((modelName: any) => ({
                             label: modelName
                         })),
                         {
@@ -102,7 +102,7 @@ export function registerAgentCommands(
         }),
         vscode.commands.registerCommand('openclaw.manageAgents', async () => {
             const agents = await runtime.agentManager.getAgents();
-            const items = agents.map(agent => ({
+            const items = agents.map((agent: any) => ({
                 label: agent.name,
                 description: agent.model,
                 detail: agent.id,

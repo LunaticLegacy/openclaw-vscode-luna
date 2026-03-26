@@ -162,12 +162,12 @@ export function getClusterWorkModePresets(): ClusterWorkModePreset[] {
  * @returns 集群工作模式预设
  */
 export function resolveClusterWorkModePreset(
-    presetId?: string | null
+    presetId?: string
 ): ClusterWorkModePreset {
     const normalizedPresetId = normalizePresetId(presetId);
     return cloneClusterWorkModePreset(
-        CLUSTER_WORK_MODE_PRESETS.find(preset => preset.id === normalizedPresetId)
-        || CLUSTER_WORK_MODE_PRESETS.find(preset => preset.id === DEFAULT_CLUSTER_WORK_MODE_PRESET_ID)!
+        CLUSTER_WORK_MODE_PRESETS.find((preset: any) => preset.id === normalizedPresetId)
+        || CLUSTER_WORK_MODE_PRESETS.find((preset: any) => preset.id === DEFAULT_CLUSTER_WORK_MODE_PRESET_ID)!
         || CLUSTER_WORK_MODE_PRESETS[0]
     );
 }
@@ -198,7 +198,7 @@ export function createDefaultClusterWorkspaceConfig(): ClusterWorkspaceConfig {
  * @returns 完整的规范化配置对象
  */
 export function normalizeClusterWorkspaceConfig(
-    config?: Partial<ClusterWorkspaceConfig> | null
+    config?: Partial<ClusterWorkspaceConfig>
 ): ClusterWorkspaceConfig {
     const preset = resolveClusterWorkModePreset(config?.presetId);
     const briefing = typeof config?.briefing === 'string'
@@ -228,18 +228,18 @@ function normalizeRunUntilConditionMet(
     return Boolean(value) && Boolean(stopCondition);
 }
 
-function normalizeStopCondition(value?: string | null): string | undefined {
+function normalizeStopCondition(value?: string): string | undefined {
     const normalized = String(value || '').trim();
     return normalized || undefined;
 }
 
-function normalizeCoordinatorAgentId(value?: string | null): string | undefined {
+function normalizeCoordinatorAgentId(value?: string): string | undefined {
     const normalized = String(value || '').trim();
     return normalized || undefined;
 }
 
 function normalizeMemberProfiles(
-    value?: Record<string, ClusterMemberProfile> | null
+    value?: Record<string, ClusterMemberProfile>
 ): Record<string, ClusterMemberProfile> {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
         return {};
@@ -276,7 +276,7 @@ function normalizeMemberProfiles(
 }
 
 function normalizeMemberActivation(
-    value?: ClusterMemberProfile['activation'] | null
+    value?: ClusterMemberProfile['activation']
 ): ClusterMemberProfile['activation'] | undefined {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
         return undefined;
@@ -285,14 +285,14 @@ function normalizeMemberActivation(
     const swarmModes = Array.isArray(value.swarmModes)
         ? Array.from(new Set(
             value.swarmModes.filter(
-                (mode): mode is 'broadcast' | 'collaborate' => mode === 'broadcast' || mode === 'collaborate'
+                (mode: any): mode is 'broadcast' | 'collaborate' => mode === 'broadcast' || mode === 'collaborate'
             )
         ))
         : undefined;
     const keywords = Array.isArray(value.keywords)
         ? Array.from(new Set(
             value.keywords
-                .map(keyword => typeof keyword === 'string' ? keyword.trim() : '')
+                .map((keyword: any) => typeof keyword === 'string' ? keyword.trim() : '')
                 .filter(Boolean)
         ))
         : undefined;
@@ -307,7 +307,7 @@ function normalizeMemberActivation(
     };
 }
 
-function normalizePresetId(value?: string | null): string {
+function normalizePresetId(value?: string): string {
     const normalized = String(value || '').trim();
     return normalized || DEFAULT_CLUSTER_WORK_MODE_PRESET_ID;
 }
@@ -389,7 +389,7 @@ function createPresetBlueprint(
 function cloneClusterWorkModePreset(preset: ClusterWorkModePreset): ClusterWorkModePreset {
     return {
         ...preset,
-        memberBlueprints: preset.memberBlueprints.map(blueprint => ({
+        memberBlueprints: preset.memberBlueprints.map((blueprint: any) => ({
             ...blueprint,
             activation: blueprint.activation
                 ? {

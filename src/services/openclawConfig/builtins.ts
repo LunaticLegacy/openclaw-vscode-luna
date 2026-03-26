@@ -212,6 +212,6 @@ export function getBuiltInOpenClawAuthProviderIds(): string[] {
 export function getBuiltInOpenClawDefaultModelsByProvider(): Record<string, string[]> {
     return Object.fromEntries(
         Object.entries(BUILTIN_OPENCLAW_DEFAULT_MODELS_BY_PROVIDER)
-            .map(([providerId, modelRefs]) => [providerId, [...modelRefs]])
+            .map(([providerId, modelRefs]: any) => [providerId, [...modelRefs]])
     );
 }

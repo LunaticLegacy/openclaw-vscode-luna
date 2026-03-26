@@ -58,17 +58,17 @@ export interface CreateChannelParams {
 export interface UpdateChannelParams {
   name?: string;
   description?: string;
-  parentId?: string | null;  // null to move to root
+  parentId?: string;  // undefined to move to root
   order?: number;
   agentId?: string;
-  sessionId?: string | null;
+  sessionId?: string;
   inheritAgent?: boolean;
   settings?: Partial<ChannelSettings>;
 }
 
 export interface MoveChannelParams {
   channelId: string;
-  newParentId?: string | null;
+  newParentId?: string;
   newOrder?: number;
 }
 
@@ -243,6 +243,11 @@ export interface ChannelMoveResult {
   oldParentId?: string;
   newParentId?: string;
   affectedChannelIds: string[];
+}
+
+export interface DeleteChannelOptions {
+  recursive?: boolean;
+  moveChildrenToParent?: boolean;
 }
 
 // ===== Migration =====

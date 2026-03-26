@@ -28,7 +28,7 @@ function normalizeLocale(language: string | undefined): Locale {
 }
 
 function format(template: string, values: Record<string, MessageValue>): string {
-    return template.replace(/\{(\w+)\}/g, (_match, key) => String(values[key] ?? ''));
+    return template.replace(/\{(\w+)\}/g, (_match: any, key: any) => String(values[key] ?? ''));
 }
 
 export function getCurrentLocale(): Locale {

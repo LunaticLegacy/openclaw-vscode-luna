@@ -34,8 +34,8 @@ export class UsageTreeItem extends vscode.TreeItem {
  * 实现 VSCode TreeDataProvider 接口，管理使用量指标的显示和更新
  */
 export class UsageTreeProvider implements vscode.TreeDataProvider<UsageTreeItem> {
-    private _onDidChangeTreeData: vscode.EventEmitter<UsageTreeItem | undefined | null | void> = new vscode.EventEmitter<UsageTreeItem | undefined | null | void>();
-    readonly onDidChangeTreeData: vscode.Event<UsageTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
+    private _onDidChangeTreeData: vscode.EventEmitter<UsageTreeItem | undefined | void> = new vscode.EventEmitter<UsageTreeItem | undefined | void>();
+    readonly onDidChangeTreeData: vscode.Event<UsageTreeItem | undefined | void> = this._onDidChangeTreeData.event;
 
     private usageManager: UsageManager;
 
@@ -139,9 +139,9 @@ export class UsageTreeProvider implements vscode.TreeDataProvider<UsageTreeItem>
     /**
      * 获取父节点
      * @param element - 当前节点元素
-     * @returns 父节点（根节点返回 null）
+     * @returns 父节点（根节点返回 undefined）
      */
     getParent(element: UsageTreeItem): vscode.ProviderResult<UsageTreeItem> {
-        return null;
+        return undefined;
     }
 }

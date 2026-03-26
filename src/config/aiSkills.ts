@@ -72,7 +72,7 @@ const AI_SKILLS: AiSkillDefinition[] = [
  * @returns AI技能定义数组的深拷贝
  */
 export function getAiSkills(): AiSkillDefinition[] {
-    return AI_SKILLS.map(skill => ({ ...skill }));
+    return AI_SKILLS.map((skill: any) => ({ ...skill }));
 }
 
 /**
@@ -85,7 +85,7 @@ export function normalizeEnabledSkills(skills: unknown): string[] {
         return [];
     }
 
-    const validIds = new Set(AI_SKILLS.map(skill => skill.id));
+    const validIds = new Set(AI_SKILLS.map((skill: any) => skill.id));
     const seen = new Set<string>();
     const result: string[] = [];
 
@@ -113,9 +113,9 @@ export function buildSkillPromptAppendix(enabledSkills: unknown): string {
     }
 
     const skillPrompts = normalizedSkills
-        .map(skillId => AI_SKILLS.find(skill => skill.id === skillId))
-        .filter((skill): skill is AiSkillDefinition => Boolean(skill))
-        .map(skill => `- ${skill.label}: ${skill.prompt}`);
+        .map((skillId: any) => AI_SKILLS.find((skill: any) => skill.id === skillId))
+        .filter((skill: any): skill is AiSkillDefinition => Boolean(skill))
+        .map((skill: any) => `- ${skill.label}: ${skill.prompt}`);
 
     if (skillPrompts.length === 0) {
         return '';

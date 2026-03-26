@@ -10,9 +10,11 @@ import {
     saveOpenClawConfigEditorState,
     startOpenClawGateway
 } from '../../services/openclawConfig';
+import type { MemoryStatus } from '../../services/memory';
 import type { OpenClawService } from '../../services/openclawService';
 import { runWithNotificationProgress } from '../../utils/statusFeedback';
 import { delay } from './helpers';
+import type { ConnectionSettings, OpenClawConfigSettings } from '../../types/panel';
 
 /**
  * Context interface for runtime action operations
@@ -21,11 +23,11 @@ interface RuntimeActionContext {
     service: OpenClawService;
     extensionPath: string;
     postMessage(message: Record<string, unknown>): void;
-    getRuntimeDiagnostics(): OpenClawRuntimeDiagnostics | null;
-    setRuntimeDiagnostics(value: OpenClawRuntimeDiagnostics | null): void;
-    getOpenClawConfigState(): OpenClawConfigEditorState | null;
-    setOpenClawConfigState(value: OpenClawConfigEditorState | null): void;
-    getMemoryStatus(): { backend: string; root: string; ready: boolean; lastSyncAt?: string; lastError?: string; lastEvent?: string } | null;
+    getRuntimeDiagnostics(): OpenClawRuntimeDiagnostics | undefined;
+    setRuntimeDiagnostics(value: OpenClawRuntimeDiagnostics | undefined): void;
+    getOpenClawConfigState(): OpenClawConfigEditorState | undefined;
+    setOpenClawConfigState(value: OpenClawConfigEditorState | undefined): void;
+    getMemoryStatus(): MemoryStatus | undefined;
     refreshMemoryStatus(): Promise<void>;
     loadAgents(): Promise<void>;
     loadClusters(): Promise<void>;
@@ -152,11 +154,7 @@ export async function handleRetryConnection(context: RuntimeActionContext): Prom
  */
 export async function handleSaveConnectionSettings(
     context: RuntimeActionContext,
-    settings: {
-        configMode?: 'auto' | 'gateway' | 'local' | 'openclaw';
-        gatewayUrl?: string;
-        gatewayToken?: string;
-    }
+    settings: ConnectionSettings
 ): Promise<void> {
     const config = vscode.workspace.getConfiguration('openclaw');
     const hasWorkspaceTarget = Boolean(vscode.workspace.workspaceFile) || (vscode.workspace.workspaceFolders?.length || 0) > 0;
@@ -199,14 +197,7 @@ export async function handleSaveConnectionSettings(
  */
 export async function handleSaveOpenClawConfig(
     context: RuntimeActionContext,
-    settings: {
-        gatewayPort?: number | string;
-        gatewayToken?: string;
-        defaultWorkspace?: string;
-        defaultModel?: string;
-        authProviderId?: string;
-        authApiKey?: string;
-    }
+    settings: OpenClawConfigSettings
 ): Promise<void> {
     const gatewayPort = Number(settings.gatewayPort);
     if (!Number.isInteger(gatewayPort) || gatewayPort <= 0 || gatewayPort > 65535) {

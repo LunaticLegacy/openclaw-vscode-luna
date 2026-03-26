@@ -46,19 +46,19 @@ export async function resolveGatewayConfig(
 export async function resolveLocalConfig(
     config: vscode.WorkspaceConfiguration,
     extensionPath: string
-): Promise<LocalServiceConfig | null> {
+): Promise<LocalServiceConfig | undefined> {
     const authProfilesPath = await findFirstExistingPath(getAuthProfileCandidates(config, extensionPath));
     const modelsPath = await findFirstExistingPath(getModelsCandidates(config, extensionPath));
 
-    const authProfiles = authProfilesPath ? await readJsonFile<AuthProfilesFile>(authProfilesPath) : null;
-    const models = modelsPath ? await readJsonFile<ModelsFile>(modelsPath) : null;
+    const authProfiles = authProfilesPath ? await readJsonFile<AuthProfilesFile>(authProfilesPath) : undefined;
+    const models = modelsPath ? await readJsonFile<ModelsFile>(modelsPath) : undefined;
     const providers = buildLocalProviders(authProfiles, models);
 
     if (providers.length === 0) {
-        return null;
+        return undefined;
     }
 
-    const sources = [authProfilesPath, modelsPath].filter((item): item is string => Boolean(item));
+    const sources = [authProfilesPath, modelsPath].filter((item: any): item is string => Boolean(item));
     return {
         mode: 'local',
         providers,
@@ -72,33 +72,33 @@ export async function resolveLocalConfig(
  * 
  * @param config vscode工作控件设置
  * @param extensionPath 插件路径，用于解析相对路径配置项
- * @returns async，如果找到有效的cli配置，则返回完整的OpenClawCliServiceConfig；否则返回null
+ * @returns async，如果找到有效的cli配置，则返回完整的OpenClawCliServiceConfig；否则返回undefined
  */
 export async function resolveOpenClawCliConfig(
     config: vscode.WorkspaceConfiguration,
     extensionPath: string
-): Promise<OpenClawCliServiceConfig | null> {
+): Promise<OpenClawCliServiceConfig | undefined> {
     // 在读取配置文件时，这个内容会在每次读取配置文件时进行磁盘IO操作。
     const stateDir = await findFirstExistingPath(getStateDirCandidates(config, extensionPath)); // 找到第一个路径。
     if (!stateDir) {
-        return null;
+        return undefined;
     }
 
     const configPath = path.join(stateDir, 'openclaw.json');    // openclaw本体的配置文件路径
     const openClawConfig = await readJsonFile<OpenClawConfigFile>(configPath);  // 阅读JSON文件，以openclaw本体的设置格式。
     if (!openClawConfig) {  // 保证读到
-        return null;
+        return undefined;
     }
 
     // 
     const cliEntryPath = await resolveCliEntryPath(config);
     if (!cliEntryPath) {
-        return null;
+        return undefined;
     }
 
     const nodePath = resolveNodePath(config, cliEntryPath);
     if (!nodePath) {
-        return null;
+        return undefined;
     }
 
     const configuredGatewayUrl = trimConfigPath(config.get<string>('gatewayUrl', ''));
@@ -138,8 +138,8 @@ export async function resolveDetectedGatewayConfig(
     );
 
     const stateDir = await findFirstExistingPath(getStateDirCandidates(config, extensionPath));
-    const configPath = stateDir ? path.join(stateDir, 'openclaw.json') : null;
-    const openClawConfig = configPath ? await readJsonFile<OpenClawConfigFile>(configPath) : null;
+    const configPath = stateDir ? path.join(stateDir, 'openclaw.json') : undefined;
+    const openClawConfig = configPath ? await readJsonFile<OpenClawConfigFile>(configPath) : undefined;
     const detectedGatewayUrl = openClawConfig
         ? `http://127.0.0.1:${normalizeGatewayPort(openClawConfig.gateway?.port)}`
         : undefined;
@@ -211,7 +211,7 @@ export function getStateDirCandidates(
  * @param config 
  * @returns 
  */
-export async function resolveCliEntryPath(config: vscode.WorkspaceConfiguration): Promise<string | null> {
+export async function resolveCliEntryPath(config: vscode.WorkspaceConfiguration): Promise<string | undefined> {
     const configuredPath = trimConfigPath(config.get<string>('cliPath', '') || process.env.OPENCLAW_CLI_PATH || process.env.OPENCLAW_CLI);
     if (configuredPath) {
         return normalizeCliEntryPath(configuredPath);
@@ -224,13 +224,13 @@ export async function resolveCliEntryPath(config: vscode.WorkspaceConfiguration)
         }
     }
 
-    return null;
+    return undefined;
 }
 
 export function resolveNodePath(
     config: vscode.WorkspaceConfiguration,
     cliEntryPath: string
-): string | null {
+): string | undefined {
     const configuredPath = trimConfigPath(config.get<string>('nodePath', '') || process.env.OPENCLAW_NODE_PATH);
     if (configuredPath && fsSync.existsSync(configuredPath)) {
         return configuredPath;
@@ -252,7 +252,7 @@ export function resolveNodePath(
         }
     }
 
-    return null;
+    return undefined;
 }
 
 export async function resolveOpenClawConfigStateDir(
@@ -273,8 +273,8 @@ export async function resolveOpenClawConfigStateDir(
 }
 
 function buildLocalProviders(
-    authProfiles: AuthProfilesFile | null,
-    models: ModelsFile | null
+    authProfiles: AuthProfilesFile | undefined,
+    models: ModelsFile | undefined
 ): LocalProviderConfig[] {
     const providers: LocalProviderConfig[] = [];
 
@@ -282,8 +282,8 @@ function buildLocalProviders(
         const baseUrl = providerConfig.baseUrl?.trim();
         const apiKey = resolveProviderApiKey(providerId, authProfiles, providerConfig.apiKey);
         const modelsForProvider = (providerConfig.models ?? [])
-            .filter(model => model.id)
-            .map(model => ({
+            .filter((model: any) => model.id)
+            .map((model: any) => ({
                 id: model.id!,
                 name: model.name?.trim() || model.id!
             }));
@@ -306,7 +306,7 @@ function buildLocalProviders(
 
 function resolveProviderApiKey(
     providerId: string,
-    authProfiles: AuthProfilesFile | null,
+    authProfiles: AuthProfilesFile | undefined,
     fallbackApiKey?: string
 ): string {
     const profiles = authProfiles?.profiles ?? {};
@@ -394,10 +394,10 @@ function getSearchBases(extensionPath: string): string[] {
  * @param candidatePath 
  * @returns 
  */
-function normalizeCliEntryPath(candidatePath: string): string | null {
+function normalizeCliEntryPath(candidatePath: string): string | undefined {
     const resolvedPath = path.resolve(candidatePath);
     if (!fsSync.existsSync(resolvedPath)) {
-        return null;
+        return undefined;
     }
 
     const stat = fsSync.statSync(resolvedPath);
@@ -407,7 +407,7 @@ function normalizeCliEntryPath(candidatePath: string): string | null {
                 return candidate;
             }
         }
-        return null;
+        return undefined;
     }
 
     const ext = path.extname(resolvedPath).toLowerCase();
@@ -426,7 +426,7 @@ function normalizeCliEntryPath(candidatePath: string): string | null {
         }
     }
 
-    return null;
+    return undefined;
 }
 
 function getCliCandidates(): string[] {
@@ -578,7 +578,7 @@ function getCliEntryCandidatesFromInstallRoot(installRoot: string): string[] {
     ];
 }
 
-function extractCliEntryFromShim(shimPath: string): string | null {
+function extractCliEntryFromShim(shimPath: string): string | undefined {
     try {
         const content = fsSync.readFileSync(shimPath, 'utf8');
         const matches = content.matchAll(/((?:%~?dp0%?|(?:\$|\$\{)basedir\}?|__dirname)?[^"'`\r\n]*node_modules[\\/]+openclaw[\\/]+(?:openclaw|dist[\\/]+cli)\.(?:mjs|js|cjs))/gi);
@@ -590,13 +590,13 @@ function extractCliEntryFromShim(shimPath: string): string | null {
             }
         }
     } catch {
-        return null;
+        return undefined;
     }
 
-    return null;
+    return undefined;
 }
 
-function resolveShimTargetPath(shimPath: string, rawTarget: string): string | null {
+function resolveShimTargetPath(shimPath: string, rawTarget: string): string | undefined {
     const normalizedTarget = rawTarget
         .trim()
         .replace(/^['"]|['"]$/g, '')
@@ -605,7 +605,7 @@ function resolveShimTargetPath(shimPath: string, rawTarget: string): string | nu
         .replace(/^__dirname[/\\]/i, '');
 
     if (!normalizedTarget) {
-        return null;
+        return undefined;
     }
 
     if (path.isAbsolute(normalizedTarget)) {

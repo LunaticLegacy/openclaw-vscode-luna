@@ -21,7 +21,8 @@ import type {
 } from '../../managers/clusterManager';
 import type { Agent, ChatMessage } from '../../services/openclawService';
 import { showSuccessStatus } from '../../utils/statusFeedback';
-import { normalizeOutgoingMessageContent } from './helpers';
+import { buildMessageSyncSignature, normalizeOutgoingMessageContent } from './helpers';
+import type { ClusterCreateFromMemberPresetParams, ClusterSaveData } from '../../types/panel';
 
 /**
  * Context interface for cluster action operations
@@ -36,7 +37,7 @@ interface ClusterActionContext {
     loadAgents(): Promise<void>;
     loadClusters(selectedClusterId?: string): Promise<void>;
     showClusterView(clusters: AgentCluster[], selectedClusterId?: string): void;
-    getCurrentAgentId(): string | null;
+    getCurrentAgentId(): string | undefined;
     beginAgentRun(agentId: string): boolean;
     endAgentRun(agentId: string): boolean;
     nextClusterSwarmRunToken(): number;
@@ -96,23 +97,27 @@ export async function handleBroadcast(context: ClusterActionContext, clusterId: 
     try {
         const agents = await context.agentManager.getAgents();
         const progress = await initializeClusterSwarmProgress(context, clusterId, 'broadcast', message, swarmRunId);
-        const responses = await context.clusterManager.broadcastToCluster(clusterId, message, {
-            swarmRunId,
-            onAgentResult: async (_agentId, entry) => {
-                if (context.getClusterSwarmRunToken() !== swarmRunToken) {
-                    return;
-                }
-                throwIfSwarmPermissionError(entry.error);
+        const responses = await context.clusterManager.broadcastToCluster({
+            clusterId,
+            message,
+            options: {
+                swarmRunId,
+                onAgentResult: async (_agentId: any, entry: any) => {
+                    if (context.getClusterSwarmRunToken() !== swarmRunToken) {
+                        return;
+                    }
+                    throwIfSwarmPermissionError(entry.error);
 
-                await appendClusterSwarmProgressMessages(
-                    context,
-                    progress,
-                    buildConversationMessagesForEntry(
-                        entry,
-                        resolveAgentLabel(agents, entry.agentId),
-                        t('clusters.broadcast')
-                    )
-                );
+                    await appendClusterSwarmProgressMessages(
+                        context,
+                        progress,
+                        buildConversationMessagesForEntry(
+                            entry,
+                            resolveAgentLabel(agents, entry.agentId),
+                            t('clusters.broadcast')
+                        )
+                    );
+                }
             }
         });
         throwIfSwarmPermissionError(findSwarmPermissionErrorFromEntries(Object.values(responses || {})) || undefined);
@@ -184,26 +189,33 @@ export async function handleCollaborate(context: ClusterActionContext, clusterId
     const swarmRunId = buildPanelSwarmRunId(clusterId, 'collaborate');
     const runningAgentIds = await beginClusterAgentRuns(context, clusterId);
     try {
-        const agents = await context.agentManager.getAgents();
+        const [agents, cluster] = await Promise.all([
+            context.agentManager.getAgents(),
+            context.clusterManager.getCluster(clusterId)
+        ]);
         const progress = await initializeClusterSwarmProgress(context, clusterId, 'collaborate', message, swarmRunId);
-        const result = await context.clusterManager.collaborateOnCluster(clusterId, normalizeOutgoingMessageContent(message), {
-            swarmRunId,
-            coordinatorAgentId: context.getCurrentAgentId() || undefined,
-            onProgress: async (event: ClusterCollaborationProgressEvent) => {
-                if (context.getClusterSwarmRunToken() !== swarmRunToken || event.swarmRunId !== swarmRunId) {
-                    return;
-                }
-                if (event.kind === 'round-entry') {
-                    throwIfSwarmPermissionError(event.entry?.error);
-                } else {
-                    throwIfSwarmPermissionError(event.entry?.error);
-                }
+        const result = await context.clusterManager.collaborateOnCluster({
+            clusterId,
+            message: normalizeOutgoingMessageContent(message),
+            options: {
+                swarmRunId,
+                coordinatorAgentId: context.getCurrentAgentId() || undefined,
+                onProgress: async (event: ClusterCollaborationProgressEvent) => {
+                    if (context.getClusterSwarmRunToken() !== swarmRunToken || event.swarmRunId !== swarmRunId) {
+                        return;
+                    }
+                    if (event.kind === 'round-entry') {
+                        throwIfSwarmPermissionError(event.entry?.error);
+                    } else {
+                        throwIfSwarmPermissionError(event.entry?.error);
+                    }
 
-                await appendClusterSwarmProgressMessages(
-                    context,
-                    progress,
-                    buildConversationMessagesForProgressEvent(event, agents)
-                );
+                    await appendClusterSwarmProgressMessages(
+                        context,
+                        progress,
+                        buildConversationMessagesForProgressEvent(event, agents)
+                    );
+                }
             }
         });
         throwIfSwarmPermissionError(findSwarmPermissionErrorFromCollaborationResult(result) || undefined);
@@ -212,10 +224,7 @@ export async function handleCollaborate(context: ClusterActionContext, clusterId
             const conversationMessages = await finalizeClusterSwarmProgress(
                 context,
                 progress,
-                buildCollaborationConversationMessages(
-                    result,
-                    agents
-                )
+                buildCollaborationConversationMessages(result, agents, cluster?.agentIds || [])
             );
             context.postMessage({
                 type: 'replaceSwarmMessages',
@@ -224,6 +233,7 @@ export async function handleCollaborate(context: ClusterActionContext, clusterId
                 messages: conversationMessages,
                 swarmRunId: result.swarmRunId
             });
+            await refreshClusterSwarmRawLog(context, clusterId, result.swarmRunId);
             return true;
         }
     } catch (error) {
@@ -292,7 +302,7 @@ export async function loadClusterSwarmMessages(
 
         const messages = outputMode === 'raw' && mode === 'collaborate'
             ? await buildClusterSwarmRawLogMessages(context, clusterId, mode, swarmRunId)
-            : await context.clusterManager.getClusterSwarmMessages(clusterId, mode, swarmRunId);
+            : await context.clusterManager.getClusterSwarmMessages({ clusterId, mode, swarmRunId });
         context.postMessage({
             type: 'replaceSwarmMessages',
             clusterId,
@@ -341,26 +351,43 @@ export async function loadClusterAgentMessages(
             loading: true
         });
 
-        const sessionId = await context.clusterManager.ensureClusterAgentSessionId(clusterId, agentId);
+        const sessionId = await context.clusterManager.ensureClusterAgentSessionId({ clusterId, agentId });
+        const persistedMessages = await context.clusterManager.getClusterAgentMessages({ clusterId, agentId });
+        if (persistedMessages.length > 0) {
+            context.postMessage({
+                type: 'replaceClusterMessages',
+                clusterId,
+                agentId,
+                messages: persistedMessages
+            });
+        }
+
         const session = await context.clusterSessionManager.getOrCreateSession(agentId, {
             refreshHistory: true,
             sessionId
         });
         context.clusterSessionManager.setCurrentSession(session.id);
-        const persistedMessages = await context.clusterManager.getClusterAgentMessages(clusterId, agentId);
         const resolvedMessages = session.messages.length > 0 ? session.messages : persistedMessages;
         session.messages = resolvedMessages;
+        const persistedSignature = buildMessageSyncSignature(persistedMessages);
+        const resolvedSignature = buildMessageSyncSignature(resolvedMessages);
 
-        if (resolvedMessages.length > 0) {
-            await context.clusterManager.replaceClusterAgentMessages(clusterId, agentId, resolvedMessages);
+        if (resolvedMessages.length > 0 && resolvedSignature !== persistedSignature) {
+            await context.clusterManager.replaceClusterAgentMessages({
+                clusterId,
+                agentId,
+                messages: resolvedMessages
+            });
         }
 
-        context.postMessage({
-            type: 'replaceClusterMessages',
-            clusterId,
-            agentId,
-            messages: resolvedMessages
-        });
+        if (resolvedSignature !== persistedSignature || persistedMessages.length === 0) {
+            context.postMessage({
+                type: 'replaceClusterMessages',
+                clusterId,
+                agentId,
+                messages: resolvedMessages
+            });
+        }
     } catch (error) {
         context.postMessage({
             type: 'error',
@@ -399,7 +426,7 @@ export async function handleClusterAgentMessage(
     context.beginAgentRun(agentId);
 
     try {
-        const sessionId = await context.clusterManager.ensureClusterAgentSessionId(clusterId, agentId);
+        const sessionId = await context.clusterManager.ensureClusterAgentSessionId({ clusterId, agentId });
         const session = await context.clusterSessionManager.getOrCreateSession(agentId, {
             sessionId
         });
@@ -427,7 +454,11 @@ export async function handleClusterAgentMessage(
             const messages = await context.clusterSessionManager.refreshSessionHistory(session.id, {
                 preferLiveState: true
             });
-            await context.clusterManager.replaceClusterAgentMessages(clusterId, agentId, messages);
+            await context.clusterManager.replaceClusterAgentMessages({
+                clusterId,
+                agentId,
+                messages
+            });
             context.postMessage({
                 type: 'replaceClusterMessages',
                 clusterId,
@@ -476,7 +507,11 @@ export async function loadClusterAgentSwarmMessages(
             loading: true
         });
 
-        const messages = await context.clusterManager.getClusterAgentSwarmMessages(clusterId, agentId, mode);
+        const messages = await context.clusterManager.getClusterAgentSwarmMessages({
+            clusterId,
+            agentId,
+            mode
+        });
         context.postMessage({
             type: 'replaceClusterAgentSwarmMessages',
             clusterId,
@@ -555,11 +590,11 @@ export async function handleClusterAgentSessionCommand(
             loading: true
         });
 
-        let sessionId = await context.clusterManager.ensureClusterAgentSessionId(clusterId, agentId);
+        let sessionId = await context.clusterManager.ensureClusterAgentSessionId({ clusterId, agentId });
         if (command === 'new') {
-            sessionId = await context.clusterManager.resetClusterAgentSessionId(clusterId, agentId);
+            sessionId = await context.clusterManager.resetClusterAgentSessionId({ clusterId, agentId });
         }
-        await context.clusterManager.clearClusterAgentMessages(clusterId, agentId);
+        await context.clusterManager.clearClusterAgentMessages({ clusterId, agentId });
 
         let session = await context.clusterSessionManager.getOrCreateSession(agentId, {
             refreshHistory: true,
@@ -573,8 +608,8 @@ export async function handleClusterAgentSessionCommand(
                 preferLiveState: true
             });
             if (clearedMessages.length > 0) {
-                sessionId = await context.clusterManager.resetClusterAgentSessionId(clusterId, agentId);
-                await context.clusterManager.clearClusterAgentMessages(clusterId, agentId);
+                sessionId = await context.clusterManager.resetClusterAgentSessionId({ clusterId, agentId });
+                await context.clusterManager.clearClusterAgentMessages({ clusterId, agentId });
                 session = await context.clusterSessionManager.getOrCreateSession(agentId, {
                     refreshHistory: true,
                     sessionId
@@ -613,33 +648,22 @@ export async function handleClusterAgentSessionCommand(
 export async function handleSaveCluster(
     context: ClusterActionContext,
     clusterId: string | undefined,
-    data: {
-        name?: string;
-        agentIds?: string[];
-        createAgents?: Array<{
-            name?: string;
-            model?: string;
-            systemPrompt?: string;
-            presetId?: string;
-            enabledSkills?: string[];
-        }>;
-        workspaceConfig?: Record<string, unknown>;
-    }
+    data: ClusterSaveData
 ): Promise<void> {
     const name = typeof data?.name === 'string' ? data.name.trim() : '';
     const existingAgentIds = Array.isArray(data?.agentIds)
-        ? data.agentIds.map(agentId => String(agentId || '').trim()).filter(Boolean)
+        ? data.agentIds.map((agentId: any) => String(agentId || '').trim()).filter(Boolean)
         : [];
     const createAgents = Array.isArray(data?.createAgents)
         ? data.createAgents
-            .map(agent => ({
+            .map((agent: any) => ({
                 name: typeof agent?.name === 'string' ? agent.name.trim() : '',
                 model: typeof agent?.model === 'string' ? agent.model.trim() : '',
                 systemPrompt: typeof agent?.systemPrompt === 'string' ? agent.systemPrompt.trim() : '',
                 presetId: typeof agent?.presetId === 'string' ? agent.presetId.trim() : undefined,
                 enabledSkills: Array.isArray(agent?.enabledSkills) ? agent.enabledSkills.filter(Boolean) : undefined
             }))
-            .filter(agent => agent.name)
+            .filter((agent: any) => agent.name)
         : [];
 
     if (!name) {
@@ -671,7 +695,7 @@ export async function handleSaveCluster(
             title: progressTitle,
             cancellable: false
         },
-        async progress => {
+        async (progress: any) => {
             const reporter = createStepProgressReporter(progress, totalSteps);
 
             try {
@@ -693,7 +717,8 @@ export async function handleSaveCluster(
                 const agentIds = Array.from(new Set([...existingAgentIds, ...createdAgentIds]));
                 reporter.start(t(clusterId ? 'progress.updatingClusterRecord' : 'progress.creatingClusterRecord'));
                 const cluster = clusterId
-                    ? await context.clusterManager.updateCluster(clusterId, {
+                    ? await context.clusterManager.updateCluster({
+                        clusterId,
                         name,
                         agentIds,
                         workspaceConfig: workspaceConfig as any
@@ -730,7 +755,7 @@ export async function handleSaveCluster(
             } catch (error) {
                 if (createdAgentIds.length > 0) {
                     reporter.start(t('progress.rollingBackClusterAgents'));
-                    await Promise.allSettled(createdAgentIds.map(agentId => context.agentManager.deleteAgent(agentId)));
+                    await Promise.allSettled(createdAgentIds.map((agentId: any) => context.agentManager.deleteAgent(agentId)));
                     await context.loadAgents();
                 }
                 vscode.window.showErrorMessage(t(clusterId ? 'clusters.updateFailed' : 'clusters.createFailed', { error: String(error) }));
@@ -740,27 +765,18 @@ export async function handleSaveCluster(
 }
 
 /**
- * Parameters for creating a cluster from a member preset
- */
-export interface CreateClusterFromPresetParams {
-    memberPresetId: string;
-    customName?: string;
-    model?: string;
-}
-
-/**
  * Handles creating a cluster from a member preset
  * @param context - The cluster action context
  * @param params - The creation parameters
  */
 export async function handleCreateClusterFromMemberPreset(
     context: ClusterActionContext,
-    params: CreateClusterFromPresetParams
+    params: ClusterCreateFromMemberPresetParams
 ): Promise<void> {
     const { memberPresetId, customName, model } = params;
     
     const memberPresets = await getClusterMemberPresets(context.extensionPath);
-    const preset = memberPresets.find(p => p.id === memberPresetId);
+    const preset = memberPresets.find((p: any) => p.id === memberPresetId);
     
     if (!preset) {
         vscode.window.showErrorMessage(t('clusters.memberPresetNotFound', { presetId: memberPresetId }));
@@ -769,7 +785,7 @@ export async function handleCreateClusterFromMemberPreset(
 
     const clusterName = customName?.trim() || buildClusterNameFromTemplate(preset.nameTemplate);
     const identityPresets = await loadIdentityPresets(context.extensionPath);
-    const identityPresetMap = new Map(identityPresets.map(item => [item.id, item]));
+    const identityPresetMap = new Map(identityPresets.map((item: any) => [item.id, item]));
     
     const createdAgentIds: string[] = [];
     const agentIdMap = new Map<string, string>();
@@ -783,7 +799,7 @@ export async function handleCreateClusterFromMemberPreset(
             title: progressTitle,
             cancellable: false
         },
-        async progress => {
+        async (progress: any) => {
             const reporter = createStepProgressReporter(progress, totalSteps);
 
             try {
@@ -799,7 +815,7 @@ export async function handleCreateClusterFromMemberPreset(
 
                     const agentName = `${blueprint.nameTemplate}`;
                     
-                    const existingAgent = agents.find(a => a.name === agentName);
+                    const existingAgent = agents.find((a: any) => a.name === agentName);
                     if (existingAgent) {
                         agentIdMap.set(blueprint.id, existingAgent.id);
                         createdAgentIds.push(existingAgent.id);
@@ -825,7 +841,7 @@ export async function handleCreateClusterFromMemberPreset(
                     reporter.complete();
                 }
 
-                const rootBlueprint = preset.memberBlueprints.find(b => b.isCoordinator) || preset.memberBlueprints[0];
+                const rootBlueprint = preset.memberBlueprints.find((b: any) => b.isCoordinator) || preset.memberBlueprints[0];
                 const coordinatorAgentId = rootBlueprint ? agentIdMap.get(rootBlueprint.id) : undefined;
 
                 const memberProfiles: Record<string, {
@@ -933,7 +949,7 @@ export async function handleCreateClusterFromMemberPreset(
             } catch (error) {
                 if (createdAgentIds.length > 0) {
                     reporter.start(t('progress.rollingBackClusterAgents'));
-                    await Promise.allSettled(createdAgentIds.map(agentId => context.agentManager.deleteAgent(agentId)));
+                    await Promise.allSettled(createdAgentIds.map((agentId: any) => context.agentManager.deleteAgent(agentId)));
                     await context.loadAgents();
                 }
                 vscode.window.showErrorMessage(t('clusters.createFromPresetFailed', { error: String(error) }));
@@ -963,14 +979,14 @@ export async function handleAddAgentsToCluster(context: ClusterActionContext, cl
             return;
         }
 
-        const availableAgents = agents.filter(agent => !cluster.agentIds.includes(agent.id));
+        const availableAgents = agents.filter((agent: any) => !cluster.agentIds.includes(agent.id));
         if (availableAgents.length === 0) {
             showSuccessStatus(t('clusters.noAvailableAgentsToAdd'));
             return;
         }
 
         const selectedAgents = await vscode.window.showQuickPick(
-            availableAgents.map(agent => ({
+            availableAgents.map((agent: any) => ({
                 label: agent.name,
                 description: agent.model,
                 agentId: agent.id
@@ -985,8 +1001,9 @@ export async function handleAddAgentsToCluster(context: ClusterActionContext, cl
             return;
         }
 
-        await context.clusterManager.updateCluster(clusterId, {
-            agentIds: [...cluster.agentIds, ...selectedAgents.map(agent => agent.agentId)]
+        await context.clusterManager.updateCluster({
+            clusterId,
+            agentIds: [...cluster.agentIds, ...selectedAgents.map((agent: any) => agent.agentId)]
         });
         await context.loadClusters(clusterId);
         showSuccessStatus(t('clusters.agentsAdded', { count: selectedAgents.length }));
@@ -1013,7 +1030,7 @@ export async function handleRemoveAgentsFromCluster(context: ClusterActionContex
         }
 
         const agents = await context.agentManager.getAgents();
-        const agentNames = new Map(agents.map(agent => [agent.id, agent.name]));
+        const agentNames = new Map(agents.map((agent: any) => [agent.id, agent.name]));
 
         if (cluster.agentIds.length <= 1) {
             vscode.window.showWarningMessage(t('clusters.removeLastAgentBlocked'));
@@ -1021,7 +1038,7 @@ export async function handleRemoveAgentsFromCluster(context: ClusterActionContex
         }
 
         const selectedAgents = await vscode.window.showQuickPick(
-            cluster.agentIds.map(agentId => ({
+            cluster.agentIds.map((agentId: any) => ({
                 label: agentNames.get(agentId) || agentId,
                 description: agentId,
                 agentId,
@@ -1037,8 +1054,8 @@ export async function handleRemoveAgentsFromCluster(context: ClusterActionContex
             return;
         }
 
-        const remainingAgentIds = cluster.agentIds.filter(agentId =>
-            !selectedAgents.some(selected => selected.agentId === agentId)
+        const remainingAgentIds = cluster.agentIds.filter((agentId: any) =>
+            !selectedAgents.some((selected: any) => selected.agentId === agentId)
         );
 
         if (remainingAgentIds.length === 0) {
@@ -1046,7 +1063,8 @@ export async function handleRemoveAgentsFromCluster(context: ClusterActionContex
             return;
         }
 
-        await context.clusterManager.updateCluster(clusterId, {
+        await context.clusterManager.updateCluster({
+            clusterId,
             agentIds: remainingAgentIds
         });
         await context.loadClusters(clusterId);
@@ -1082,7 +1100,12 @@ async function initializeClusterSwarmProgress(
     const messages = [
         buildSwarmUserMessage(userMessage, mode, batchId)
     ];
-    await context.clusterManager.replaceClusterSwarmMessages(clusterId, mode, messages, swarmRunId);
+    await context.clusterManager.replaceClusterSwarmMessages({
+        clusterId,
+        mode,
+        messages,
+        swarmRunId
+    });
     context.postMessage({
         type: 'replaceSwarmMessages',
         clusterId,
@@ -1121,12 +1144,12 @@ async function appendClusterSwarmProgressMessages(
     messages: PresentedChatMessage[]
 ): Promise<void> {
     const nextMessages = messages
-        .map(message => normalizeSwarmProgressMessage(attachSwarmBatchMetadata(message, progress.batchId)));
+        .map((message: any) => normalizeSwarmProgressMessage(attachSwarmBatchMetadata(message, progress.batchId)));
 
     let changed = false;
     for (const message of nextMessages) {
         const identityKey = buildSwarmProgressMessageIdentityKey(message);
-        const existingIndex = progress.messages.findIndex(existing =>
+        const existingIndex = progress.messages.findIndex((existing: any) =>
             buildSwarmProgressMessageIdentityKey(existing) === identityKey
         );
 
@@ -1153,7 +1176,12 @@ async function appendClusterSwarmProgressMessages(
         return;
     }
 
-    await context.clusterManager.replaceClusterSwarmMessages(progress.clusterId, progress.mode, progress.messages, progress.swarmRunId);
+    await context.clusterManager.replaceClusterSwarmMessages({
+        clusterId: progress.clusterId,
+        mode: progress.mode,
+        messages: progress.messages,
+        swarmRunId: progress.swarmRunId
+    });
     context.postMessage({
         type: 'replaceSwarmMessages',
         clusterId: progress.clusterId,
@@ -1183,7 +1211,7 @@ async function finalizeClusterSwarmProgress(
     },
     assistantMessages: PresentedChatMessage[]
 ): Promise<PresentedChatMessage[]> {
-    const persistedUserMessages = progress.messages.filter(message => message.role === 'user');
+    const persistedUserMessages = progress.messages.filter((message: any) => message.role === 'user');
     const finalizedProgress = {
         ...progress,
         messages: [...persistedUserMessages],
@@ -1193,7 +1221,12 @@ async function finalizeClusterSwarmProgress(
     await appendClusterSwarmProgressMessages(context, finalizedProgress, assistantMessages);
     progress.messages = finalizedProgress.messages;
     progress.seenKeys = finalizedProgress.seenKeys;
-    await context.clusterManager.replaceClusterSwarmMessages(progress.clusterId, progress.mode, progress.messages, progress.swarmRunId);
+    await context.clusterManager.replaceClusterSwarmMessages({
+        clusterId: progress.clusterId,
+        mode: progress.mode,
+        messages: progress.messages,
+        swarmRunId: progress.swarmRunId
+    });
     return progress.messages;
 }
 
@@ -1231,7 +1264,8 @@ function buildBroadcastConversationMessages(
  */
 function buildCollaborationConversationMessages(
     result: ClusterCollaborationResult,
-    agents: Agent[]
+    agents: Agent[],
+    clusterAgentIds: string[] = []
 ): PresentedChatMessage[] {
     const messages: PresentedChatMessage[] = [];
     const rounds = Array.isArray(result.rounds) && result.rounds.length > 0
@@ -1254,6 +1288,37 @@ function buildCollaborationConversationMessages(
                 roundLabel
             ));
         }
+    }
+
+    const surfacedAgentIds = new Set<string>();
+    for (const round of rounds) {
+        for (const agentId of Object.keys(round.entries || {})) {
+            surfacedAgentIds.add(agentId);
+        }
+    }
+
+    if (result.synthesis?.agentId) {
+        surfacedAgentIds.add(result.synthesis.agentId);
+    }
+
+    for (const agentId of clusterAgentIds) {
+        if (surfacedAgentIds.has(agentId)) {
+            continue;
+        }
+
+        messages.push({
+            id: `swarm-missing:${result.swarmRunId}:${agentId}`,
+            role: 'assistant',
+            content: t('clusters.collaborateNoAgentOutput'),
+            timestamp: new Date().toISOString(),
+            agentId,
+            displayName: resolveAgentLabel(agents, agentId),
+            contextLabel: t('clusters.collaborate'),
+            metadata: {
+                swarmMissingOutput: true,
+                swarmRunId: result.swarmRunId
+            }
+        });
     }
 
     messages.push(result.synthesis?.ok && result.synthesis.message
@@ -1404,12 +1469,12 @@ function mergeTraceWithFinalMessage(
     }
 
     const finalKey = buildTraceDeduplicationKey(finalMessage);
-    const hasFinalMessage = trace.some(message => buildTraceDeduplicationKey(message) === finalKey);
+    const hasFinalMessage = trace.some((message: any) => buildTraceDeduplicationKey(message) === finalKey);
     if (hasFinalMessage) {
         return trace;
     }
 
-    const hasAssistantResult = trace.some(message => message?.role === 'assistant');
+    const hasAssistantResult = trace.some((message: any) => message?.role === 'assistant');
     return hasAssistantResult ? trace : [...trace, finalMessage];
 }
 
@@ -1518,7 +1583,7 @@ function decorateClusterAgentLogMessages(
     const contextLabel = mode === 'broadcast'
         ? t('clusters.agentViewBroadcast')
         : t('clusters.agentViewCollaborate');
-    return messages.map(message => ({
+    return messages.map((message: any) => ({
         ...message,
         contextLabel: message.contextLabel || contextLabel
     }));
@@ -1569,30 +1634,30 @@ function throwIfSwarmPermissionError(error?: string): void {
     }
 }
 
-function findSwarmPermissionErrorFromEntries(entries: ClusterBroadcastResult[]): string | null {
+function findSwarmPermissionErrorFromEntries(entries: ClusterBroadcastResult[]): string | undefined {
     for (const entry of entries) {
         if (isSwarmPermissionScopeError(entry?.error)) {
-            return entry.error || null;
+            return entry.error || undefined;
         }
     }
 
-    return null;
+    return undefined;
 }
 
-function findSwarmPermissionErrorFromCollaborationResult(result: ClusterCollaborationResult): string | null {
+function findSwarmPermissionErrorFromCollaborationResult(result: ClusterCollaborationResult): string | undefined {
     for (const round of result.rounds || []) {
         for (const entry of Object.values(round.entries || {})) {
             if (isSwarmPermissionScopeError(entry?.error)) {
-                return entry.error || null;
+                return entry.error || undefined;
             }
         }
     }
 
     if (isSwarmPermissionScopeError(result.synthesis?.error)) {
-        return result.synthesis?.error || null;
+        return result.synthesis?.error || undefined;
     }
 
-    return null;
+    return undefined;
 }
 
 /**
@@ -1602,11 +1667,12 @@ function findSwarmPermissionErrorFromCollaborationResult(result: ClusterCollabor
  * @returns The decorated message
  */
 function decorateSwarmResultMessage(message: PresentedChatMessage, entry: ClusterBroadcastResult): PresentedChatMessage {
+    const swarmMetadata = buildSwarmResultMetadata(entry);
     return {
         ...message,
         metadata: {
             ...(message.metadata || {}),
-            ...buildSwarmResultMetadata(entry)
+            ...(swarmMetadata || {})
         }
     };
 }
@@ -1620,7 +1686,7 @@ function buildSwarmResultMetadata(entry?: ClusterBroadcastResult): Record<string
     const elapsedMs = Number(entry?.timing?.elapsedMs);
     if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
         return undefined;
-    }
+    }   
 
     return {
         swarmLatencyMs: elapsedMs,
@@ -1636,7 +1702,7 @@ function buildSwarmResultMetadata(entry?: ClusterBroadcastResult): Record<string
  * @returns The agent label
  */
 function resolveAgentLabel(agents: Agent[], agentId: string): string {
-    const agent = agents.find(item => item.id === agentId);
+    const agent = agents.find((item: any) => item.id === agentId);
     if (!agent) {
         return agentId;
     }
@@ -1708,14 +1774,35 @@ async function buildClusterSwarmRawLogMessages(
     const agents = await context.agentManager.getAgents();
     const merged = (
         await Promise.all(
-            cluster.agentIds.map(async agentId => {
-                const messages = await context.clusterManager.getClusterAgentSwarmMessages(clusterId, agentId, mode, swarmRunId);
-                return messages.map(message => decorateRawSwarmLogMessage(message, agents));
+            cluster.agentIds.map(async (agentId: any) => {
+                const messages = await context.clusterManager.getClusterAgentSwarmMessages({
+                    clusterId,
+                    agentId,
+                    mode,
+                    swarmRunId
+                });
+                return messages.map((message: any) => decorateRawSwarmLogMessage(message, agents));
             })
         )
     ).flat();
 
     return merged.sort(compareRawSwarmMessages);
+}
+
+async function refreshClusterSwarmRawLog(
+    context: ClusterActionContext,
+    clusterId: string,
+    swarmRunId?: string
+): Promise<void> {
+    const messages = await buildClusterSwarmRawLogMessages(context, clusterId, 'collaborate', swarmRunId);
+    context.postMessage({
+        type: 'replaceSwarmMessages',
+        clusterId,
+        mode: 'collaborate',
+        outputMode: 'raw',
+        messages,
+        swarmRunId
+    });
 }
 
 function decorateRawSwarmLogMessage(
@@ -1794,14 +1881,14 @@ async function ensureClusterFolderForUngroupedAgents(
     folderName: string,
     agentIds: string[]
 ): Promise<void> {
-    const normalizedIds = agentIds.map(agentId => String(agentId || '').trim()).filter(Boolean);
+    const normalizedIds = agentIds.map((agentId: any) => String(agentId || '').trim()).filter(Boolean);
     if (normalizedIds.length === 0) {
         return;
     }
 
     const folders = await context.agentFolderManager.getFolders();
-    const groupedAgentIds = new Set(folders.flatMap(folder => folder.agentIds));
-    const anyGrouped = normalizedIds.some(agentId => groupedAgentIds.has(agentId));
+    const groupedAgentIds = new Set(folders.flatMap((folder: any) => folder.agentIds));
+    const anyGrouped = normalizedIds.some((agentId: any) => groupedAgentIds.has(agentId));
     if (anyGrouped) {
         return;
     }

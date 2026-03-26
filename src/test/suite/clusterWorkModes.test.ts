@@ -9,15 +9,15 @@ suite('clusterWorkModes', () => {
         const presets = getClusterWorkModePresets();
         assert.ok(presets.length > 0, 'expected cluster presets to exist');
 
-        presets.forEach(preset => {
+        presets.forEach((preset: any) => {
             assert.ok(Array.isArray(preset.memberBlueprints), `expected ${preset.id} to expose member blueprints`);
             assert.ok(preset.memberBlueprints.length >= 3, `expected ${preset.id} to define at least three member lanes`);
             assert.ok(
-                preset.memberBlueprints.some(blueprint => blueprint.isCoordinator),
+                preset.memberBlueprints.some((blueprint: any) => blueprint.isCoordinator),
                 `expected ${preset.id} to define a coordinator lane`
             );
 
-            preset.memberBlueprints.forEach(blueprint => {
+            preset.memberBlueprints.forEach((blueprint: any) => {
                 assert.ok(blueprint.id, `expected blueprint id in ${preset.id}`);
                 assert.ok(blueprint.title, `expected blueprint title in ${preset.id}`);
                 assert.ok(blueprint.identity, `expected blueprint identity in ${preset.id}`);

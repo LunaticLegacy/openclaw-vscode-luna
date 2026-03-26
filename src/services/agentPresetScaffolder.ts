@@ -128,25 +128,25 @@ export class AgentPresetScaffolder {
     }
 }
 
-async function readTemplateFile(targetPath: string): Promise<string | null> {
+async function readTemplateFile(targetPath: string): Promise<string | undefined> {
     try {
         return await fs.readFile(targetPath, 'utf8');
     } catch {
-        return null;
+        return undefined;
     }
 }
 
 function renderTemplate(template: string, context: TemplateContext): string {
-    return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, key: string) => context[key] || '');
+    return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match: any, key: string) => context[key] || '');
 }
 
 async function listPresetMarkdownFiles(presetDir: string): Promise<string[]> {
     try {
         const entries = await fs.readdir(presetDir, { withFileTypes: true });
         return entries
-            .filter(entry => entry.isFile() && entry.name.endsWith('.md'))
-            .map(entry => entry.name)
-            .sort((left, right) => left.localeCompare(right));
+            .filter((entry: any) => entry.isFile() && entry.name.endsWith('.md'))
+            .map((entry: any) => entry.name)
+            .sort((left: any, right: any) => left.localeCompare(right));
     } catch {
         return [];
     }

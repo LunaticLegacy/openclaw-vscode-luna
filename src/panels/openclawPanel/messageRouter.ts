@@ -2,7 +2,12 @@ import * as vscode from 'vscode';
 
 import { t } from '../../i18n';
 import { runWithNotificationProgress } from '../../utils/statusFeedback';
-import type { ClusterContextExportKind } from './contextExport';
+import type {
+    ClusterConversationExportOptions,
+    ClusterCreateFromMemberPresetParams,
+    ClusterSwarmExportOptions,
+    SendMessageOptions
+} from '../../types/panel';
 
 /**
  * Type for panel view modes
@@ -25,7 +30,7 @@ interface MessageRouterContext {
     loadClusters(selectedClusterId?: string): Promise<void>;
     loadTasks(): Promise<void>;
     loadUsage(): Promise<void>;
-    handleSendMessage(content: string, agentId?: string, options?: { optimisticEcho?: boolean }): Promise<void>;
+    handleSendMessage(content: string, agentId?: string, options?: SendMessageOptions): Promise<void>;
     handleStopActiveRun(message: any): void;
     activateAgent(agentId: string): Promise<void>;
     loadClusterSwarmMessages(
@@ -36,15 +41,8 @@ interface MessageRouterContext {
     ): Promise<void>;
     loadClusterAgentMessages(clusterId: string, agentId: string): Promise<void>;
     loadClusterAgentSwarmMessages(clusterId: string, agentId: string, mode: 'broadcast' | 'collaborate'): Promise<void>;
-    exportClusterConversation(options: {
-        clusterId: string;
-        targetKind: 'swarm' | 'agent';
-        exportKind: ClusterContextExportKind;
-        mode?: 'broadcast' | 'collaborate';
-        agentId?: string;
-        agentViewMode?: 'chat' | 'broadcast' | 'collaborate';
-    }): Promise<void>;
-    exportClusterSwarm(options: { clusterId: string }): Promise<void>;
+    exportClusterConversation(options: ClusterConversationExportOptions): Promise<void>;
+    exportClusterSwarm(options: ClusterSwarmExportOptions): Promise<void>;
     importClusterSwarm(): Promise<void>;
     importClusterReplay(): Promise<void>;
     exportRuntimeLogs(): Promise<void>;
@@ -54,12 +52,8 @@ interface MessageRouterContext {
     handleCreateAgentsBatch(data: any): Promise<void>;
     showClusterEditor(clusterId?: string): void;
     handleSaveCluster(clusterId: string | undefined, data: any): Promise<void>;
-    handleCreateClusterFromMemberPreset(params: {
-        memberPresetId: string;
-        customName?: string;
-        model?: string;
-    }): Promise<void>;
-    activateChannel(channelId: string | null | undefined): Promise<void>;
+    handleCreateClusterFromMemberPreset(params: ClusterCreateFromMemberPresetParams): Promise<void>;
+    activateChannel(channelId: string | undefined): Promise<void>;
     refreshActiveChannelMessages(channelId?: string): Promise<void>;
     handleCreateChannel(data: any): Promise<void>;
     handleUpdateChannel(channelId: string, data: any): Promise<void>;
@@ -76,14 +70,14 @@ interface MessageRouterContext {
     handleRenameAgentFolder(folderId: string, name: string): Promise<void>;
     handleDeleteAgentFolder(folderId: string): Promise<void>;
     handleToggleAgentFolder(folderId: string, collapsed: boolean): Promise<void>;
-    handleMoveAgentToFolder(agentId: string, folderId: string | null): Promise<void>;
+    handleMoveAgentToFolder(agentId: string, folderId: string | undefined): Promise<void>;
     handleCreateTask(data: any): Promise<void>;
     handleUpdateTask(taskId: string, data: any): Promise<void>;
     handleDeleteTask(taskId: string): Promise<void>;
     handleToggleTask(taskId: string, enabled?: boolean): Promise<void>;
     handleRunTask(taskId: string): Promise<void>;
     setViewMode(view: PanelViewMode): void;
-    getCurrentChannelId(): string | null;
+    getCurrentChannelId(): string | undefined;
     handleBroadcast(clusterId: string, message: string): Promise<void>;
     promptBroadcastToCluster(clusterId: string): Promise<void>;
     handleCollaborate(clusterId: string, message: string): Promise<void>;
@@ -97,7 +91,7 @@ interface MessageRouterContext {
     handleSaveOpenClawConfig(settings: any): Promise<void>;
     loadSkillMarket(filters: any): Promise<void>;
     refreshSkillMarket(): Promise<void>;
-    installSkill(skillId: string, hubId?: string | null): Promise<void>;
+    installSkill(skillId: string, hubId?: string): Promise<void>;
     uninstallSkill(skillId: string): Promise<void>;
     toggleSkillForAgent(agentId: string, skillId: string, enable: boolean): Promise<void>;
     refreshMemoryStatus(): Promise<void>;
@@ -330,7 +324,7 @@ export async function handlePanelMessage(context: MessageRouterContext, message:
         case 'moveAgentToFolder':
             await context.handleMoveAgentToFolder(
                 message.agentId,
-                typeof message.folderId === 'string' ? message.folderId : null
+                typeof message.folderId === 'string' ? message.folderId : undefined
             );
             break;
 
@@ -455,7 +449,7 @@ export async function handlePanelMessage(context: MessageRouterContext, message:
             break;
 
         case 'installSkill':
-            await context.installSkill(message.skillId, message.hubId || null);
+            await context.installSkill(message.skillId, message.hubId || undefined);
             break;
 
         case 'uninstallSkill':

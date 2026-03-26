@@ -71,17 +71,26 @@ import {
     streamMessageFromSessionLog,
     streamMessageViaGateway
 } from './openclawModeRuntimeStreaming';
+import type { GatewayClientCloseEvent, LoadAgentsSnapshotOptions } from '../../types/serviceParams';
 
 interface OpenClawAgentsSnapshot {
     agents: Agent[];
-    defaultAgentId: string | null;
-    mainKey: string | null;
+    defaultAgentId: string | undefined;
+    mainKey: string | undefined;
     sessionKeysByAgent: Map<string, string>;
 }
 
 interface CachedOpenClawAgentsSnapshot {
     expiresAt: number;
     value: OpenClawAgentsSnapshot;
+}
+
+interface CachedSessionHistoryEntry {
+    filePath: string;
+    mtimeMs: number;
+    size: number;
+    limit: number;
+    messages: ChatMessage[];
 }
 
 /**
@@ -96,15 +105,16 @@ export class OpenClawModeRuntime {
     private readonly backendRunIds = new Map<string, { agentId: string; sessionKey: string }>();
     private readonly lastKnownAgents = new Map<string, Agent>();
     private readonly seenRuntimeNoticeKeys = new Set<string>();
-    private defaultAgentId: string | null = null;
-    private mainKey: string | null = null;
+    private defaultAgentId: string | undefined = undefined;
+    private mainKey: string | undefined = undefined;
     private sessionKeysByAgent: Map<string, string> = new Map();
     private sessionEntriesByKey: Map<string, OpenClawSessionsListEntry> = new Map();
-    private snapshotCache: CachedOpenClawAgentsSnapshot | null = null;
-    private snapshotPromise: Promise<OpenClawAgentsSnapshot> | null = null;
-    private activityGatewayClient: OpenClawGatewayClient | null = null;
-    private activityGatewayConnectPromise: Promise<void> | null = null;
-    private activityGatewayReconnectTimer: NodeJS.Timeout | null = null;
+    private snapshotCache: CachedOpenClawAgentsSnapshot | undefined = undefined;
+    private snapshotPromise: Promise<OpenClawAgentsSnapshot> | undefined = undefined;
+    private activityGatewayClient: OpenClawGatewayClient | undefined = undefined;
+    private activityGatewayConnectPromise: Promise<void> | undefined = undefined;
+    private activityGatewayReconnectTimer: NodeJS.Timeout | undefined = undefined;
+    private readonly sessionHistoryCache = new Map<string, CachedSessionHistoryEntry>();
     private disposed = false;
 
     /**
@@ -136,9 +146,9 @@ export class OpenClawModeRuntime {
 
     /**
      * Gets the preferred (default) agent ID.
-     * @returns The default agent ID or null
+     * @returns The default agent ID or undefined
      */
-    public async getPreferredAgentId(): Promise<string | null> {
+    public async getPreferredAgentId(): Promise<string | undefined> {
         const snapshot = await this.loadAgentsSnapshot();
         return snapshot.defaultAgentId;
     }
@@ -161,18 +171,18 @@ export class OpenClawModeRuntime {
         const sourceAgents = agents || (await this.loadAgentsSnapshot()).agents;
         return uniqueModelNames([
             this.config.defaultModel,
-            ...sourceAgents.map(agent => agent.model)
+            ...sourceAgents.map((agent: any) => agent.model)
         ]);
     }
 
     /**
      * Gets a specific agent by ID.
      * @param agentId - The agent ID to look up
-     * @returns The agent or null if not found
+     * @returns The agent or undefined if not found
      */
-    public async getAgent(agentId: string): Promise<Agent | null> {
+    public async getAgent(agentId: string): Promise<Agent | undefined> {
         const agents = await this.getAgents();
-        return agents.find(agent => agent.id === agentId) || null;
+        return agents.find((agent: any) => agent.id === agentId) || undefined;
     }
 
     /**
@@ -202,8 +212,8 @@ export class OpenClawModeRuntime {
         this.invalidateSnapshotCache();
         const createdAgentId = extractString(created, ['id', 'agentId']);
         const agents = await this.getAgents();
-        const agent = agents.find(item => item.id === createdAgentId)
-            || agents.find(item => item.name === params.name)
+        const agent = agents.find((item: any) => item.id === createdAgentId)
+            || agents.find((item: any) => item.name === params.name)
             || {
                 id: createdAgentId || sanitizeAgentName(params.name),
                 name: params.name,
@@ -291,7 +301,7 @@ export class OpenClawModeRuntime {
         this.invalidateSnapshotCache();
         this.sessionKeysByAgent.delete(agentId);
         if (this.defaultAgentId === agentId) {
-            this.defaultAgentId = null;
+            this.defaultAgentId = undefined;
         }
         this.emitEvent('agentDeleted', agentId);
     }
@@ -329,7 +339,7 @@ export class OpenClawModeRuntime {
     ): Promise<ChatMessage> {
         return this.withObservedFallbackRun(sessionId, async () => {
             const historyBefore = await this.readSessionMessages(sessionId).catch(() => []);
-            const knownIds = new Set(historyBefore.map(item => item.id));
+            const knownIds = new Set(historyBefore.map((item: any) => item.id));
             const result = await this.runner.sendChat(sessionId, message);
             const latestAssistant = await this.waitForAssistantMessage(sessionId, knownIds, 4000);
             return latestAssistant
@@ -355,7 +365,7 @@ export class OpenClawModeRuntime {
         message: string
     ): AsyncGenerator<StreamChunk, void, unknown> {
         const historyBefore = await this.readSessionMessages(sessionId).catch(() => []);
-        const knownIds = new Set(historyBefore.map(item => item.id));
+        const knownIds = new Set(historyBefore.map((item: any) => item.id));
 
         try {
             for await (const chunk of streamMessageViaGateway({
@@ -485,7 +495,7 @@ export class OpenClawModeRuntime {
     public async getRealtimeUsage(): Promise<RealtimeUsageSnapshot> {
         const sessions = (await this.runner.listSessions()).sessions || [];
         const now = Date.now();
-        const recentSessions = sessions.filter(session => {
+        const recentSessions = sessions.filter((session: any) => {
             const updatedAt = session.updatedAt || 0;
             return updatedAt > 0 && now - updatedAt < 60000;
         });
@@ -493,7 +503,7 @@ export class OpenClawModeRuntime {
         return {
             activeSessions: sessions.length,
             requestsPerMinute: recentSessions.length,
-            tokensPerMinute: recentSessions.reduce((sum, session) => sum + (session.totalTokens || 0), 0)
+            tokensPerMinute: recentSessions.reduce((sum: any, session: any) => sum + (session.totalTokens || 0), 0)
         };
     }
 
@@ -519,7 +529,7 @@ export class OpenClawModeRuntime {
      * @returns Array of discovered channels
      */
     public async getDiscoveredChannels(): Promise<DiscoveredChannel[]> {
-        const result = await this.runner.listChannels().catch(() => null);
+        const result = await this.runner.listChannels().catch(() => undefined);
         return mapDiscoveredChannels(result);
     }
 
@@ -534,17 +544,18 @@ export class OpenClawModeRuntime {
         this.backendRunIds.clear();
         this.lastKnownAgents.clear();
         this.seenRuntimeNoticeKeys.clear();
-        this.defaultAgentId = null;
-        this.mainKey = null;
+        this.defaultAgentId = undefined;
+        this.mainKey = undefined;
         this.sessionKeysByAgent.clear();
         this.sessionEntriesByKey.clear();
+        this.sessionHistoryCache.clear();
         if (this.activityGatewayReconnectTimer) {
             clearTimeout(this.activityGatewayReconnectTimer);
-            this.activityGatewayReconnectTimer = null;
+            this.activityGatewayReconnectTimer = undefined;
         }
-        this.activityGatewayConnectPromise = null;
+        this.activityGatewayConnectPromise = undefined;
         this.activityGatewayClient?.dispose();
-        this.activityGatewayClient = null;
+        this.activityGatewayClient = undefined;
         this.invalidateSnapshotCache();
     }
 
@@ -553,9 +564,7 @@ export class OpenClawModeRuntime {
      * @param options - Optional loading options
      * @returns The agents snapshot
      */
-    private async loadAgentsSnapshot(
-        options: { forceRefresh?: boolean; metadataTimeoutMs?: number } = {}
-    ): Promise<OpenClawAgentsSnapshot> {
+    private async loadAgentsSnapshot(options: LoadAgentsSnapshotOptions = {}): Promise<OpenClawAgentsSnapshot> {
         const { forceRefresh = false, metadataTimeoutMs = 2500 } = options;
 
         if (!forceRefresh) {
@@ -572,7 +581,7 @@ export class OpenClawModeRuntime {
         const loadPromise = this.loadAgentsSnapshotUncached(metadataTimeoutMs)
             .finally(() => {
                 if (this.snapshotPromise === loadPromise) {
-                    this.snapshotPromise = null;
+                    this.snapshotPromise = undefined;
                 }
             });
 
@@ -602,15 +611,15 @@ export class OpenClawModeRuntime {
 
         this.sessionEntriesByKey = new Map(
             (sessionsResult.sessions || [])
-                .filter(session => session.key)
-                .map(session => [session.key, session] as const)
+                .filter((session: any) => session.key)
+                .map((session: any) => [session.key, session] as const)
         );
         const sessionKeysByAgent = buildSessionKeyMap(sessionsResult.sessions || []);
         const defaultAgentId = resolvePreferredAgentId(records, gatewayAgents, sessionKeysByAgent);
         const gatewayNames = new Map(
             (gatewayAgents.agents || [])
-                .filter(item => item.id)
-                .map(item => [item.id!, item.name?.trim() || item.id!])
+                .filter((item: any) => item.id)
+                .map((item: any) => [item.id!, item.name?.trim() || item.id!])
         );
         const now = new Date().toISOString();
         const agents: Agent[] = [];
@@ -647,7 +656,7 @@ export class OpenClawModeRuntime {
         this.sessionKeysByAgent = sessionKeysByAgent;
 
         const snapshot = {
-            agents: agents.sort((left, right) => {
+            agents: agents.sort((left: any, right: any) => {
                 if (left.status !== right.status) {
                     return left.status === 'active' ? -1 : 1;
                 }
@@ -663,7 +672,7 @@ export class OpenClawModeRuntime {
             expiresAt: Date.now() + 5000
         };
         this.lastKnownAgents.clear();
-        snapshot.agents.forEach(agent => this.lastKnownAgents.set(agent.id, agent));
+        snapshot.agents.forEach((agent: any) => this.lastKnownAgents.set(agent.id, agent));
 
         return snapshot;
     }
@@ -680,7 +689,7 @@ export class OpenClawModeRuntime {
     private async mapAgentRecord(
         record: OpenClawAgentRecord,
         gatewayNames: Map<string, string>,
-        defaultAgentId: string | null,
+        defaultAgentId: string | undefined,
         sessionKeysByAgent: Map<string, string>,
         now: string
     ): Promise<Agent> {
@@ -771,11 +780,30 @@ export class OpenClawModeRuntime {
         );
 
         try {
+            const stats = await fs.stat(sessionFilePath);
+            const cached = this.sessionHistoryCache.get(sessionKey);
+            if (cached
+                && cached.filePath === sessionFilePath
+                && cached.mtimeMs === stats.mtimeMs
+                && cached.size === stats.size
+                && cached.limit >= limit) {
+                return cloneRuntimeChatMessages(limitMessages(cached.messages, limit));
+            }
+
             const content = await fs.readFile(sessionFilePath, 'utf8');
-            return normalizeOpenClawSessionLog(content, sessionKey, agentId, limit);
+            const messages = normalizeOpenClawSessionLog(content, sessionKey, agentId, limit);
+            this.sessionHistoryCache.set(sessionKey, {
+                filePath: sessionFilePath,
+                mtimeMs: stats.mtimeMs,
+                size: stats.size,
+                limit,
+                messages: cloneRuntimeChatMessages(messages)
+            });
+            return messages;
         } catch (error) {
             const maybeNodeError = error as NodeJS.ErrnoException;
             if (maybeNodeError.code === 'ENOENT') {
+                this.sessionHistoryCache.delete(sessionKey);
                 return [];
             }
 
@@ -786,9 +814,9 @@ export class OpenClawModeRuntime {
     /**
      * Resolves the session entry for a session key.
      * @param sessionKey - The session key
-     * @returns The session entry or null
+     * @returns The session entry or undefined
      */
-    private async resolveSessionEntry(sessionKey: string): Promise<OpenClawSessionsListEntry | null> {
+    private async resolveSessionEntry(sessionKey: string): Promise<OpenClawSessionsListEntry | undefined> {
         const cached = this.sessionEntriesByKey.get(sessionKey);
         if (cached) {
             return cached;
@@ -803,11 +831,11 @@ export class OpenClawModeRuntime {
         const sessionsResult = await this.runner.listSessions().catch(() => ({ sessions: [] as OpenClawSessionsListEntry[] }));
         this.sessionEntriesByKey = new Map(
             (sessionsResult.sessions || [])
-                .filter(session => session.key)
-                .map(session => [session.key, session] as const)
+                .filter((session: any) => session.key)
+                .map((session: any) => [session.key, session] as const)
         );
 
-        return this.sessionEntriesByKey.get(sessionKey) || null;
+        return this.sessionEntriesByKey.get(sessionKey) || undefined;
     }
 
     /**
@@ -815,20 +843,20 @@ export class OpenClawModeRuntime {
      * @param sessionKey - The session key
      * @param knownIds - Set of already known message IDs
      * @param timeoutMs - Timeout in milliseconds
-     * @returns The assistant message or null if timeout
+     * @returns The assistant message or undefined if timeout
      */
     private async waitForAssistantMessage(
         sessionKey: string,
         knownIds: Set<string>,
         timeoutMs: number
-    ): Promise<ChatMessage | null> {
+    ): Promise<ChatMessage | undefined> {
         const startedAt = Date.now();
 
         while (Date.now() - startedAt < timeoutMs) {
             const messages = await this.readSessionMessages(sessionKey).catch(() => []);
             const assistant = [...messages]
                 .reverse()
-                .find(message => !knownIds.has(message.id) && isFinalOpenClawAssistantMessage(message));
+                .find((message: any) => !knownIds.has(message.id) && isFinalOpenClawAssistantMessage(message));
 
             if (assistant) {
                 return assistant;
@@ -837,7 +865,7 @@ export class OpenClawModeRuntime {
             await delay(150);
         }
 
-        return null;
+        return undefined;
     }
 
     /**
@@ -851,8 +879,8 @@ export class OpenClawModeRuntime {
             includeContextWeight: true
         });
         const costPromise = agentId
-            ? Promise.resolve<OpenClawUsageCostResult | null>(null)
-            : this.runner.getUsageCost({}).then(result => result).catch(() => null);
+            ? Promise.resolve<OpenClawUsageCostResult | undefined>(undefined)
+            : this.runner.getUsageCost({}).then((result: any) => result).catch(() => undefined);
         const sessionListPromise = this.runner.listSessions().catch(() => ({ sessions: [] as OpenClawSessionsListEntry[] }));
         const agentsPromise = this.getAgents().catch(() => [] as Agent[]);
         const [sessionsUsage, usageCost, sessionList, agents] = await Promise.all([
@@ -864,8 +892,8 @@ export class OpenClawModeRuntime {
         const sessionModels = buildSessionModelHints(sessionList.sessions || []);
         const agentModels = new Map(
             agents
-                .filter(agent => agent.id && agent.model)
-                .map(agent => [agent.id, agent.model] as const)
+                .filter((agent: any) => agent.id && agent.model)
+                .map((agent: any) => [agent.id, agent.model] as const)
         );
 
         return mapOpenClawUsage(sessionsUsage, usageCost, agentId, {
@@ -904,13 +932,13 @@ export class OpenClawModeRuntime {
         const connectPromise = client.connect()
             .catch(() => {
                 if (this.activityGatewayClient === client) {
-                    this.activityGatewayClient = null;
+                    this.activityGatewayClient = undefined;
                 }
                 this.scheduleActivityGatewayReconnect();
             })
             .finally(() => {
                 if (this.activityGatewayConnectPromise === connectPromise) {
-                    this.activityGatewayConnectPromise = null;
+                    this.activityGatewayConnectPromise = undefined;
                 }
             });
         this.activityGatewayConnectPromise = connectPromise;
@@ -921,9 +949,9 @@ export class OpenClawModeRuntime {
         client.on('error', () => {
             this.scheduleActivityGatewayReconnect();
         });
-        client.on('close', (event: { intentional?: boolean }) => {
+        client.on('close', (event: GatewayClientCloseEvent) => {
             if (this.activityGatewayClient === client) {
-                this.activityGatewayClient = null;
+                this.activityGatewayClient = undefined;
             }
             if (!event?.intentional) {
                 this.scheduleActivityGatewayReconnect();
@@ -942,7 +970,7 @@ export class OpenClawModeRuntime {
         }
 
         this.activityGatewayReconnectTimer = setTimeout(() => {
-            this.activityGatewayReconnectTimer = null;
+            this.activityGatewayReconnectTimer = undefined;
             if (!this.activityGatewayClient) {
                 void this.ensureActivityGatewayConnection();
             }
@@ -960,7 +988,7 @@ export class OpenClawModeRuntime {
 
         const payload = event.payload && typeof event.payload === 'object'
             ? event.payload as Record<string, unknown>
-            : null;
+            : undefined;
         if (!payload) {
             return;
         }
@@ -997,9 +1025,9 @@ export class OpenClawModeRuntime {
      * Extracts the agent ID from an activity event payload.
      * @param payload - The event payload
      * @param sessionKey - The session key
-     * @returns The agent ID or null
+     * @returns The agent ID or undefined
      */
-    private extractActivityAgentId(payload: Record<string, unknown>, sessionKey: string): string | null {
+    private extractActivityAgentId(payload: Record<string, unknown>, sessionKey: string): string | undefined {
         const directAgentId = this.extractActivityValue(payload, 'agentId');
         if (directAgentId) {
             return directAgentId;
@@ -1023,7 +1051,7 @@ export class OpenClawModeRuntime {
             }
         }
 
-        return null;
+        return undefined;
     }
 
     /**
@@ -1279,8 +1307,8 @@ export class OpenClawModeRuntime {
      * Invalidates the agents snapshot cache.
      */
     private invalidateSnapshotCache(): void {
-        this.snapshotCache = null;
-        this.snapshotPromise = null;
+        this.snapshotCache = undefined;
+        this.snapshotPromise = undefined;
     }
 
     /**
@@ -1298,7 +1326,7 @@ export class OpenClawModeRuntime {
      * @param message - The message to publish from
      * @param sessionId - The session ID
      */
-    private publishRuntimeNoticeFromMessage(message: ChatMessage | undefined | null, sessionId?: string): void {
+    private publishRuntimeNoticeFromMessage(message: ChatMessage | undefined, sessionId?: string): void {
         if (!message || message.metadata?.noticeType !== 'lifecycle') {
             return;
         }
@@ -1367,4 +1395,24 @@ export function isActiveActivityState(value: string): boolean {
  */
 export function isInactiveActivityState(value: string): boolean {
     return ['abort', 'aborted', 'cancelled', 'complete', 'completed', 'done', 'end', 'ended', 'error', 'failed', 'stop', 'stopped', 'timeout'].includes(value);
+}
+
+function limitMessages(messages: ChatMessage[], limit: number): ChatMessage[] {
+    if (limit <= 0 || messages.length <= limit) {
+        return messages;
+    }
+
+    return messages.slice(-limit);
+}
+
+function cloneRuntimeChatMessages(messages: ChatMessage[]): ChatMessage[] {
+    return messages.map((message: any) => ({
+        ...message,
+        parts: Array.isArray(message?.parts)
+            ? message.parts.map((part: any) => ({ ...part }))
+            : message.parts,
+        metadata: message?.metadata && typeof message.metadata === 'object'
+            ? { ...message.metadata }
+            : message.metadata
+    }));
 }

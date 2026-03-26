@@ -73,7 +73,7 @@ async function listRecursive(absoluteRoot: string, relativeRoot: string): Promis
             const nested = await listRecursive(absolutePath, relativePath);
             entries.push(...nested);
         } else if (entry.isFile()) {
-            const stat = await fs.stat(absolutePath).catch(() => null);
+            const stat = await fs.stat(absolutePath).catch(() => undefined);
             entries.push({
                 path: relativePath,
                 kind: 'file',

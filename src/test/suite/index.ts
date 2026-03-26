@@ -10,13 +10,13 @@ export function run(): Promise<void> {
     });
     const testsRoot = __dirname;
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve: any, reject: any) => {
         try {
             for (const file of findTestFiles(testsRoot)) {
                 mocha.addFile(file);
             }
 
-            mocha.run(failures => {
+            mocha.run((failures: any) => {
                 if (failures > 0) {
                     reject(new Error(`${failures} test(s) failed.`));
                     return;
@@ -49,5 +49,5 @@ function findTestFiles(root: string): string[] {
         }
     }
 
-    return files.sort((left, right) => left.localeCompare(right));
+    return files.sort((left: any, right: any) => left.localeCompare(right));
 }

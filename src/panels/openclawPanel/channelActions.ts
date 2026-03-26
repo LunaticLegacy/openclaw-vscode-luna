@@ -4,6 +4,7 @@ import { t } from '../../i18n';
 import type { AgentManager } from '../../managers/agentManager';
 import type { ChannelManager } from '../../managers/channelManager';
 import type { DiscoveredChannel, OpenClawService } from '../../services/openclawService';
+import type { ChannelDraftPayload } from '../../types/panel';
 import { showSuccessStatus } from '../../utils/statusFeedback';
 import {
     buildImportedChannelSessionKey,
@@ -23,11 +24,11 @@ interface ChannelActionContext {
     importedChannelSessions: Map<string, { agentId: string; sessionId: string }>;
     postMessage(message: Record<string, unknown>): void;
     postRunState(scope: 'chat' | 'channel', running: boolean): void;
-    resolveDiscoveredChannel(channelId: string): Promise<DiscoveredChannel | null>;
-    getCurrentChannelId(): string | null;
-    setCurrentChannelId(channelId: string | null): void;
-    getCurrentChannelSessionId(): string | null;
-    setCurrentChannelSessionId(sessionId: string | null): void;
+    resolveDiscoveredChannel(channelId: string): Promise<DiscoveredChannel | undefined>;
+    getCurrentChannelId(): string | undefined;
+    setCurrentChannelId(channelId: string | undefined): void;
+    getCurrentChannelSessionId(): string | undefined;
+    setCurrentChannelSessionId(sessionId: string | undefined): void;
     nextChannelLoadToken(): number;
     getChannelLoadToken(): number;
     bumpChannelSyncToken(): number;
@@ -50,11 +51,11 @@ export async function loadChannels(context: ChannelActionContext, selectedChanne
         ]);
         const mergedChannels = mergePanelChannels(channels, discoveredChannels);
         const currentChannelId = context.getCurrentChannelId();
-        const resolvedSelectedChannelId = selectedChannelId && mergedChannels.some(channel => channel.id === selectedChannelId)
+        const resolvedSelectedChannelId = selectedChannelId && mergedChannels.some((channel: any) => channel.id === selectedChannelId)
             ? selectedChannelId
-            : currentChannelId && mergedChannels.some(channel => channel.id === currentChannelId)
+            : currentChannelId && mergedChannels.some((channel: any) => channel.id === currentChannelId)
                 ? currentChannelId
-                : mergedChannels[0]?.id || null;
+                : mergedChannels[0]?.id || undefined;
 
         context.postMessage({
             type: 'channelsLoaded',
@@ -81,7 +82,7 @@ export async function loadChannels(context: ChannelActionContext, selectedChanne
  * @param context - The channel action context
  * @param channelId - The ID of the channel to activate
  */
-export async function activateChannel(context: ChannelActionContext, channelId: string | null | undefined): Promise<void> {
+export async function activateChannel(context: ChannelActionContext, channelId: string | undefined): Promise<void> {
     if (!channelId) {
         clearChannelSelection(context);
         return;
@@ -110,7 +111,7 @@ export async function activateChannel(context: ChannelActionContext, channelId: 
             }
 
             const importedSession = await ensureImportedChannelSession(context, discoveredChannel.id);
-            context.setCurrentChannelSessionId(importedSession?.sessionId || null);
+            context.setCurrentChannelSessionId(importedSession?.sessionId || undefined);
 
             if (!importedSession) {
                 context.postMessage({
@@ -126,7 +127,7 @@ export async function activateChannel(context: ChannelActionContext, channelId: 
             return;
         }
 
-        context.setCurrentChannelSessionId(channel.sessionId || null);
+        context.setCurrentChannelSessionId(channel.sessionId || undefined);
         await loadChannelMessages(context, channel, loadToken);
 
         if (channel.sessionId) {
@@ -171,7 +172,7 @@ export async function refreshActiveChannelMessages(context: ChannelActionContext
  */
 export async function handleCreateChannel(
     context: ChannelActionContext,
-    data: { name?: string; agentId?: string; description?: string }
+    data: ChannelDraftPayload
 ): Promise<void> {
     try {
         const channel = await context.channelManager.createChannel({
@@ -195,7 +196,7 @@ export async function handleCreateChannel(
 export async function handleUpdateChannel(
     context: ChannelActionContext,
     channelId: string,
-    data: { name?: string; agentId?: string; description?: string }
+    data: ChannelDraftPayload
 ): Promise<void> {
     if (!channelId) {
         vscode.window.showErrorMessage(t('channel.notFound'));
@@ -280,7 +281,7 @@ export async function handleSendChannelMessage(
 
     const channelRunToken = context.nextChannelRunToken();
     context.postRunState('channel', true);
-    let runningAgentId: string | null = null;
+    let runningAgentId: string | undefined = undefined;
 
     try {
         const channel = await context.channelManager.getChannel(channelId);
@@ -309,7 +310,7 @@ export async function handleSendChannelMessage(
             throw new Error(t('channel.notFound'));
         }
 
-        let sessionId = channel.sessionId || null;
+        let sessionId = channel.sessionId || undefined;
         if (!sessionId) {
             const session = await context.service.createChatSession(channel.agentId);
             sessionId = session.id;
@@ -353,15 +354,15 @@ export async function handleSendChannelMessage(
  */
 export function clearChannelSelection(context: ChannelActionContext): void {
     stopActiveChannelSync(context);
-    context.setCurrentChannelId(null);
-    context.setCurrentChannelSessionId(null);
+    context.setCurrentChannelId(undefined);
+    context.setCurrentChannelSessionId(undefined);
     context.postMessage({
         type: 'setActiveChannel',
-        channelId: null
+        channelId: undefined
     });
     context.postMessage({
         type: 'replaceChannelMessages',
-        channelId: null,
+        channelId: undefined,
         messages: []
     });
     context.postRunState('channel', false);
@@ -495,12 +496,12 @@ function isCurrentChannelSyncTarget(
  * Ensures an imported channel session exists
  * @param context - The channel action context
  * @param channelId - The channel ID
- * @returns The imported session info or null
+ * @returns The imported session info or undefined
  */
 async function ensureImportedChannelSession(
     context: ChannelActionContext,
     channelId: string
-): Promise<{ agentId: string; sessionId: string } | null> {
+): Promise<{ agentId: string; sessionId: string } | undefined> {
     const cached = context.importedChannelSessions.get(channelId);
     if (cached) {
         return cached;
@@ -508,12 +509,12 @@ async function ensureImportedChannelSession(
 
     const discoveredChannel = await context.resolveDiscoveredChannel(channelId);
     if (!discoveredChannel) {
-        return null;
+        return undefined;
     }
 
     const agentId = await context.service.getPreferredAgentId();
     if (!agentId) {
-        return null;
+        return undefined;
     }
 
     const importedSession = {

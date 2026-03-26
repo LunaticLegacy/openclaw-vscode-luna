@@ -67,7 +67,7 @@ export class AgentManager extends EventEmitter {
     private service: OpenClawService;
     private presetScaffolder?: AgentPresetScaffolder;
     private agents: Map<string, Agent> = new Map();
-    private activeAgentId: string | null = null;
+    private activeAgentId: string | undefined = undefined;
     private runningAgentCounts: Map<string, number> = new Map();
     private reportedAgentStatuses: Map<string, Agent['status']> = new Map();
     private activeDisplayUntil: Map<string, number> = new Map();
@@ -97,7 +97,7 @@ export class AgentManager extends EventEmitter {
         });
 
         this.service.on('agentUpdated', (agent: Agent) => {
-            const previousAgent = this.agents.get(agent.id) || null;
+            const previousAgent = this.agents.get(agent.id) || undefined;
             const normalizedAgent = this.storeAgent(agent);
             if (previousAgent && areAgentsEquivalent(previousAgent, normalizedAgent)) {
                 return;
@@ -112,7 +112,7 @@ export class AgentManager extends EventEmitter {
             this.activeDisplayUntil.delete(agentId);
             this.clearActiveReleaseTimer(agentId);
             if (this.activeAgentId === agentId) {
-                this.activeAgentId = null;
+                this.activeAgentId = undefined;
             }
             this.emit('agentDeleted', agentId);
         });
@@ -140,7 +140,7 @@ export class AgentManager extends EventEmitter {
             this.agents.clear();
             this.reportedAgentStatuses.clear();
             // 对于每一个agent执行保存
-            agents.forEach(agent => this.storeAgent(agent));
+            agents.forEach((agent: any) => this.storeAgent(agent));
         }
         return Array.from(this.agents.values());
     }
@@ -149,9 +149,9 @@ export class AgentManager extends EventEmitter {
      * 获取指定智能体
      * 
      * @param agentId - 智能体ID
-     * @returns 智能体对象或 null
+     * @returns 智能体对象或 undefined
      */
-    public async getAgent(agentId: string): Promise<Agent | null> {
+    public async getAgent(agentId: string): Promise<Agent | undefined> {
         if (this.agents.has(agentId)) {
             return this.agents.get(agentId)!;
         }
@@ -173,7 +173,7 @@ export class AgentManager extends EventEmitter {
     public async createAgent(params: CreateAgentParams): Promise<Agent> {
         const trimmedName = params.name.trim();
         const existingAgents = await this.getAgents(true);
-        const hasDuplicateName = existingAgents.some(agent =>
+        const hasDuplicateName = existingAgents.some((agent: any) =>
             agent.name.trim().toLocaleLowerCase() === trimmedName.toLocaleLowerCase()
         );
 
@@ -239,20 +239,20 @@ export class AgentManager extends EventEmitter {
         this.runningAgentCounts.delete(agentId);
         this.reportedAgentStatuses.delete(agentId);
         if (this.activeAgentId === agentId) {
-            this.activeAgentId = null;
+            this.activeAgentId = undefined;
         }
     }
 
     /**
      * 获取当前活跃的智能体
      * 
-     * @returns 活跃的智能体或 null
+     * @returns 活跃的智能体或 undefined
      */
-    public getActiveAgent(): Agent | null {
+    public getActiveAgent(): Agent | undefined {
         if (!this.activeAgentId) {
-            return null;
+            return undefined;
         }
-        return this.agents.get(this.activeAgentId) || null;
+        return this.agents.get(this.activeAgentId) || undefined;
     }
 
     /**
@@ -273,9 +273,9 @@ export class AgentManager extends EventEmitter {
     /**
      * 获取活跃智能体的ID
      * 
-     * @returns 活跃智能体ID或 null
+     * @returns 活跃智能体ID或 undefined
      */
-    public getActiveAgentId(): string | null {
+    public getActiveAgentId(): string | undefined {
         return this.activeAgentId;
     }
 
@@ -314,7 +314,7 @@ export class AgentManager extends EventEmitter {
      * @returns 活跃智能体数量
      */
     public getActiveAgentCount(): number {
-        return Array.from(this.agents.values()).filter(a => a.status === 'active').length;
+        return Array.from(this.agents.values()).filter((a: any) => a.status === 'active').length;
     }
 
     /**
@@ -325,7 +325,7 @@ export class AgentManager extends EventEmitter {
      */
     public searchAgents(query: string): Agent[] {
         const lowerQuery = query.toLowerCase();
-        return Array.from(this.agents.values()).filter(agent =>
+        return Array.from(this.agents.values()).filter((agent: any) =>
             agent.name.toLowerCase().includes(lowerQuery)
             || agent.model.toLowerCase().includes(lowerQuery)
         );
@@ -338,7 +338,7 @@ export class AgentManager extends EventEmitter {
      * @returns 匹配的智能体列表
      */
     public getAgentsByModel(model: string): Agent[] {
-        return Array.from(this.agents.values()).filter(agent =>
+        return Array.from(this.agents.values()).filter((agent: any) =>
             agent.model.toLowerCase() === model.toLowerCase()
         );
     }
@@ -358,7 +358,7 @@ export class AgentManager extends EventEmitter {
     public dispose() {
         this.removeAllListeners();
         this.agents.clear();
-        this.activeAgentId = null;
+        this.activeAgentId = undefined;
         this.runningAgentCounts.clear();
         this.reportedAgentStatuses.clear();
         this.activeDisplayUntil.clear();
@@ -445,7 +445,9 @@ export class AgentManager extends EventEmitter {
         }
 
         const hasTrackedRun = (this.runningAgentCounts.get(agent.id) || 0) > 0;
-        const shouldStayActive = reportedStatus === 'active' || hasTrackedRun || this.isAgentInDisplayLatch(agent.id);
+        // Treat backend/local "active" reports as display latches, not sticky state.
+        // Otherwise a missing idle event leaves the indicator green indefinitely.
+        const shouldStayActive = hasTrackedRun || this.isAgentInDisplayLatch(agent.id);
         if (shouldStayActive) {
             this.scheduleActiveRelease(agent.id);
         }

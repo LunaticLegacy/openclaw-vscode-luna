@@ -55,7 +55,7 @@ export function extractTextContent(value: unknown): string {
     }
 
     if (Array.isArray(value)) {
-        return value.map(item => extractTextContent(item)).join('');
+        return value.map((item: any) => extractTextContent(item)).join('');
     }
 
     if (!value || typeof value !== 'object') {
@@ -72,7 +72,7 @@ export function extractTextContent(value: unknown): string {
     }
 
     if (Array.isArray(record.content)) {
-        return record.content.map(item => extractTextContent(item)).join('');
+        return record.content.map((item: any) => extractTextContent(item)).join('');
     }
 
     return '';
@@ -82,17 +82,17 @@ export function extractTextContent(value: unknown): string {
  * Normalizes a gateway tool event to a chat message.
  * @param sessionKey - The session key
  * @param payload - The event payload
- * @returns The normalized chat message or null
+ * @returns The normalized chat message or undefined
  */
 export function normalizeOpenClawGatewayToolEvent(
     sessionKey: string,
     payload: Record<string, unknown>
-): ChatMessage | null {
+): ChatMessage | undefined {
     const data = payload.data && typeof payload.data === 'object'
         ? payload.data as Record<string, unknown>
-        : null;
+        : undefined;
     if (!data) {
-        return null;
+        return undefined;
     }
 
     const phase = typeof data.phase === 'string' ? data.phase : '';
@@ -163,29 +163,29 @@ export function normalizeOpenClawGatewayToolEvent(
         };
     }
 
-    return null;
+    return undefined;
 }
 
 /**
  * Normalizes a gateway lifecycle event to a chat message.
  * @param sessionKey - The session key
  * @param payload - The event payload
- * @returns The normalized chat message or null
+ * @returns The normalized chat message or undefined
  */
 export function normalizeOpenClawGatewayLifecycleEvent(
     sessionKey: string,
     payload: Record<string, unknown>
-): ChatMessage | null {
+): ChatMessage | undefined {
     const data = payload.data && typeof payload.data === 'object'
         ? payload.data as Record<string, unknown>
-        : null;
+        : undefined;
     if (!data) {
-        return null;
+        return undefined;
     }
 
     const notice = buildOpenClawLifecycleNotice(data);
     if (!notice) {
-        return null;
+        return undefined;
     }
 
     const runId = typeof payload.runId === 'string' && payload.runId.trim()
@@ -224,7 +224,7 @@ export function normalizeOpenClawGatewayLifecycleEvent(
 export function buildSessionKeyMap(sessions: OpenClawSessionsListEntry[]): Map<string, string> {
     const map = new Map<string, string>();
 
-    for (const session of [...sessions].sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0))) {
+    for (const session of [...sessions].sort((left: any, right: any) => (right.updatedAt || 0) - (left.updatedAt || 0))) {
         const agentId = session.agentId || parseAgentIdFromSessionKey(session.key);
         if (!agentId || map.has(agentId)) {
             continue;
@@ -241,13 +241,13 @@ export function buildSessionKeyMap(sessions: OpenClawSessionsListEntry[]): Map<s
  * @param records - Array of agent records
  * @param gatewayAgents - Gateway agents result
  * @param sessionKeysByAgent - Map of session keys by agent
- * @returns The preferred agent ID or null
+ * @returns The preferred agent ID or undefined
  */
 export function resolvePreferredAgentId(
     records: OpenClawAgentRecord[],
     gatewayAgents: OpenClawGatewayAgentsResult,
     sessionKeysByAgent: Map<string, string>
-): string | null {
+): string | undefined {
     for (const agentId of sessionKeysByAgent.keys()) {
         return agentId;
     }
@@ -257,42 +257,42 @@ export function resolvePreferredAgentId(
         return defaultId;
     }
 
-    const explicitDefault = records.find(record => record.isDefault)?.id?.trim();
+    const explicitDefault = records.find((record: any) => record.isDefault)?.id?.trim();
     if (explicitDefault) {
         return explicitDefault;
     }
 
-    return records[0]?.id || null;
+    return records[0]?.id || undefined;
 }
 
 /**
  * Parses the agent ID from a session key.
  * @param sessionKey - The session key
- * @returns The agent ID or null
+ * @returns The agent ID or undefined
  */
-export function parseAgentIdFromSessionKey(sessionKey: string): string | null {
+export function parseAgentIdFromSessionKey(sessionKey: string): string | undefined {
     const normalized = sessionKey.trim();
     if (!normalized) {
-        return null;
+        return undefined;
     }
 
     const parts = normalized.split(':').filter(Boolean);
     if (parts[0] === 'agent') {
         if (parts.length < 3) {
-            return null;
+            return undefined;
         }
 
         const agentId = parts[1]?.trim();
-        return agentId || null;
+        return agentId || undefined;
     }
 
     const clusterAgentIndex = parts.indexOf('agent');
     if (parts[0] === 'cluster' && clusterAgentIndex >= 0 && clusterAgentIndex + 1 < parts.length) {
         const agentId = parts[clusterAgentIndex + 1]?.trim();
-        return agentId || null;
+        return agentId || undefined;
     }
 
-    return null;
+    return undefined;
 }
 
 /**
@@ -306,14 +306,14 @@ export function normalizeOpenClawChatHistory(messages: OpenClawChatHistoryMessag
     const toolCalls = new Map<string, OpenClawToolCallInfo>();
 
     return messages
-        .map((message, index) => normalizeOpenClawChatMessage(
+        .map((message: any, index: any) => normalizeOpenClawChatMessage(
             message,
             `${sessionKey}:${index}`,
             agentId,
             toolCalls,
             index
         ))
-        .filter((message): message is ChatMessage => Boolean(message));
+        .filter((message: any): message is ChatMessage => Boolean(message));
 }
 
 /**
@@ -323,7 +323,7 @@ export function normalizeOpenClawChatHistory(messages: OpenClawChatHistoryMessag
  * @param agentId - The agent ID
  * @param toolCalls - Map of tool calls
  * @param sequenceIndex - Sequence index for timestamp
- * @returns The normalized chat message or null
+ * @returns The normalized chat message or undefined
  */
 export function normalizeOpenClawChatMessage(
     message: OpenClawChatHistoryMessage,
@@ -331,10 +331,10 @@ export function normalizeOpenClawChatMessage(
     agentId?: string,
     toolCalls: Map<string, OpenClawToolCallInfo> = new Map(),
     sequenceIndex: number = 0
-): ChatMessage | null {
+): ChatMessage | undefined {
     const role = normalizeRole(message.role);
     if (!role) {
-        return null;
+        return undefined;
     }
 
     if (role === 'tool') {
@@ -394,11 +394,11 @@ export function normalizeOpenClawChatMessage(
  * Extracts an assistant message from a response payload.
  * @param payload - The response payload
  * @param sessionKey - The session key
- * @returns The assistant message or null
+ * @returns The assistant message or undefined
  */
-export function extractAssistantMessageFromPayload(payload: unknown, sessionKey: string): ChatMessage | null {
+export function extractAssistantMessageFromPayload(payload: unknown, sessionKey: string): ChatMessage | undefined {
     if (!payload || typeof payload !== 'object') {
-        return null;
+        return undefined;
     }
 
     const record = payload as Record<string, unknown>;
@@ -406,9 +406,9 @@ export function extractAssistantMessageFromPayload(payload: unknown, sessionKey:
     if (Array.isArray(record.messages)) {
         const candidate = [...record.messages]
             .reverse()
-            .map((message, index) => {
+            .map((message: any, index: any) => {
                 if (!message || typeof message !== 'object') {
-                    return null;
+                    return undefined;
                 }
 
                 return normalizeOpenClawChatMessage(
@@ -419,8 +419,8 @@ export function extractAssistantMessageFromPayload(payload: unknown, sessionKey:
                     index
                 );
             })
-            .find((message): message is ChatMessage => {
-                return message !== null && message.role === 'assistant';
+            .find((message: any): message is ChatMessage => {
+                return message !== undefined && message.role === 'assistant';
             });
 
         if (candidate) {
@@ -459,7 +459,7 @@ export function extractAssistantMessageFromPayload(payload: unknown, sessionKey:
         return extractAssistantMessageFromPayload(record.final, sessionKey);
     }
 
-    return null;
+    return undefined;
 }
 
 /**
@@ -486,7 +486,7 @@ export function normalizeOpenClawSessionLog(
             continue;
         }
 
-        let entry: OpenClawSessionLogEntry | null = null;
+        let entry: OpenClawSessionLogEntry | undefined = undefined;
         try {
             entry = JSON.parse(line) as OpenClawSessionLogEntry;
         } catch {
@@ -560,11 +560,11 @@ export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback:
         return Promise.resolve(fallback);
     }
 
-    return new Promise<T>(resolve => {
+    return new Promise<T>((resolve: any) => {
         const timer = setTimeout(() => resolve(fallback), timeoutMs);
 
         promise
-            .then(result => {
+            .then((result: any) => {
                 clearTimeout(timer);
                 resolve(result);
             })
@@ -581,7 +581,7 @@ export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback:
  * @returns Promise that resolves after the delay
  */
 export function delay(timeoutMs: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, timeoutMs));
+    return new Promise((resolve: any) => setTimeout(resolve, timeoutMs));
 }
 
 /**
@@ -625,7 +625,7 @@ export function normalizeOptionalPath(value: string | undefined): string | undef
  */
 export function resolveOpenClawRecordWorkspacePath(
     record: OpenClawAgentRecord,
-    config: OpenClawCliServiceConfig | null
+    config: OpenClawCliServiceConfig | undefined
 ): string | undefined {
     return normalizeOptionalPath(record.workspace)
         || normalizeOptionalPath(record.agentDir)
@@ -640,7 +640,7 @@ export function resolveOpenClawRecordWorkspacePath(
  */
 export function inferOpenClawWorkspacePath(
     agentId: string | undefined,
-    config: OpenClawCliServiceConfig | null
+    config: OpenClawCliServiceConfig | undefined
 ): string | undefined {
     const normalizedAgentId = normalizeOptionalPath(agentId);
     if (!normalizedAgentId || !config) {
@@ -757,16 +757,16 @@ function normalizeOpenClawMessageParts(content: unknown): ChatMessagePart[] {
  */
 function buildDisplayContentFromParts(parts: ChatMessagePart[], message: Record<string, unknown>): string {
     const text = parts
-        .filter((part): part is Extract<ChatMessagePart, { type: 'text' }> => part.type === 'text')
-        .map(part => part.text)
+        .filter((part: any): part is Extract<ChatMessagePart, { type: 'text' }> => part.type === 'text')
+        .map((part: any) => part.text)
         .join('');
     if (text) {
         return text;
     }
 
     const thinking = parts
-        .filter((part): part is Extract<ChatMessagePart, { type: 'thinking' }> => part.type === 'thinking')
-        .map(part => part.thinking)
+        .filter((part: any): part is Extract<ChatMessagePart, { type: 'thinking' }> => part.type === 'thinking')
+        .map((part: any) => part.thinking)
         .join('\n\n');
     if (thinking) {
         return thinking;
@@ -805,11 +805,11 @@ function extractRecordMetadata(record: Record<string, unknown>): Record<string, 
 /**
  * Normalizes a role value.
  * @param value - The role value
- * @returns The normalized role or null
+ * @returns The normalized role or undefined
  */
-function normalizeRole(value: unknown): ChatMessage['role'] | null {
+function normalizeRole(value: unknown): ChatMessage['role'] | undefined {
     if (typeof value !== 'string') {
-        return null;
+        return undefined;
     }
 
     const normalized = value.toLowerCase();
@@ -821,7 +821,7 @@ function normalizeRole(value: unknown): ChatMessage['role'] | null {
         return 'tool';
     }
 
-    return null;
+    return undefined;
 }
 
 /**
@@ -854,17 +854,17 @@ function normalizeTimestamp(value: unknown, sequenceIndex: number = 0): string {
  * @param sessionKey - The session key
  * @param agentId - The agent ID
  * @param index - The entry index
- * @returns The chat message or null
+ * @returns The chat message or undefined
  */
 function normalizeOpenClawLifecycleEntry(
     entry: Record<string, unknown>,
     sessionKey: string,
     agentId: string | undefined,
     index: number
-): ChatMessage | null {
+): ChatMessage | undefined {
     const type = typeof entry.type === 'string' ? entry.type : '';
     if (type && type !== 'lifecycle' && type !== 'notice' && type !== 'system') {
-        return null;
+        return undefined;
     }
 
     const data = entry.data && typeof entry.data === 'object'
@@ -872,7 +872,7 @@ function normalizeOpenClawLifecycleEntry(
         : entry;
     const notice = buildOpenClawLifecycleNotice(data);
     if (!notice) {
-        return null;
+        return undefined;
     }
 
     return {
@@ -903,7 +903,7 @@ function buildOpenClawLifecycleNotice(data: Record<string, unknown>): string {
         data.reason,
         data.detail,
         data.text
-    ].map(value => typeof value === 'string' ? value.trim() : '').filter(Boolean);
+    ].map((value: any) => typeof value === 'string' ? value.trim() : '').filter(Boolean);
     const combined = [
         typeof data.phase === 'string' ? data.phase : '',
         typeof data.event === 'string' ? data.event : '',

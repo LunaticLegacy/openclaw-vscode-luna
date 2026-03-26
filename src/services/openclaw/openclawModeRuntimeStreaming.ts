@@ -25,7 +25,7 @@ interface OpenClawRuntimeStreamContext {
     handleObservedRunStart(sessionKey: string, runId: string): void;
     handleObservedRunStop(sessionKey: string, runId: string): void;
     readSessionMessages(sessionKey: string): Promise<ChatMessage[]>;
-    waitForAssistantMessage(sessionKey: string, knownIds: Set<string>, timeoutMs: number): Promise<ChatMessage | null>;
+    waitForAssistantMessage(sessionKey: string, knownIds: Set<string>, timeoutMs: number): Promise<ChatMessage | undefined>;
 }
 
 /**
@@ -56,8 +56,8 @@ export async function *streamMessageViaGateway(
     });
 
     const events: GatewayEventFrame[] = [];
-    let wakeNextEvent: (() => void) | null = null;
-    let streamError: Error | null = null;
+    let wakeNextEvent: (() => void) | undefined = undefined;
+    let streamError: Error | undefined = undefined;
     let dispatched = false;
     let runId = '';
     let assistantText = '';
@@ -67,7 +67,7 @@ export async function *streamMessageViaGateway(
     const queueEvent = (event: GatewayEventFrame) => {
         events.push(event);
         const wake = wakeNextEvent;
-        wakeNextEvent = null;
+        wakeNextEvent = undefined;
         wake?.();
     };
 
@@ -82,7 +82,7 @@ export async function *streamMessageViaGateway(
     const onError = (error: unknown) => {
         streamError = error instanceof Error ? error : new Error(String(error));
         const wake = wakeNextEvent;
-        wakeNextEvent = null;
+        wakeNextEvent = undefined;
         wake?.();
     };
 
@@ -92,10 +92,10 @@ export async function *streamMessageViaGateway(
                 throw streamError;
             }
 
-            await new Promise<void>((resolve, reject) => {
+            await new Promise<void>((resolve: any, reject: any) => {
                 const timer = setTimeout(() => {
                     if (wakeNextEvent === wake) {
-                        wakeNextEvent = null;
+                        wakeNextEvent = undefined;
                     }
                     reject(new Error('Timed out waiting for gateway stream event'));
                 }, 30000);
@@ -146,7 +146,7 @@ export async function *streamMessageViaGateway(
             const event = await nextEvent();
             const payload = event.payload && typeof event.payload === 'object'
                 ? event.payload as Record<string, unknown>
-                : null;
+                : undefined;
 
             if (!payload || payload.runId !== runId) {
                 continue;
@@ -231,7 +231,7 @@ export async function *streamMessageViaGateway(
             }
 
             const state = typeof payload.state === 'string' ? payload.state : '';
-            const messageText = extractTextContent((payload.message as { content?: unknown } | undefined)?.content);
+            const messageText = extractTextContent((payload.message as { content?: unknown })?.content);
             const deltaText = messageText
                 ? messageText.startsWith(assistantText)
                     ? messageText.slice(assistantText.length)
@@ -330,8 +330,8 @@ export async function *streamMessageFromSessionLog(
     knownIds: Set<string>
 ): AsyncGenerator<StreamChunk, void, unknown> {
     const fallbackRunId = `${sessionKey}:stream-fallback:${Date.now()}`;
-    let responsePayload: Record<string, unknown> | null = null;
-    let requestError: unknown = null;
+    let responsePayload: Record<string, unknown> | undefined = undefined;
+    let requestError: unknown = undefined;
     let requestCompleted = false;
     let requestCompletedAt = 0;
     let finalAssistantSeen = false;
@@ -340,13 +340,13 @@ export async function *streamMessageFromSessionLog(
 
     try {
         const requestPromise = context.runner.sendChat(sessionKey, message)
-            .then(result => {
+            .then((result: any) => {
                 responsePayload = result;
                 requestCompleted = true;
                 requestCompletedAt = Date.now();
                 return result;
             })
-            .catch(error => {
+            .catch((error: any) => {
                 requestError = error;
                 requestCompleted = true;
                 requestCompletedAt = Date.now();
@@ -355,7 +355,7 @@ export async function *streamMessageFromSessionLog(
 
         while (!requestCompleted || Date.now() - requestCompletedAt < 2500) {
             const currentMessages = await context.readSessionMessages(sessionKey).catch(() => []);
-            const newMessages = currentMessages.filter(item => !knownIds.has(item.id));
+            const newMessages = currentMessages.filter((item: any) => !knownIds.has(item.id));
 
             for (const newMessage of newMessages) {
                 knownIds.add(newMessage.id);

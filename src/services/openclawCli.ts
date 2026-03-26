@@ -23,14 +23,14 @@ export type OpenClawCliCommandExecutor = (
     execution: OpenClawCliCommandExecution
 ) => Promise<{ stdout: string; stderr: string }>;
 
-let sharedCommandExecutor: OpenClawCliCommandExecutor | null = null;
+let sharedCommandExecutor: OpenClawCliCommandExecutor | undefined = undefined;
 
 /**
  * 设置测试用的 CLI 命令执行器
- * @param executor - 命令执行器，null 表示重置为默认
+ * @param executor - 命令执行器，undefined 表示重置为默认
  */
 export function setOpenClawCliCommandExecutorForTests(
-    executor: OpenClawCliCommandExecutor | null
+    executor: OpenClawCliCommandExecutor | undefined
 ): void {
     sharedCommandExecutor = executor;
 }
@@ -517,7 +517,7 @@ export class OpenClawCliRunner {
      * @param model - 可选的模型名称
      * @returns 创建结果
      */
-    public async createAgent(name: string, model?: string): Promise<Record<string, unknown> | undefined> {
+    public async createAgent(name: string, model?: string): Promise<Record<string, unknown>> {
         const workspacePath = this.resolveAgentWorkspacePath(name);
         const args = [
             'agents',
@@ -777,8 +777,8 @@ function extractJsonPayload(stdout: string): string {
     const objectStart = trimmed.indexOf('{');
     const arrayStart = trimmed.indexOf('[');
     const start = [objectStart, arrayStart]
-        .filter(index => index >= 0)
-        .sort((left, right) => left - right)[0];
+        .filter((index: any) => index >= 0)
+        .sort((left: any, right: any) => left - right)[0];
 
     return start >= 0 ? trimmed.slice(start).trim() : trimmed;
 }
@@ -796,7 +796,7 @@ function looksLikeStandaloneJson(value: string): boolean {
     }
 }
 
-const defaultCommandExecutor: OpenClawCliCommandExecutor = async ({ config, args, timeoutMs }) => {
+const defaultCommandExecutor: OpenClawCliCommandExecutor = async ({ config, args, timeoutMs }: any) => {
     // Check for potential ENAMETOOLONG error by validating argument length
     const fullCommandLine = [config.nodePath, config.cliEntryPath, ...args].join(' ');
     

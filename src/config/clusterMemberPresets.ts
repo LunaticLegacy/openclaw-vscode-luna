@@ -72,18 +72,18 @@ export async function getClusterMemberPresets(extensionPath: string): Promise<Cl
 /**
  * 根据预设ID获取集群成员预设
  * @param presetId - 预设标识符
- * @returns 集群成员预设，如果不存在则返回 null
+ * @returns 集群成员预设，如果不存在则返回 undefined
  */
 export async function getClusterMemberPreset(
     extensionPath: string,
-    presetId?: string | null
-): Promise<ClusterMemberPreset | null> {
+    presetId?: string
+): Promise<ClusterMemberPreset | undefined> {
     if (!presetId) {
-        return null;
+        return undefined;
     }
     const presets = await loadSwarmPresets(extensionPath);
-    const preset = presets.find(p => p.id === presetId);
-    return preset ? cloneClusterMemberPreset(preset) : null;
+    const preset = presets.find((p: any) => p.id === presetId);
+    return preset ? cloneClusterMemberPreset(preset) : undefined;
 }
 
 /**
@@ -93,7 +93,7 @@ export async function getClusterMemberPreset(
  */
 export async function resolveClusterMemberPreset(
     extensionPath: string,
-    presetId?: string | null
+    presetId?: string
 ): Promise<ClusterMemberPreset> {
     const resolved = (await getClusterMemberPreset(extensionPath, presetId))
         || (await getClusterMemberPreset(extensionPath, DEFAULT_CLUSTER_MEMBER_PRESET_ID));
@@ -166,7 +166,7 @@ function cloneClusterMemberPreset(preset: SwarmPreset): ClusterMemberPreset {
         ...preset,
         description: preset.description ?? '',
         workspaceConfig: workspaceConfig as Partial<ClusterWorkspaceConfig> & { presetId: string },
-        memberBlueprints: preset.memberBlueprints.map(blueprint => cloneClusterMemberBlueprint(blueprint)),
+        memberBlueprints: preset.memberBlueprints.map((blueprint: any) => cloneClusterMemberBlueprint(blueprint)),
         tags: preset.tags ? [...preset.tags] : [],
         recommendedSkills: preset.recommendedSkills ? [...preset.recommendedSkills] : undefined
     };

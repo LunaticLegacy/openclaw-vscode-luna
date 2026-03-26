@@ -37,7 +37,7 @@ export class AgentFolderManager extends EventEmitter {
     private readonly storageFilePath: string;
     private readonly folders: Map<string, AgentFolder> = new Map();
     private loaded = false;
-    private loadPromise: Promise<void> | null = null;
+    private loadPromise: Promise<void> | undefined = undefined;
 
     /**
      * 创建 AgentFolderManager 实例
@@ -56,7 +56,7 @@ export class AgentFolderManager extends EventEmitter {
      */
     public async getFolders(refresh: boolean = false): Promise<AgentFolder[]> {
         await this.ensureLoaded(refresh);
-        return Array.from(this.folders.values()).sort((left, right) =>
+        return Array.from(this.folders.values()).sort((left: any, right: any) =>
             left.createdAt.localeCompare(right.createdAt) || left.name.localeCompare(right.name)
         );
     }
@@ -148,10 +148,10 @@ export class AgentFolderManager extends EventEmitter {
      * 移动智能体到指定文件夹
      * 
      * @param agentId - 智能体ID
-     * @param folderId - 目标文件夹ID，null 表示移出所有文件夹
+     * @param folderId - 目标文件夹ID，undefined 表示移出所有文件夹
      * @returns Promise<void>
      */
-    public async moveAgentToFolder(agentId: string, folderId: string | null): Promise<void> {
+    public async moveAgentToFolder(agentId: string, folderId: string | undefined): Promise<void> {
         await this.ensureLoaded();
         const normalizedAgentId = String(agentId || '').trim();
         if (!normalizedAgentId) {
@@ -160,7 +160,7 @@ export class AgentFolderManager extends EventEmitter {
 
         let changed = false;
         for (const [id, folder] of this.folders.entries()) {
-            const nextAgentIds = folder.agentIds.filter(currentAgentId => currentAgentId !== normalizedAgentId);
+            const nextAgentIds = folder.agentIds.filter((currentAgentId: any) => currentAgentId !== normalizedAgentId);
             if (nextAgentIds.length !== folder.agentIds.length) {
                 this.folders.set(id, {
                     ...folder,
@@ -200,11 +200,11 @@ export class AgentFolderManager extends EventEmitter {
      */
     public async pruneMissingAgents(validAgentIds: string[]): Promise<boolean> {
         await this.ensureLoaded();
-        const validSet = new Set(validAgentIds.map(agentId => String(agentId || '').trim()).filter(Boolean));
+        const validSet = new Set(validAgentIds.map((agentId: any) => String(agentId || '').trim()).filter(Boolean));
         let changed = false;
 
         for (const [folderId, folder] of this.folders.entries()) {
-            const nextAgentIds = folder.agentIds.filter(agentId => validSet.has(agentId));
+            const nextAgentIds = folder.agentIds.filter((agentId: any) => validSet.has(agentId));
             if (nextAgentIds.length === folder.agentIds.length) {
                 continue;
             }
@@ -232,7 +232,7 @@ export class AgentFolderManager extends EventEmitter {
         this.removeAllListeners();
         this.folders.clear();
         this.loaded = false;
-        this.loadPromise = null;
+        this.loadPromise = undefined;
     }
 
     /**
@@ -285,7 +285,7 @@ export class AgentFolderManager extends EventEmitter {
                         id,
                         name,
                         agentIds: Array.isArray(folder.agentIds)
-                            ? folder.agentIds.map(agentId => String(agentId || '').trim()).filter(Boolean)
+                            ? folder.agentIds.map((agentId: any) => String(agentId || '').trim()).filter(Boolean)
                             : [],
                         collapsed: Boolean(folder.collapsed),
                         createdAt: folder.createdAt || new Date().toISOString(),
@@ -305,7 +305,7 @@ export class AgentFolderManager extends EventEmitter {
         try {
             await this.loadPromise;
         } finally {
-            this.loadPromise = null;
+            this.loadPromise = undefined;
         }
     }
 
@@ -319,7 +319,7 @@ export class AgentFolderManager extends EventEmitter {
         };
 
         await fs.mkdir(path.dirname(this.storageFilePath), { recursive: true });
-        await fs.writeFile(this.storageFilePath, JSON.stringify(payload, null, 2), 'utf8');
+        await fs.writeFile(this.storageFilePath, JSON.stringify(payload, undefined, 2), 'utf8');
     }
 }
 

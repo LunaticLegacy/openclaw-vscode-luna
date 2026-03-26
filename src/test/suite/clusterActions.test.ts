@@ -12,9 +12,21 @@ import {
 } from '../../panels/openclawPanel/clusterActions';
 import type { Agent, AgentCluster, ChatMessage, ChatSession } from '../../services/openclawService';
 import type {
+    BroadcastClusterRequest,
+    ClusterAgentMessagesRequest,
+    ClusterAgentRequest,
+    ClusterAgentSwarmMessagesRequest,
+    ClusterAgentSwarmRequest,
+    ClusterSwarmMessagesRequest,
+    ClusterSwarmRequest,
     ClusterCollaborationProgressEvent,
-    ClusterCollaborationRoundDescriptor
+    ClusterCollaborationRoundDescriptor,
+    CollaborateClusterRequest,
+    CreateClusterParams,
+    UpdateClusterRequest
 } from '../../managers/clusterManager';
+import type { CreateAgentParams } from '../../services/openclawService';
+import type { CapturedProgressRun, GetOrCreateSessionOptions, ProgressReport, ProgressReporter, WithProgressTask } from '../../types/test';
 
 suite('clusterActions', () => {
     test('loads persisted swarm messages when entering swarm mode', async () => {
@@ -26,11 +38,15 @@ suite('clusterActions', () => {
         const persistedMessages: ChatMessage[] = [
             createMessage('persisted-swarm-1', 'assistant', 'persisted swarm reply')
         ];
-        await clusterManager.replaceClusterSwarmMessages('cluster-1', 'collaborate', persistedMessages);
+        await clusterManager.replaceClusterSwarmMessages({
+            clusterId: 'cluster-1',
+            mode: 'collaborate',
+            messages: persistedMessages
+        });
 
         await loadClusterSwarmMessages(context, 'cluster-1', 'collaborate');
 
-        const replaceMessage = posted.find(message => message.type === 'replaceSwarmMessages');
+        const replaceMessage = posted.find((message: any) => message.type === 'replaceSwarmMessages');
         assert.deepEqual(replaceMessage?.messages, persistedMessages);
     });
 
@@ -47,34 +63,44 @@ suite('clusterActions', () => {
             status: 'active',
             createdAt: '2026-03-12T00:00:00.000Z'
         };
-        await clusterManager.replaceClusterAgentSwarmMessages('cluster-1', 'alpha', 'collaborate', [{
-            ...createMessage('alpha-raw', 'user', 'alpha raw prompt'),
-            timestamp: '2026-03-12T00:00:01.000Z',
+        await clusterManager.replaceClusterAgentSwarmMessages({
+            clusterId: 'cluster-1',
             agentId: 'alpha',
-            metadata: {
-                swarmPhase: 'opening',
-                swarmLogKind: 'outbound-prompt'
-            }
-        }]);
-        await clusterManager.replaceClusterAgentSwarmMessages('cluster-1', 'beta', 'collaborate', [{
-            ...createMessage('beta-raw', 'assistant', 'beta raw reply'),
-            timestamp: '2026-03-12T00:00:02.000Z',
+            mode: 'collaborate',
+            messages: [{
+                ...createMessage('alpha-raw', 'user', 'alpha raw prompt'),
+                timestamp: '2026-03-12T00:00:01.000Z',
+                agentId: 'alpha',
+                metadata: {
+                    swarmPhase: 'opening',
+                    swarmLogKind: 'outbound-prompt'
+                }
+            }]
+        });
+        await clusterManager.replaceClusterAgentSwarmMessages({
+            clusterId: 'cluster-1',
             agentId: 'beta',
-            metadata: {
-                swarmPhase: 'opening',
-                swarmLogKind: 'inbound-final'
-            }
-        }]);
+            mode: 'collaborate',
+            messages: [{
+                ...createMessage('beta-raw', 'assistant', 'beta raw reply'),
+                timestamp: '2026-03-12T00:00:02.000Z',
+                agentId: 'beta',
+                metadata: {
+                    swarmPhase: 'opening',
+                    swarmLogKind: 'inbound-final'
+                }
+            }]
+        });
 
         await loadClusterSwarmMessages(context, 'cluster-1', 'collaborate', 'raw');
 
-        const replaceMessage = posted.find(message =>
+        const replaceMessage = posted.find((message: any) =>
             message.type === 'replaceSwarmMessages'
             && message.outputMode === 'raw'
         );
         assert.ok(replaceMessage);
         assert.deepEqual(
-            (replaceMessage?.messages as ChatMessage[]).map(message => message.content),
+            (replaceMessage?.messages as ChatMessage[]).map((message: any) => message.content),
             ['alpha raw prompt', 'beta raw reply']
         );
     });
@@ -85,29 +111,29 @@ suite('clusterActions', () => {
         const posted: Array<Record<string, unknown>> = [];
         const context = createClusterActionContext(clusterManager, sessionManager, posted);
 
-        await clusterManager.replaceClusterSwarmMessages(
-            'cluster-1',
-            'collaborate',
-            [createMessage('run-1-msg', 'assistant', 'older swarm run')],
-            'run-1'
-        );
-        await clusterManager.replaceClusterSwarmMessages(
-            'cluster-1',
-            'collaborate',
-            [createMessage('run-2-msg', 'assistant', 'latest swarm run')],
-            'run-2'
-        );
+        await clusterManager.replaceClusterSwarmMessages({
+            clusterId: 'cluster-1',
+            mode: 'collaborate',
+            messages: [createMessage('run-1-msg', 'assistant', 'older swarm run')],
+            swarmRunId: 'run-1'
+        });
+        await clusterManager.replaceClusterSwarmMessages({
+            clusterId: 'cluster-1',
+            mode: 'collaborate',
+            messages: [createMessage('run-2-msg', 'assistant', 'latest swarm run')],
+            swarmRunId: 'run-2'
+        });
 
         await loadClusterSwarmMessages(context, 'cluster-1', 'collaborate', 'frontend', 'run-1');
 
-        const replaceMessage = posted.find(message =>
+        const replaceMessage = posted.find((message: any) =>
             message.type === 'replaceSwarmMessages'
             && message.swarmRunId === 'run-1'
             && message.outputMode === 'frontend'
         );
         assert.ok(replaceMessage);
         assert.deepEqual(
-            (replaceMessage?.messages as ChatMessage[]).map(message => message.content),
+            (replaceMessage?.messages as ChatMessage[]).map((message: any) => message.content),
             ['older swarm run']
         );
     });
@@ -121,14 +147,45 @@ suite('clusterActions', () => {
         const persistedMessages: ChatMessage[] = [
             createMessage('persisted-1', 'assistant', 'persisted reply')
         ];
-        await clusterManager.replaceClusterAgentMessages('cluster-1', 'alpha', persistedMessages);
+        await clusterManager.replaceClusterAgentMessages({
+            clusterId: 'cluster-1',
+            agentId: 'alpha',
+            messages: persistedMessages
+        });
         sessionManager.refreshResults.set('session-1', []);
 
         await loadClusterAgentMessages(context, 'cluster-1', 'alpha');
 
-        const replaceMessage = posted.find(message => message.type === 'replaceClusterMessages');
+        const replaceMessage = posted.find((message: any) => message.type === 'replaceClusterMessages');
         assert.deepEqual(replaceMessage?.messages, persistedMessages);
         assert.deepEqual(clusterManager.replaceCalls[clusterManager.replaceCalls.length - 1]?.messages, persistedMessages);
+    });
+
+    test('does not rewrite persisted cluster-agent messages when refreshed history is unchanged', async () => {
+        const clusterManager = new FakeClusterManager();
+        const sessionManager = new FakeClusterSessionManager();
+        const posted: Array<Record<string, unknown>> = [];
+        const context = createClusterActionContext(clusterManager, sessionManager, posted);
+
+        const persistedMessages: ChatMessage[] = [
+            createMessage('persisted-1', 'assistant', 'persisted reply')
+        ];
+        await clusterManager.replaceClusterAgentMessages({
+            clusterId: 'cluster-1',
+            agentId: 'alpha',
+            messages: persistedMessages
+        });
+        const replaceCountBeforeLoad = clusterManager.replaceCalls.length;
+        sessionManager.refreshResults.set('session-1', persistedMessages);
+
+        await loadClusterAgentMessages(context, 'cluster-1', 'alpha');
+
+        assert.equal(clusterManager.replaceCalls.length, replaceCountBeforeLoad);
+        assert.ok(posted.some((message: any) =>
+            message.type === 'replaceClusterMessages'
+            && Array.isArray(message.messages)
+            && message.messages[0]?.content === 'persisted reply'
+        ));
     });
 
     test('loads swarm log messages for a specific cluster agent', async () => {
@@ -141,11 +198,16 @@ suite('clusterActions', () => {
             createMessage('swarm-1', 'user', 'opening prompt'),
             createMessage('swarm-2', 'assistant', 'opening reply')
         ];
-        await clusterManager.replaceClusterAgentSwarmMessages('cluster-1', 'alpha', 'collaborate', persistedMessages);
+        await clusterManager.replaceClusterAgentSwarmMessages({
+            clusterId: 'cluster-1',
+            agentId: 'alpha',
+            mode: 'collaborate',
+            messages: persistedMessages
+        });
 
         await loadClusterAgentSwarmMessages(context, 'cluster-1', 'alpha', 'collaborate');
 
-        const replaceMessage = posted.find(message => message.type === 'replaceClusterAgentSwarmMessages');
+        const replaceMessage = posted.find((message: any) => message.type === 'replaceClusterAgentSwarmMessages');
         assert.deepEqual(replaceMessage?.messages, [
             { ...persistedMessages[0], contextLabel: 'Collaborate Log' },
             { ...persistedMessages[1], contextLabel: 'Collaborate Log' }
@@ -174,8 +236,8 @@ suite('clusterActions', () => {
         await handleClusterAgentMessage(context, 'cluster-1', 'alpha', 'hello');
 
         assert.deepEqual(clusterManager.replaceCalls[clusterManager.replaceCalls.length - 1]?.messages, finalMessages);
-        assert.ok(posted.some(message => message.type === 'appendClusterMessage'));
-        assert.ok(posted.some(message => message.type === 'replaceClusterMessages'));
+        assert.ok(posted.some((message: any) => message.type === 'appendClusterMessage'));
+        assert.ok(posted.some((message: any) => message.type === 'replaceClusterMessages'));
     });
 
     test('clear resets persisted cluster-agent messages and rotates session when runtime clear is unsupported', async () => {
@@ -184,9 +246,11 @@ suite('clusterActions', () => {
         const posted: Array<Record<string, unknown>> = [];
         const context = createClusterActionContext(clusterManager, sessionManager, posted);
 
-        await clusterManager.replaceClusterAgentMessages('cluster-1', 'alpha', [
-            createMessage('msg-1', 'assistant', 'existing reply')
-        ]);
+        await clusterManager.replaceClusterAgentMessages({
+            clusterId: 'cluster-1',
+            agentId: 'alpha',
+            messages: [createMessage('msg-1', 'assistant', 'existing reply')]
+        });
         sessionManager.refreshResults.set('session-1', [
             createMessage('msg-2', 'assistant', 'still present after clear')
         ]);
@@ -195,8 +259,8 @@ suite('clusterActions', () => {
 
         assert.equal(clusterManager.sessionId, 'session-2');
         assert.ok(clusterManager.clearCalls.length >= 1);
-        assert.deepEqual(await clusterManager.getClusterAgentMessages('cluster-1', 'alpha'), []);
-        assert.ok(posted.some(message =>
+        assert.deepEqual(await clusterManager.getClusterAgentMessages({ clusterId: 'cluster-1', agentId: 'alpha' }), []);
+        assert.ok(posted.some((message: any) =>
             message.type === 'replaceClusterMessages'
             && Array.isArray(message.messages)
             && message.messages.length === 0
@@ -209,16 +273,18 @@ suite('clusterActions', () => {
         const posted: Array<Record<string, unknown>> = [];
         const context = createClusterActionContext(clusterManager, sessionManager, posted);
 
-        await clusterManager.replaceClusterAgentMessages('cluster-1', 'alpha', [
-            createMessage('msg-1', 'assistant', 'existing reply')
-        ]);
+        await clusterManager.replaceClusterAgentMessages({
+            clusterId: 'cluster-1',
+            agentId: 'alpha',
+            messages: [createMessage('msg-1', 'assistant', 'existing reply')]
+        });
 
         await handleClusterAgentSessionCommand(context, 'cluster-1', 'alpha', 'new');
 
         assert.equal(clusterManager.sessionId, 'session-2');
         assert.equal(clusterManager.clearCalls.length, 1);
-        assert.deepEqual(await clusterManager.getClusterAgentMessages('cluster-1', 'alpha'), []);
-        assert.ok(posted.some(message =>
+        assert.deepEqual(await clusterManager.getClusterAgentMessages({ clusterId: 'cluster-1', agentId: 'alpha' }), []);
+        assert.ok(posted.some((message: any) =>
             message.type === 'replaceClusterMessages'
             && Array.isArray(message.messages)
             && message.messages.length === 0
@@ -270,17 +336,17 @@ suite('clusterActions', () => {
 
         await handleCollaborate(context, 'cluster-1', 'plan this');
 
-        const persisted = await clusterManager.getClusterSwarmMessages('cluster-1', 'collaborate');
+        const persisted = await clusterManager.getClusterSwarmMessages({ clusterId: 'cluster-1', mode: 'collaborate' });
         assert.equal(persisted[0]?.role, 'user');
         assert.equal(persisted[0]?.content, 'plan this');
-        assert.ok(persisted.some(message => message.content === 'final synthesis'));
+        assert.ok(persisted.some((message: any) => message.content === 'final synthesis'));
         const batchIds = new Set(
             persisted
-                .map(message => String(message.metadata?.swarmBatchId || ''))
+                .map((message: any) => String(message.metadata?.swarmBatchId || ''))
                 .filter(Boolean)
         );
         assert.equal(batchIds.size, 1);
-        assert.ok(posted.some(message => message.type === 'replaceSwarmMessages'));
+        assert.ok(posted.some((message: any) => message.type === 'replaceSwarmMessages'));
     });
 
     test('posts partial collaboration progress before the full swarm result completes', async () => {
@@ -335,15 +401,134 @@ suite('clusterActions', () => {
 
         await handleCollaborate(context, 'cluster-1', 'plan this');
 
-        assert.ok(posted.some(message =>
+        assert.ok(posted.some((message: any) =>
             message.type === 'replaceSwarmMessages'
             && message.keepPending === true
         ));
-        assert.ok(posted.some(message =>
+        assert.ok(posted.some((message: any) =>
             message.type === 'replaceSwarmMessages'
             && Array.isArray(message.messages)
             && message.messages.some((entry: any) => entry.content === 'opening reply')
         ));
+    });
+
+    test('includes nested collaborate member replies in the frontend swarm conversation', async () => {
+        const clusterManager = new FakeClusterManager();
+        const sessionManager = new FakeClusterSessionManager();
+        const posted: Array<Record<string, unknown>> = [];
+        const context = createClusterActionContext(clusterManager, sessionManager, posted);
+
+        clusterManager.cluster = {
+            id: 'cluster-1',
+            name: 'Swarm',
+            agentIds: ['alpha', 'beta'],
+            status: 'active',
+            createdAt: '2026-03-12T00:00:00.000Z',
+            workspaceConfig: {
+                memberProfiles: {
+                    beta: {
+                        parentAgentId: 'alpha'
+                    }
+                }
+            } as never
+        };
+        clusterManager.progressEvents = [{
+            kind: 'round-entry',
+            swarmRunId: 'fake-run-collab-nested',
+            roundKind: 'opening',
+            round: createRoundDescriptor('opening'),
+            agentId: 'beta',
+            entry: {
+                agentId: 'beta',
+                ok: true,
+                message: {
+                    ...createMessage('beta-opening', 'assistant', 'beta nested reply'),
+                    agentId: 'beta'
+                }
+            }
+        }];
+        clusterManager.collaborationResult = {
+            swarmRunId: 'fake-run-collab-nested',
+            clusterId: 'cluster-1',
+            clusterName: 'Swarm',
+            userMessage: 'plan this',
+            coordinatorAgentId: 'alpha',
+            rounds: [{
+                kind: 'opening',
+                descriptor: createRoundDescriptor('opening'),
+                entries: {
+                    beta: {
+                        agentId: 'beta',
+                        ok: true,
+                        message: {
+                            ...createMessage('beta-opening', 'assistant', 'beta nested reply'),
+                            agentId: 'beta'
+                        }
+                    }
+                }
+            }],
+            contributions: {},
+            synthesis: {
+                agentId: 'alpha',
+                ok: true,
+                message: createMessage('alpha-final', 'assistant', 'final synthesis')
+            }
+        };
+
+        await handleCollaborate(context, 'cluster-1', 'plan this');
+
+        const persisted = await clusterManager.getClusterSwarmMessages({ clusterId: 'cluster-1', mode: 'collaborate' });
+        assert.equal(persisted.some((message: any) => message.content === 'beta nested reply'), true);
+    });
+
+    test('surfaces cluster members without collaborate output in the frontend swarm conversation', async () => {
+        const clusterManager = new FakeClusterManager();
+        const sessionManager = new FakeClusterSessionManager();
+        const posted: Array<Record<string, unknown>> = [];
+        const context = createClusterActionContext(clusterManager, sessionManager, posted);
+
+        clusterManager.cluster = {
+            id: 'cluster-1',
+            name: 'Swarm',
+            agentIds: ['alpha', 'beta'],
+            status: 'active',
+            createdAt: '2026-03-12T00:00:00.000Z'
+        };
+        clusterManager.collaborationResult = {
+            swarmRunId: 'fake-run-collab-missing-agent',
+            clusterId: 'cluster-1',
+            clusterName: 'Swarm',
+            userMessage: 'plan this',
+            coordinatorAgentId: 'alpha',
+            rounds: [{
+                kind: 'opening',
+                descriptor: createRoundDescriptor('opening'),
+                entries: {
+                    alpha: {
+                        agentId: 'alpha',
+                        ok: true,
+                        message: createMessage('alpha-opening', 'assistant', 'alpha opening reply')
+                    }
+                }
+            }],
+            contributions: {},
+            synthesis: {
+                agentId: 'alpha',
+                ok: true,
+                message: createMessage('alpha-final', 'assistant', 'final synthesis')
+            }
+        };
+
+        await handleCollaborate(context, 'cluster-1', 'plan this');
+
+        const persisted = await clusterManager.getClusterSwarmMessages({ clusterId: 'cluster-1', mode: 'collaborate' });
+        assert.equal(
+            persisted.some((message: any) =>
+                message.displayName === 'Beta (model-b)'
+                && message.content === 'No collaborate output was captured for this agent in this run.'
+            ),
+            true
+        );
     });
 
     test('finalize keeps only one canonical synthesis message after progress updates', async () => {
@@ -389,9 +574,9 @@ suite('clusterActions', () => {
 
         await handleCollaborate(context, 'cluster-1', 'plan this');
 
-        const persisted = await clusterManager.getClusterSwarmMessages('cluster-1', 'collaborate');
+        const persisted = await clusterManager.getClusterSwarmMessages({ clusterId: 'cluster-1', mode: 'collaborate' });
         assert.equal(
-            persisted.filter(message =>
+            persisted.filter((message: any) =>
                 message.content === 'missing scope: operator.write'
                 && message.displayName === 'Final Answer'
             ).length,
@@ -435,19 +620,19 @@ suite('clusterActions', () => {
                 }
             }],
             contributions: {},
-            synthesis: null
+            synthesis: undefined
         };
 
         const ok = await handleCollaborate(context, 'cluster-1', 'plan this');
 
         assert.equal(ok, false);
-        assert.ok(posted.some(message => message.type === 'clusterRunFailed' && message.mode === 'collaborate'));
-        assert.ok(posted.some(message =>
+        assert.ok(posted.some((message: any) => message.type === 'clusterRunFailed' && message.mode === 'collaborate'));
+        assert.ok(posted.some((message: any) =>
             message.type === 'error'
             && String(message.message || '').includes('Gateway permission error')
         ));
-        const persisted = await clusterManager.getClusterSwarmMessages('cluster-1', 'collaborate');
-        assert.equal(persisted.some(message => message.content === 'missing scope: operator.write'), false);
+        const persisted = await clusterManager.getClusterSwarmMessages({ clusterId: 'cluster-1', mode: 'collaborate' });
+        assert.equal(persisted.some((message: any) => message.content === 'missing scope: operator.write'), false);
     });
 
     test('keeps the richer collaboration trace variant when the same message id later includes thinking parts', async () => {
@@ -513,13 +698,13 @@ suite('clusterActions', () => {
                 }
             }],
             contributions: {},
-            synthesis: null
+            synthesis: undefined
         };
 
         await handleCollaborate(context, 'cluster-1', 'plan this');
 
-        const persisted = await clusterManager.getClusterSwarmMessages('cluster-1', 'collaborate');
-        const alphaOpening = persisted.find(message => message.id === 'alpha-opening');
+        const persisted = await clusterManager.getClusterSwarmMessages({ clusterId: 'cluster-1', mode: 'collaborate' });
+        const alphaOpening = persisted.find((message: any) => message.id === 'alpha-opening');
         assert.ok(alphaOpening);
         assert.ok(Array.isArray(alphaOpening?.parts));
         assert.equal(alphaOpening?.parts?.some((part: any) => part.type === 'thinking'), true);
@@ -531,9 +716,11 @@ suite('clusterActions', () => {
         const posted: Array<Record<string, unknown>> = [];
         const context = createClusterActionContext(clusterManager, sessionManager, posted);
 
-        await clusterManager.replaceClusterSwarmMessages('cluster-1', 'collaborate', [
-            createMessage('old-1', 'assistant', 'old pending reply')
-        ]);
+        await clusterManager.replaceClusterSwarmMessages({
+            clusterId: 'cluster-1',
+            mode: 'collaborate',
+            messages: [createMessage('old-1', 'assistant', 'old pending reply')]
+        });
         clusterManager.replaceSwarmCalls.length = 0;
         clusterManager.collaborationResult = {
             swarmRunId: 'fake-run-collab-3',
@@ -543,18 +730,18 @@ suite('clusterActions', () => {
             coordinatorAgentId: 'alpha',
             rounds: [],
             contributions: {},
-            synthesis: null
+            synthesis: undefined
         };
 
         await handleCollaborate(context, 'cluster-1', 'fresh plan');
 
         assert.equal(clusterManager.replaceSwarmCalls.length > 0, true);
         assert.deepEqual(
-            clusterManager.replaceSwarmCalls[0]?.messages.map(message => message.content),
+            clusterManager.replaceSwarmCalls[0]?.messages.map((message: any) => message.content),
             ['fresh plan']
         );
         assert.equal(
-            clusterManager.replaceSwarmCalls[0]?.messages.some(message => message.content === 'old pending reply'),
+            clusterManager.replaceSwarmCalls[0]?.messages.some((message: any) => message.content === 'old pending reply'),
             false
         );
     });
@@ -612,7 +799,7 @@ suite('clusterActions', () => {
                 message: createMessage('alpha-final', 'assistant', 'final synthesis')
             }
         };
-        clusterManager.onProgressEmitted = async index => {
+        clusterManager.onProgressEmitted = async (index: any) => {
             if (index === 0) {
                 (context as any).__setClusterSwarmRunToken(2);
             }
@@ -620,13 +807,13 @@ suite('clusterActions', () => {
 
         await handleCollaborate(context, 'cluster-1', 'plan this');
 
-        const persisted = await clusterManager.getClusterSwarmMessages('cluster-1', 'collaborate');
+        const persisted = await clusterManager.getClusterSwarmMessages({ clusterId: 'cluster-1', mode: 'collaborate' });
         assert.deepEqual(
-            persisted.map(message => message.content),
+            persisted.map((message: any) => message.content),
             ['plan this', 'opening reply alpha']
         );
-        assert.equal(persisted.some(message => message.content === 'opening reply beta'), false);
-        assert.equal(persisted.some(message => message.content === 'final synthesis'), false);
+        assert.equal(persisted.some((message: any) => message.content === 'opening reply beta'), false);
+        assert.equal(persisted.some((message: any) => message.content === 'final synthesis'), false);
     });
 
     test('appends the final assistant result when swarm trace only contains tool activity', async () => {
@@ -657,7 +844,7 @@ suite('clusterActions', () => {
 
         const finalReplace = [...posted]
             .reverse()
-            .find(message => message.type === 'replaceSwarmMessages' && message.keepPending !== true);
+            .find((message: any) => message.type === 'replaceSwarmMessages' && message.keepPending !== true);
         assert.ok(finalReplace);
         assert.ok(Array.isArray(finalReplace.messages));
         assert.ok(finalReplace.messages.some((entry: any) => entry.content === 'Actual final answer'));
@@ -669,7 +856,7 @@ suite('clusterActions', () => {
         const posted: Array<Record<string, unknown>> = [];
         const context = createClusterActionContext(clusterManager, sessionManager, posted);
 
-        await withCapturedProgress(async progressEvents => {
+        await withCapturedProgress(async (progressEvents: any) => {
             await handleSaveCluster(context, undefined, {
                 name: 'New Swarm',
                 agentIds: ['alpha'],
@@ -682,8 +869,8 @@ suite('clusterActions', () => {
 
             assert.deepEqual(
                 progressEvents
-                    .map(event => event.message)
-                    .filter((message): message is string => Boolean(message)),
+                    .map((event: any) => event.message)
+                    .filter((message: any): message is string => Boolean(message)),
                 [
                     'Creating cluster member 1/1: Gamma...',
                     'Creating cluster record...',
@@ -691,14 +878,14 @@ suite('clusterActions', () => {
                     'Refreshing clusters...'
                 ]
             );
-            assert.ok(progressEvents.some(event => typeof event.increment === 'number' && event.increment > 0));
+            assert.ok(progressEvents.some((event: any) => typeof event.increment === 'number' && event.increment > 0));
         });
 
         assert.deepEqual(context.__createdAgents.map((agent: any) => agent.name), ['Gamma']);
         assert.deepEqual(clusterManager.cluster.agentIds, ['alpha', 'gamma']);
         assert.equal(context.__metrics.loadAgentsCalls, 1);
         assert.deepEqual(context.__metrics.loadClustersCalls, ['cluster-created']);
-        assert.ok(posted.some(message => message.type === 'clusterSaved'));
+        assert.ok(posted.some((message: any) => message.type === 'clusterSaved'));
     });
 
     test('saves unlimited-round swarm settings with the stop condition', async () => {
@@ -742,7 +929,7 @@ class FakeClusterManager {
         status: 'active',
         createdAt: '2026-03-12T00:00:00.000Z'
     };
-    public collaborationResult: any = null;
+    public collaborationResult: any = undefined;
     public broadcastResult: Record<string, any> = {};
     public progressEvents: ClusterCollaborationProgressEvent[] = [];
     public onProgressEmitted?: (index: number, event: ClusterCollaborationProgressEvent) => Promise<void> | void;
@@ -753,21 +940,25 @@ class FakeClusterManager {
     private readonly latestSwarmRunByKey = new Map<string, string>();
     private sessionCounter = 1;
 
-    public async ensureClusterAgentSessionId(): Promise<string> {
+    public async ensureClusterAgentSessionId(_request: ClusterAgentRequest): Promise<string> {
         return this.sessionId;
     }
 
-    public async resetClusterAgentSessionId(): Promise<string> {
+    public async resetClusterAgentSessionId(_request: ClusterAgentRequest): Promise<string> {
         this.sessionCounter += 1;
         this.sessionId = `session-${this.sessionCounter}`;
         return this.sessionId;
     }
 
-    public async getClusterAgentMessages(clusterId: string, agentId: string): Promise<ChatMessage[]> {
+    public async getClusterAgentMessages({ clusterId, agentId }: ClusterAgentRequest): Promise<ChatMessage[]> {
         return cloneMessages(this.messagesByKey.get(this.key(clusterId, agentId)) || []);
     }
 
-    public async replaceClusterAgentMessages(clusterId: string, agentId: string, messages: ChatMessage[]): Promise<void> {
+    public async replaceClusterAgentMessages({
+        clusterId,
+        agentId,
+        messages
+    }: ClusterAgentMessagesRequest): Promise<void> {
         this.replaceCalls.push({
             clusterId,
             agentId,
@@ -781,29 +972,37 @@ class FakeClusterManager {
         }
     }
 
-    public async clearClusterAgentMessages(clusterId: string, agentId: string): Promise<void> {
+    public async clearClusterAgentMessages({ clusterId, agentId }: ClusterAgentRequest): Promise<void> {
         this.clearCalls.push({ clusterId, agentId });
         this.messagesByKey.delete(this.key(clusterId, agentId));
     }
 
-    public async getClusterSwarmMessages(clusterId: string, mode: 'broadcast' | 'collaborate', swarmRunId?: string): Promise<ChatMessage[]> {
+    public async getClusterSwarmMessages({
+        clusterId,
+        mode,
+        swarmRunId
+    }: ClusterSwarmRequest): Promise<ChatMessage[]> {
         return cloneMessages(this.swarmMessagesByKey.get(this.swarmKey(clusterId, mode, this.resolveSwarmRunId(clusterId, mode, swarmRunId))) || []);
     }
 
     public async getClusterAgentSwarmMessages(
-        clusterId: string,
-        agentId: string,
-        mode: 'broadcast' | 'collaborate',
-        swarmRunId?: string
+        {
+            clusterId,
+            agentId,
+            mode,
+            swarmRunId
+        }: ClusterAgentSwarmRequest
     ): Promise<ChatMessage[]> {
         return cloneMessages(this.swarmAgentMessagesByKey.get(this.swarmAgentKey(clusterId, agentId, mode, this.resolveSwarmRunId(clusterId, mode, swarmRunId))) || []);
     }
 
     public async replaceClusterSwarmMessages(
-        clusterId: string,
-        mode: 'broadcast' | 'collaborate',
-        messages: ChatMessage[],
-        swarmRunId?: string
+        {
+            clusterId,
+            mode,
+            messages,
+            swarmRunId
+        }: ClusterSwarmMessagesRequest
     ): Promise<void> {
         this.replaceSwarmCalls.push({
             clusterId,
@@ -824,11 +1023,13 @@ class FakeClusterManager {
     }
 
     public async replaceClusterAgentSwarmMessages(
-        clusterId: string,
-        agentId: string,
-        mode: 'broadcast' | 'collaborate',
-        messages: ChatMessage[],
-        swarmRunId?: string
+        {
+            clusterId,
+            agentId,
+            mode,
+            messages,
+            swarmRunId
+        }: ClusterAgentSwarmMessagesRequest
     ): Promise<void> {
         this.replaceAgentSwarmCalls.push({
             clusterId,
@@ -849,11 +1050,11 @@ class FakeClusterManager {
         }
     }
 
-    public async getCluster(clusterId: string): Promise<AgentCluster | null> {
-        return this.cluster?.id === clusterId ? { ...this.cluster } : null;
+    public async getCluster(clusterId: string): Promise<AgentCluster | undefined> {
+        return this.cluster?.id === clusterId ? { ...this.cluster } : undefined;
     }
 
-    public async createCluster(params: { name: string; agentIds: string[]; workspaceConfig?: Record<string, unknown> }): Promise<AgentCluster> {
+    public async createCluster(params: CreateClusterParams): Promise<AgentCluster> {
         this.cluster = {
             id: 'cluster-created',
             name: params.name,
@@ -866,7 +1067,7 @@ class FakeClusterManager {
         return { ...this.cluster };
     }
 
-    public async updateCluster(clusterId: string, params: { name?: string; agentIds?: string[]; workspaceConfig?: Record<string, unknown> }): Promise<AgentCluster> {
+    public async updateCluster({ clusterId, ...params }: UpdateClusterRequest): Promise<AgentCluster> {
         this.cluster = {
             ...this.cluster,
             id: clusterId,
@@ -879,13 +1080,10 @@ class FakeClusterManager {
     }
 
     public async getClusters(): Promise<AgentCluster[]> {
-        return this.clusterList.length > 0 ? this.clusterList.map(cluster => ({ ...cluster })) : [{ ...this.cluster }];
+        return this.clusterList.length > 0 ? this.clusterList.map((cluster: any) => ({ ...cluster })) : [{ ...this.cluster }];
     }
 
-    public async collaborateOnCluster(_clusterId?: string, _message?: string, options?: {
-        swarmRunId?: string;
-        onProgress?: (event: ClusterCollaborationProgressEvent) => Promise<void> | void;
-    }): Promise<any> {
+    public async collaborateOnCluster({ clusterId: _clusterId, message: _message, options }: CollaborateClusterRequest): Promise<any> {
         for (const [index, event] of this.progressEvents.entries()) {
             const resolvedEvent = {
                 ...event,
@@ -900,7 +1098,7 @@ class FakeClusterManager {
         };
     }
 
-    public async broadcastToCluster(): Promise<Record<string, any>> {
+    public async broadcastToCluster(_request: BroadcastClusterRequest): Promise<Record<string, any>> {
         return this.broadcastResult;
     }
 
@@ -929,11 +1127,11 @@ class FakeClusterSessionManager {
     public streamChunks: Array<{ content: string; done: boolean; message?: ChatMessage }> = [];
     public refreshResults = new Map<string, ChatMessage[]>();
     private readonly sessions = new Map<string, ChatSession>();
-    private currentSessionId: string | null = null;
+    private currentSessionId: string | undefined = undefined;
 
     public async getOrCreateSession(
         agentId: string,
-        options: { refreshHistory?: boolean; sessionId?: string } = {}
+        options: GetOrCreateSessionOptions = {}
     ): Promise<ChatSession> {
         const sessionId = String(options.sessionId || '').trim() || 'session-1';
         let session = this.sessions.get(sessionId);
@@ -1021,7 +1219,7 @@ function createClusterActionContext(
                     createdAt: '2026-03-12T00:00:00.000Z'
                 }
             ],
-            createAgent: async (params: { name: string; model: string }) => {
+            createAgent: async (params: CreateAgentParams) => {
                 const created = {
                     id: params.name.toLowerCase(),
                     name: params.name,
@@ -1033,7 +1231,7 @@ function createClusterActionContext(
                 return created;
             },
             deleteAgent: async (agentId: string) => {
-                const index = createdAgents.findIndex(agent => agent.id === agentId);
+                const index = createdAgents.findIndex((agent: any) => agent.id === agentId);
                 if (index >= 0) {
                     createdAgents.splice(index, 1);
                 }
@@ -1050,7 +1248,7 @@ function createClusterActionContext(
             metrics.loadClustersCalls.push(selectedClusterId);
         },
         showClusterView: () => undefined,
-        getCurrentAgentId: () => null,
+        getCurrentAgentId: () => undefined,
         beginAgentRun: () => true,
         endAgentRun: () => true,
         nextClusterSwarmRunToken: () => {
@@ -1125,23 +1323,24 @@ function createRoundDescriptor(kind: 'opening' | `critique-${number}` | `revisio
 }
 
 function cloneMessages(messages: ChatMessage[]): ChatMessage[] {
-    return messages.map(message => ({ ...message }));
+    return messages.map((message: any) => ({ ...message }));
 }
 
-async function withCapturedProgress<T>(
-    run: (progressEvents: Array<{ message?: string; increment?: number }>) => Promise<T>
-): Promise<T> {
+async function withCapturedProgress<T>(run: CapturedProgressRun<T>): Promise<T> {
     const originalWithProgress = (vscode as any).window.withProgress;
-    const progressEvents: Array<{ message?: string; increment?: number }> = [];
+    const progressEvents: ProgressReport[] = [];
 
     (vscode as any).window.withProgress = async (
         _options: unknown,
-        task: (progress: { report(value: { message?: string; increment?: number }): void }) => Promise<T>
-    ): Promise<T> => await task({
-        report(value: { message?: string; increment?: number }) {
-            progressEvents.push({ ...value });
-        }
-    });
+        task: WithProgressTask<T>
+    ): Promise<T> => {
+        const reporter: ProgressReporter = {
+            report(value: ProgressReport) {
+                progressEvents.push({ ...value });
+            }
+        };
+        return await task(reporter);
+    };
 
     try {
         return await run(progressEvents);

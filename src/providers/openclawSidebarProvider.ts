@@ -52,7 +52,7 @@ class SidebarInfoTreeItem extends vscode.TreeItem {
 
 class AgentFolderTreeItem extends vscode.TreeItem {
     constructor(
-        public readonly folderId: string | null,
+        public readonly folderId: string | undefined,
         public readonly labelText: string,
         public readonly agentIds: string[],
         public readonly collapsed: boolean
@@ -74,8 +74,8 @@ class AgentFolderTreeItem extends vscode.TreeItem {
  * 实现 VSCode TreeDataProvider 接口，整合 Agent 和集群数据
  */
 export class OpenClawSidebarProvider implements vscode.TreeDataProvider<SidebarNode> {
-    private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<SidebarNode | undefined | null | void>();
-    readonly onDidChangeTreeData: vscode.Event<SidebarNode | undefined | null | void> = this.onDidChangeTreeDataEmitter.event;
+    private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<SidebarNode | undefined | void>();
+    readonly onDidChangeTreeData: vscode.Event<SidebarNode | undefined | void> = this.onDidChangeTreeDataEmitter.event;
 
     /**
      * 创建 OpenClawSidebarProvider 实例
@@ -118,10 +118,10 @@ export class OpenClawSidebarProvider implements vscode.TreeDataProvider<SidebarN
     /**
      * 获取父节点
      * @param _element - 当前节点元素
-     * @returns 父节点（根节点返回 null）
+     * @returns 父节点（根节点返回 undefined）
      */
     public getParent(_element: SidebarNode): vscode.ProviderResult<SidebarNode> {
-        return null;
+        return undefined;
     }
 
     /**
@@ -136,21 +136,21 @@ export class OpenClawSidebarProvider implements vscode.TreeDataProvider<SidebarN
 
         const folders = await this.agentFolderManager.getFolders();
         const sortedAgents = this.sortAgents(agents);
-        const agentMap = new Map(sortedAgents.map(agent => [agent.id, agent]));
+        const agentMap = new Map(sortedAgents.map((agent: any) => [agent.id, agent]));
         const assignedAgentIds = new Set<string>();
 
-        const folderItems = folders.map(folder => {
-            const folderAgentIds = folder.agentIds.filter(agentId => agentMap.has(agentId));
-            folderAgentIds.forEach(agentId => assignedAgentIds.add(agentId));
+        const folderItems = folders.map((folder: any) => {
+            const folderAgentIds = folder.agentIds.filter((agentId: any) => agentMap.has(agentId));
+            folderAgentIds.forEach((agentId: any) => assignedAgentIds.add(agentId));
             return new AgentFolderTreeItem(folder.id, folder.name, folderAgentIds, folder.collapsed);
         });
 
         const ungroupedAgentIds = sortedAgents
-            .map(agent => agent.id)
-            .filter(agentId => !assignedAgentIds.has(agentId));
+            .map((agent: any) => agent.id)
+            .filter((agentId: any) => !assignedAgentIds.has(agentId));
 
         const ungroupedItem = new AgentFolderTreeItem(
-            null,
+            undefined,
             t('sidebar.ungrouped'),
             ungroupedAgentIds,
             false
@@ -169,7 +169,7 @@ export class OpenClawSidebarProvider implements vscode.TreeDataProvider<SidebarN
             return [new SidebarInfoTreeItem(t('sidebar.noClusters'))];
         }
 
-        const sortedClusters = [...clusters].sort((a, b) => {
+        const sortedClusters = [...clusters].sort((a: any, b: any) => {
             if (a.status === b.status) {
                 return a.name.localeCompare(b.name);
             }
@@ -177,12 +177,12 @@ export class OpenClawSidebarProvider implements vscode.TreeDataProvider<SidebarN
             return a.status === 'active' ? -1 : 1;
         });
 
-        return sortedClusters.map(cluster => new ClusterTreeItem(cluster, vscode.TreeItemCollapsibleState.None));
+        return sortedClusters.map((cluster: any) => new ClusterTreeItem(cluster, vscode.TreeItemCollapsibleState.None));
     }
 
     private sortAgents(agents: Agent[]) {
         const statusOrder: Record<string, number> = { active: 0, idle: 1, offline: 2 };
-        return [...agents].sort((a, b) => {
+        return [...agents].sort((a: any, b: any) => {
             const statusDelta = (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99);
             if (statusDelta !== 0) {
                 return statusDelta;
@@ -214,18 +214,18 @@ export class OpenClawSidebarProvider implements vscode.TreeDataProvider<SidebarN
 
         if (element instanceof AgentFolderTreeItem) {
             const agents = await this.agentManager.getAgents();
-            const agentMap = new Map(agents.map(agent => [agent.id, agent]));
+            const agentMap = new Map(agents.map((agent: any) => [agent.id, agent]));
             const sortedAgents = this.sortAgents(
                 element.agentIds
-                    .map(agentId => agentMap.get(agentId))
-                    .filter((agent): agent is Agent => Boolean(agent))
+                    .map((agentId: any) => agentMap.get(agentId))
+                    .filter((agent: any): agent is Agent => Boolean(agent))
             );
 
             if (sortedAgents.length === 0) {
                 return [new SidebarInfoTreeItem(t('sidebar.folderEmpty'))];
             }
 
-            return sortedAgents.map(agent => new AgentTreeItem(agent, vscode.TreeItemCollapsibleState.None));
+            return sortedAgents.map((agent: any) => new AgentTreeItem(agent, vscode.TreeItemCollapsibleState.None));
         }
 
         return [];

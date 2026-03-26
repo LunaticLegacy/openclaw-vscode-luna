@@ -31,7 +31,7 @@ suite('outboundSendManager', () => {
         await waitFor(() => {
             const targetEntries = manager.listEntries({ swarmRunId: 'run-1' });
             const blockerEntries = manager.listEntries({ swarmRunId: 'other-run' });
-            return blockerEntries.some(entry => entry.status === 'sending') && targetEntries.some(entry => entry.status === 'pending');
+            return blockerEntries.some((entry: any) => entry.status === 'sending') && targetEntries.some((entry: any) => entry.status === 'pending');
         });
 
         const cancelled = manager.cancelBySwarmRun('run-1', 'Stopped by test');
@@ -59,7 +59,7 @@ suite('outboundSendManager', () => {
             }
         });
 
-        await waitFor(() => manager.listEntries({ swarmRunId: 'run-2' }).some(entry => entry.status === 'retrying'));
+        await waitFor(() => manager.listEntries({ swarmRunId: 'run-2' }).some((entry: any) => entry.status === 'retrying'));
 
         const cancelled = manager.cancelBySwarmRun('run-2', 'Stopped by test');
 
@@ -76,7 +76,7 @@ function isCancelledDeliveryError(error: unknown): boolean {
 function createDeferred<T>() {
     let resolve!: (value: T | PromiseLike<T>) => void;
     let reject!: (reason?: unknown) => void;
-    const promise = new Promise<T>((innerResolve, innerReject) => {
+    const promise = new Promise<T>((innerResolve: any, innerReject: any) => {
         resolve = innerResolve;
         reject = innerReject;
     });
@@ -89,6 +89,6 @@ async function waitFor(predicate: () => boolean, timeoutMs: number = 1000): Prom
         if (Date.now() - startedAt >= timeoutMs) {
             throw new Error('Timed out waiting for condition');
         }
-        await new Promise(resolve => setTimeout(resolve, 10));
+        await new Promise((resolve: any) => setTimeout(resolve, 10));
     }
 }

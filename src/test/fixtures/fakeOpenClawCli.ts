@@ -88,7 +88,7 @@ const DEFAULT_AGENT_ID = 'default';
 const DEFAULT_MODEL = 'fake-openclaw-model';
 
 export function createFakeOpenClawCommandExecutor(): OpenClawCliCommandExecutor {
-    return async ({ config, args }) => executeFakeOpenClawCommand(args, config.stateDir);
+    return async ({ config, args }: any) => executeFakeOpenClawCommand(args, config.stateDir);
 }
 
 export async function executeFakeOpenClawCommand(
@@ -107,7 +107,7 @@ export async function executeFakeOpenClawCommand(
 
     if (args[0] === 'agents' && args[1] === 'list') {
         const state = await readState(stateDir);
-        return jsonResult(state.agents.map(agent => ({
+        return jsonResult(state.agents.map((agent: any) => ({
             id: agent.id,
             name: agent.name,
             workspace: agent.workspace,
@@ -140,7 +140,7 @@ async function handleGatewayCall(args: string[], stateDir: string): Promise<Fake
             return jsonResult({
                 defaultId: DEFAULT_AGENT_ID,
                 mainKey: 'main',
-                agents: state.agents.map(agent => ({
+                agents: state.agents.map((agent: any) => ({
                     id: agent.id,
                     name: agent.name
                 }))
@@ -149,8 +149,8 @@ async function handleGatewayCall(args: string[], stateDir: string): Promise<Fake
             return jsonResult({
                 sessions: state.sessions
                     .slice()
-                    .sort((left, right) => right.updatedAt - left.updatedAt)
-                    .map(session => ({
+                    .sort((left: any, right: any) => right.updatedAt - left.updatedAt)
+                    .map((session: any) => ({
                         key: session.key,
                         sessionId: session.sessionId,
                         updatedAt: session.updatedAt,
@@ -195,12 +195,12 @@ async function handleChatSend(
 ): Promise<FakeCommandResult> {
     const now = Date.now();
     const agentId = extractAgentIdFromSessionKey(payload.sessionKey) || DEFAULT_AGENT_ID;
-    const agent = state.agents.find(item => item.id === agentId) || createDefaultAgent(stateDir);
-    if (!state.agents.some(item => item.id === agent.id)) {
+    const agent = state.agents.find((item: any) => item.id === agentId) || createDefaultAgent(stateDir);
+    if (!state.agents.some((item: any) => item.id === agent.id)) {
         state.agents.push(agent);
     }
 
-    let session = state.sessions.find(item => item.key === payload.sessionKey);
+    let session = state.sessions.find((item: any) => item.key === payload.sessionKey);
     if (!session) {
         session = {
             key: payload.sessionKey,
@@ -287,7 +287,7 @@ async function handleAgentAdd(args: string[], stateDir: string): Promise<FakeCom
     const agentDir = path.join(stateDir, 'agents', agentId);
     const state = await readState(stateDir);
     const now = Date.now();
-    const existing = state.agents.find(item => item.id === agentId);
+    const existing = state.agents.find((item: any) => item.id === agentId);
 
     const agent: FakeAgentRecord = {
         id: agentId,
@@ -314,8 +314,8 @@ async function handleAgentAdd(args: string[], stateDir: string): Promise<FakeCom
 async function handleAgentDelete(args: string[], stateDir: string): Promise<FakeCommandResult> {
     const agentId = sanitizeId(args[0] || '');
     const state = await readState(stateDir);
-    state.agents = state.agents.filter(item => item.id !== agentId);
-    state.sessions = state.sessions.filter(item => item.agentId !== agentId);
+    state.agents = state.agents.filter((item: any) => item.id !== agentId);
+    state.sessions = state.sessions.filter((item: any) => item.agentId !== agentId);
     await writeState(stateDir, state);
     return jsonResult({ ok: true });
 }
@@ -358,7 +358,7 @@ async function handleCronCommand(args: string[], stateDir: string): Promise<Fake
         }
         case 'edit': {
             const jobId = args[1];
-            const job = jobsFile.jobs.find(item => item.id === jobId);
+            const job = jobsFile.jobs.find((item: any) => item.id === jobId);
             if (!job) {
                 throw new Error(`Job not found: ${jobId}`);
             }
@@ -400,7 +400,7 @@ async function handleCronCommand(args: string[], stateDir: string): Promise<Fake
         case 'enable':
         case 'disable': {
             const jobId = args[1];
-            const job = jobsFile.jobs.find(item => item.id === jobId);
+            const job = jobsFile.jobs.find((item: any) => item.id === jobId);
             if (!job) {
                 throw new Error(`Job not found: ${jobId}`);
             }
@@ -412,7 +412,7 @@ async function handleCronCommand(args: string[], stateDir: string): Promise<Fake
         }
         case 'run': {
             const jobId = args[1];
-            const job = jobsFile.jobs.find(item => item.id === jobId);
+            const job = jobsFile.jobs.find((item: any) => item.id === jobId);
             if (!job) {
                 throw new Error(`Job not found: ${jobId}`);
             }
@@ -449,7 +449,7 @@ async function handleCronCommand(args: string[], stateDir: string): Promise<Fake
         }
         case 'rm': {
             const jobId = args[1];
-            jobsFile.jobs = jobsFile.jobs.filter(item => item.id !== jobId);
+            jobsFile.jobs = jobsFile.jobs.filter((item: any) => item.id !== jobId);
             await writeJobsFile(jobsFilePath, jobsFile);
             return emptyResult();
         }
@@ -461,7 +461,7 @@ async function handleCronCommand(args: string[], stateDir: string): Promise<Fake
 async function ensureStateDirs(stateDir: string): Promise<void> {
     await fs.mkdir(path.join(stateDir, 'cron', 'runs'), { recursive: true });
     const state = await readState(stateDir);
-    if (!state.agents.some(agent => agent.id === DEFAULT_AGENT_ID)) {
+    if (!state.agents.some((agent: any) => agent.id === DEFAULT_AGENT_ID)) {
         state.agents.unshift(createDefaultAgent(stateDir));
         await writeState(stateDir, state);
     }
@@ -490,7 +490,7 @@ async function readState(stateDir: string): Promise<FakeState> {
 async function writeState(stateDir: string, state: FakeState): Promise<void> {
     await fs.writeFile(
         path.join(stateDir, FAKE_STATE_FILE),
-        JSON.stringify(state, null, 2),
+        JSON.stringify(state, undefined, 2),
         'utf8'
     );
 }
@@ -516,7 +516,7 @@ async function readSessionMessages(
     }
 
     const state = await readState(stateDir);
-    const session = state.sessions.find(item => item.key === sessionKey);
+    const session = state.sessions.find((item: any) => item.key === sessionKey);
     if (!session) {
         return [];
     }
@@ -528,9 +528,9 @@ async function readSessionMessages(
         );
         return content
             .split(/\r?\n/)
-            .map(line => line.trim())
+            .map((line: any) => line.trim())
             .filter(Boolean)
-            .map(line => {
+            .map((line: any) => {
                 try {
                     return JSON.parse(line) as {
                         message?: {
@@ -540,11 +540,11 @@ async function readSessionMessages(
                         };
                     };
                 } catch {
-                    return null;
+                    return undefined;
                 }
             })
-            .filter((entry): entry is { message: { role?: string; content?: string; timestamp?: string } } => Boolean(entry?.message))
-            .map(entry => ({
+            .filter((entry: any): entry is { message: { role?: string; content?: string; timestamp?: string } } => Boolean(entry?.message))
+            .map((entry: any) => ({
                 role: entry.message.role || 'assistant',
                 content: entry.message.content || '',
                 timestamp: entry.message.timestamp || new Date().toISOString()
@@ -556,12 +556,12 @@ async function readSessionMessages(
 
 function buildSessionsUsagePayload(sessions: FakeSessionRecord[]): Record<string, unknown> {
     const date = formatLocalDateKey();
-    const totalUserMessages = sessions.reduce((sum, session) => sum + session.messageCountUser, 0);
-    const totalAssistantMessages = sessions.reduce((sum, session) => sum + session.messageCountAssistant, 0);
+    const totalUserMessages = sessions.reduce((sum: any, session: any) => sum + session.messageCountUser, 0);
+    const totalAssistantMessages = sessions.reduce((sum: any, session: any) => sum + session.messageCountAssistant, 0);
 
     return {
         updatedAt: Date.now(),
-        sessions: sessions.map(session => ({
+        sessions: sessions.map((session: any) => ({
             key: session.key,
             sessionId: session.sessionId,
             updatedAt: session.updatedAt,
@@ -607,7 +607,7 @@ function buildSessionsUsagePayload(sessions: FakeSessionRecord[]): Record<string
 
 function buildUsageCostPayload(sessions: FakeSessionRecord[]): Record<string, unknown> {
     const date = formatLocalDateKey();
-    const totals = sessions.reduce((accumulator, session) => {
+    const totals = sessions.reduce((accumulator: any, session: any) => {
         accumulator.input += session.inputTokens;
         accumulator.output += session.outputTokens;
         accumulator.totalTokens += session.totalTokens;
@@ -650,7 +650,7 @@ async function readJobsFile(filePath: string): Promise<CronJobsFile> {
 
 async function writeJobsFile(filePath: string, payload: CronJobsFile): Promise<void> {
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf8');
+    await fs.writeFile(filePath, JSON.stringify(payload, undefined, 2), 'utf8');
 }
 
 function readSchedule(args: string[]): CronSchedule {
@@ -722,7 +722,7 @@ function readJsonFlag<T>(args: string[], flag: string): T | undefined {
 }
 
 function hasAnyFlag(args: string[], flags: string[]): boolean {
-    return flags.some(flag => args.includes(flag));
+    return flags.some((flag: any) => args.includes(flag));
 }
 
 function computeNextRunAt(schedule: CronSchedule, now: number): number {
@@ -763,10 +763,10 @@ function parseDuration(value: string): number {
     }
 }
 
-function extractAgentIdFromSessionKey(sessionKey: string): string | null {
+function extractAgentIdFromSessionKey(sessionKey: string): string | undefined {
     const parts = sessionKey.trim().split(':').filter(Boolean);
     if (parts.length < 3 || parts[0] !== 'agent') {
-        return null;
+        return undefined;
     }
 
     return sanitizeId(parts[1]);
@@ -815,7 +815,7 @@ async function main(): Promise<void> {
 }
 
 if (require.main === module) {
-    void main().catch(error => {
+    void main().catch((error: any) => {
         process.stderr.write(`${error instanceof Error ? error.stack || error.message : String(error)}\n`);
         process.exit(1);
     });

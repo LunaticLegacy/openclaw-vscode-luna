@@ -12,7 +12,7 @@ export interface RuntimeLogFileEntry {
 }
 
 export interface RuntimeLogCollection {
-    scannedRoot: string | null;
+    scannedRoot: string | undefined;
     rootEntries: string[];
     fileCount: number;
     scanTruncated: boolean;
@@ -33,7 +33,7 @@ const SENSITIVE_KEY_PATTERN = /(?:gatewaytoken|configuredgatewaytoken|detectedga
 
 export function redactRuntimeExportSecrets<T>(value: T): T {
     if (Array.isArray(value)) {
-        return value.map(item => redactRuntimeExportSecrets(item)) as T;
+        return value.map((item: any) => redactRuntimeExportSecrets(item)) as T;
     }
 
     if (!value || typeof value !== 'object') {
@@ -62,7 +62,7 @@ export async function collectRuntimeLogFiles(
     const normalizedRoot = stateDir.trim();
     if (!normalizedRoot || !(await pathExists(normalizedRoot))) {
         return {
-            scannedRoot: null,
+            scannedRoot: undefined,
             rootEntries: [],
             fileCount: 0,
             scanTruncated: false,
@@ -79,9 +79,9 @@ export async function collectRuntimeLogFiles(
     let scanTruncated = false;
 
     const rootEntries = (await fs.readdir(normalizedRoot).catch(() => []))
-        .map(entry => entry.trim())
+        .map((entry: any) => entry.trim())
         .filter(Boolean)
-        .sort((left, right) => left.localeCompare(right));
+        .sort((left: any, right: any) => left.localeCompare(right));
 
     while (queue.length > 0 && files.length < maxFiles && scannedEntries < maxScannedEntries) {
         const currentDir = queue.shift()!;
@@ -109,8 +109,8 @@ export async function collectRuntimeLogFiles(
                 continue;
             }
 
-            const stats = await fs.stat(absolutePath).catch(() => null);
-            const buffer = await fs.readFile(absolutePath).catch(() => null);
+            const stats = await fs.stat(absolutePath).catch(() => undefined);
+            const buffer = await fs.readFile(absolutePath).catch(() => undefined);
             if (!stats || !buffer) {
                 continue;
             }
@@ -130,7 +130,7 @@ export async function collectRuntimeLogFiles(
         scanTruncated = true;
     }
 
-    files.sort((left, right) => right.modifiedAt.localeCompare(left.modifiedAt) || left.path.localeCompare(right.path));
+    files.sort((left: any, right: any) => right.modifiedAt.localeCompare(left.modifiedAt) || left.path.localeCompare(right.path));
 
     return {
         scannedRoot: normalizedRoot,

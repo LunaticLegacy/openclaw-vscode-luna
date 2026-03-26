@@ -35,7 +35,7 @@ export function registerPanelCommands(
                 return;
             }
 
-            const agentItems = agents.map(agent => ({
+            const agentItems = agents.map((agent: any) => ({
                 label: `$(account) ${agent.name}`,
                 description: agent.model,
                 detail: t('quickChat.status', { status: agent.status }),

@@ -73,16 +73,16 @@ suite('channelManagerV2', () => {
 
         // Check roots
         assert.equal(tree.roots.length, 2);
-        assert.ok(tree.roots.some(r => r.id === root1.id));
-        assert.ok(tree.roots.some(r => r.id === root2.id));
+        assert.ok(tree.roots.some((r: any) => r.id === root1.id));
+        assert.ok(tree.roots.some((r: any) => r.id === root2.id));
 
         // Check tree structure
-        const root1Node = tree.roots.find(r => r.id === root1.id)!;
+        const root1Node = tree.roots.find((r: any) => r.id === root1.id)!;
         assert.equal(root1Node.children.length, 2);
-        assert.ok(root1Node.children.some(c => c.id === child1.id));
-        assert.ok(root1Node.children.some(c => c.id === child2.id));
+        assert.ok(root1Node.children.some((c: any) => c.id === child1.id));
+        assert.ok(root1Node.children.some((c: any) => c.id === child2.id));
 
-        const child2Node = root1Node.children.find(c => c.id === child2.id)!;
+        const child2Node = root1Node.children.find((c: any) => c.id === child2.id)!;
         assert.equal(child2Node.children.length, 1);
         assert.equal(child2Node.children[0].id, grandchild.id);
 
@@ -149,13 +149,13 @@ suite('channelManagerV2', () => {
 
         // Archived channels should not appear in getChannels
         const channels = await manager.getChannels();
-        assert.ok(!channels.some(c => c.id === channel.id));
+        assert.ok(!channels.some((c: any) => c.id === channel.id));
 
         const unarchived = await manager.unarchiveChannel(channel.id);
         assert.ok(!unarchived.archivedAt);
 
         const channelsAfter = await manager.getChannels();
-        assert.ok(channelsAfter.some(c => c.id === channel.id));
+        assert.ok(channelsAfter.some((c: any) => c.id === channel.id));
     });
 
     test('deletes channel with children (move to root)', async () => {
@@ -225,7 +225,7 @@ suite('channelManagerV2', () => {
         const manager2 = new ChannelManagerV2(storagePath);
         
         const channels = await manager2.getChannels();
-        const loaded = channels.find(c => c.id === channel.id);
+        const loaded = channels.find((c: any) => c.id === channel.id);
 
         assert.ok(loaded);
         assert.equal(loaded?.name, 'Persistent');
