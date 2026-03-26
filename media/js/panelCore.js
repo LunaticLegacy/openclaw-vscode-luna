@@ -358,6 +358,8 @@
         state.clusterTopSectionCollapsed = Boolean(savedState.clusterTopSectionCollapsed);
         state.clusterTopologyCollapsed = Boolean(savedState.clusterTopologyCollapsed);
         state.chatCommandBarCollapsed = Boolean(savedState.chatCommandBarCollapsed);
+        state.clusterSwarmRunHistory = savedState.clusterSwarmRunHistory || {};
+        state.currentClusterSwarmRunSelections = savedState.currentClusterSwarmRunSelections || {};
     }
 
     /**
@@ -373,7 +375,9 @@
             mainSidebarCollapsed: state.mainSidebarCollapsed,
             clusterTopSectionCollapsed: state.clusterTopSectionCollapsed,
             clusterTopologyCollapsed: state.clusterTopologyCollapsed,
-            chatCommandBarCollapsed: state.chatCommandBarCollapsed
+            chatCommandBarCollapsed: state.chatCommandBarCollapsed,
+            clusterSwarmRunHistory: state.clusterSwarmRunHistory,
+            currentClusterSwarmRunSelections: state.currentClusterSwarmRunSelections
         });
     }
 

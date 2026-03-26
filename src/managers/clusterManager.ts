@@ -1885,6 +1885,63 @@ export class ClusterManager extends EventEmitter {
         );
     }
 
+    public async listClusterSwarmRunIds({
+        clusterId,
+        mode
+    }: ClusterSwarmRequest): Promise<string[]> {
+        await this.ensurePersistedStateLoaded();
+
+        const clusterPrefix = `${clusterId.trim()}::swarm::${mode}::`;
+        const candidates = new Set<string>();
+        const latestRunId = this.resolveLatestSwarmRunId({ clusterId, mode });
+        const activeRunId = this.getActiveSwarmRunId({ clusterId, mode });
+
+        if (latestRunId) {
+            candidates.add(latestRunId);
+        }
+        if (activeRunId) {
+            candidates.add(activeRunId);
+        }
+
+        for (const key of this.clusterSwarmMessages.keys()) {
+            if (!key.startsWith(clusterPrefix)) {
+                continue;
+            }
+            const runId = key.slice(clusterPrefix.length).trim();
+            if (runId) {
+                candidates.add(runId);
+            }
+        }
+
+        for (const [runId, state] of this.swarmRunStates.entries()) {
+            if (state.clusterId === clusterId && state.mode === mode) {
+                candidates.add(runId);
+            }
+        }
+
+        return Array.from(candidates.values())
+            .sort((left: any, right: any) => {
+                if (left === activeRunId) {
+                    return -1;
+                }
+                if (right === activeRunId) {
+                    return 1;
+                }
+                if (left === latestRunId) {
+                    return -1;
+                }
+                if (right === latestRunId) {
+                    return 1;
+                }
+
+                const leftState = this.swarmRunStates.get(left);
+                const rightState = this.swarmRunStates.get(right);
+                const leftTime = Date.parse(leftState?.startedAt || leftState?.stoppedAt || '') || 0;
+                const rightTime = Date.parse(rightState?.startedAt || rightState?.stoppedAt || '') || 0;
+                return rightTime - leftTime;
+            });
+    }
+
     /**
      * 中止集群 Swarm 运行（对该集群指定模式的所有会话发起 abort）
      *
@@ -3171,9 +3228,16 @@ function normalizePersistedChatMessages(messages: ChatMessage[] | undefined): Ch
             role,
             content,
             timestamp,
+            displayName: typeof message.displayName === 'string' ? message.displayName : undefined,
+            contextLabel: typeof message.contextLabel === 'string' ? message.contextLabel : undefined,
             agentId: typeof message.agentId === 'string' ? message.agentId : undefined,
             tokenCount: typeof message.tokenCount === 'number' ? message.tokenCount : undefined,
             parts: Array.isArray(message.parts) ? [...message.parts] : undefined,
+            toolCallId: typeof message.toolCallId === 'string' ? message.toolCallId : undefined,
+            toolName: typeof message.toolName === 'string' ? message.toolName : undefined,
+            toolArguments: message.toolArguments,
+            toolDetails: message.toolDetails,
+            isError: typeof message.isError === 'boolean' ? message.isError : undefined,
             metadata: isRecord(message.metadata) ? { ...message.metadata } : undefined
         });
     }

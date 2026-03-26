@@ -166,6 +166,9 @@ export async function handlePanelMessage(context: MessageRouterContext, message:
                 targetKind: message.targetKind === 'agent' ? 'agent' : 'swarm',
                 exportKind: message.exportKind === 'raw' ? 'raw' : 'readable',
                 mode: message.mode === 'collaborate' ? 'collaborate' : 'broadcast',
+                swarmRunId: typeof message.swarmRunId === 'string' && message.swarmRunId.trim()
+                    ? message.swarmRunId.trim()
+                    : undefined,
                 agentId: message.agentId,
                 agentViewMode: message.agentViewMode === 'broadcast'
                     ? 'broadcast'

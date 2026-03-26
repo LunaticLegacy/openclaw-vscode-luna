@@ -123,7 +123,7 @@ export async function handleBroadcast(context: ClusterActionContext, clusterId: 
         throwIfSwarmPermissionError(findSwarmPermissionErrorFromEntries(Object.values(responses || {})) || undefined);
 
         if (context.getClusterSwarmRunToken() === swarmRunToken) {
-            const conversationMessages = await finalizeClusterSwarmProgress(
+            await finalizeClusterSwarmProgress(
                 context,
                 progress,
                 buildBroadcastConversationMessages(
@@ -131,13 +131,6 @@ export async function handleBroadcast(context: ClusterActionContext, clusterId: 
                     agents
                 )
             );
-            context.postMessage({
-                type: 'replaceSwarmMessages',
-                clusterId,
-                mode: 'broadcast',
-                messages: conversationMessages,
-                swarmRunId
-            });
             return true;
         }
     } catch (error) {
@@ -215,24 +208,18 @@ export async function handleCollaborate(context: ClusterActionContext, clusterId
                         progress,
                         buildConversationMessagesForProgressEvent(event, agents)
                     );
+                    await refreshClusterSwarmRawLog(context, clusterId, event.swarmRunId);
                 }
             }
         });
         throwIfSwarmPermissionError(findSwarmPermissionErrorFromCollaborationResult(result) || undefined);
 
         if (context.getClusterSwarmRunToken() === swarmRunToken) {
-            const conversationMessages = await finalizeClusterSwarmProgress(
+            await finalizeClusterSwarmProgress(
                 context,
                 progress,
-                buildCollaborationConversationMessages(result, agents, cluster?.agentIds || [])
+                buildCollaborationCompletionMessages(result, agents, cluster?.agentIds || [])
             );
-            context.postMessage({
-                type: 'replaceSwarmMessages',
-                clusterId,
-                mode: 'collaborate',
-                messages: conversationMessages,
-                swarmRunId: result.swarmRunId
-            });
             await refreshClusterSwarmRawLog(context, clusterId, result.swarmRunId);
             return true;
         }
@@ -300,16 +287,25 @@ export async function loadClusterSwarmMessages(
             swarmRunId
         });
 
-        const messages = outputMode === 'raw' && mode === 'collaborate'
-            ? await buildClusterSwarmRawLogMessages(context, clusterId, mode, swarmRunId)
-            : await context.clusterManager.getClusterSwarmMessages({ clusterId, mode, swarmRunId });
+        const [messages, knownRunIds, agents] = await Promise.all([
+            outputMode === 'raw' && mode === 'collaborate'
+                ? buildClusterSwarmRawLogMessages(context, clusterId, mode, swarmRunId)
+                : context.clusterManager.getClusterSwarmMessages({ clusterId, mode, swarmRunId }),
+            context.clusterManager.listClusterSwarmRunIds({ clusterId, mode }),
+            outputMode === 'frontend'
+                ? context.agentManager.getAgents()
+                : Promise.resolve([])
+        ]);
         context.postMessage({
             type: 'replaceSwarmMessages',
             clusterId,
             mode,
-            messages,
+            messages: outputMode === 'frontend'
+                ? decorateLoadedSwarmConversationMessages(messages, agents, mode)
+                : messages,
             outputMode,
-            swarmRunId
+            swarmRunId,
+            knownRunIds
         });
     } catch (error) {
         context.postMessage({
@@ -1097,6 +1093,7 @@ async function initializeClusterSwarmProgress(
     seenKeys: Set<string>;
 }> {
     const batchId = buildSwarmBatchId(mode);
+    const knownRunIds = await context.clusterManager.listClusterSwarmRunIds({ clusterId, mode });
     const messages = [
         buildSwarmUserMessage(userMessage, mode, batchId)
     ];
@@ -1112,6 +1109,7 @@ async function initializeClusterSwarmProgress(
         mode,
         messages,
         swarmRunId,
+        knownRunIds: Array.from(new Set([swarmRunId, ...knownRunIds])),
         keepPending: true
     });
 
@@ -1147,6 +1145,8 @@ async function appendClusterSwarmProgressMessages(
         .map((message: any) => normalizeSwarmProgressMessage(attachSwarmBatchMetadata(message, progress.batchId)));
 
     let changed = false;
+    const appended: PresentedChatMessage[] = [];
+    const patched: PresentedChatMessage[] = [];
     for (const message of nextMessages) {
         const identityKey = buildSwarmProgressMessageIdentityKey(message);
         const existingIndex = progress.messages.findIndex((existing: any) =>
@@ -1157,6 +1157,7 @@ async function appendClusterSwarmProgressMessages(
             const existing = progress.messages[existingIndex];
             if (shouldReplaceSwarmProgressMessage(existing, message)) {
                 progress.messages[existingIndex] = message;
+                patched.push(message);
                 changed = true;
             }
             continue;
@@ -1169,6 +1170,7 @@ async function appendClusterSwarmProgressMessages(
 
         progress.seenKeys.add(dedupeKey);
         progress.messages.push(message);
+        appended.push(message);
         changed = true;
     }
 
@@ -1182,14 +1184,26 @@ async function appendClusterSwarmProgressMessages(
         messages: progress.messages,
         swarmRunId: progress.swarmRunId
     });
-    context.postMessage({
-        type: 'replaceSwarmMessages',
-        clusterId: progress.clusterId,
-        mode: progress.mode,
-        messages: progress.messages,
-        swarmRunId: progress.swarmRunId,
-        keepPending: true
-    });
+    if (appended.length > 0) {
+        context.postMessage({
+            type: 'appendSwarmMessages',
+            clusterId: progress.clusterId,
+            mode: progress.mode,
+            messages: appended,
+            swarmRunId: progress.swarmRunId,
+            keepPending: true
+        });
+    }
+    if (patched.length > 0) {
+        context.postMessage({
+            type: 'patchSwarmMessages',
+            clusterId: progress.clusterId,
+            mode: progress.mode,
+            messages: patched,
+            swarmRunId: progress.swarmRunId,
+            keepPending: true
+        });
+    }
 }
 
 /**
@@ -1211,21 +1225,19 @@ async function finalizeClusterSwarmProgress(
     },
     assistantMessages: PresentedChatMessage[]
 ): Promise<PresentedChatMessage[]> {
-    const persistedUserMessages = progress.messages.filter((message: any) => message.role === 'user');
-    const finalizedProgress = {
-        ...progress,
-        messages: [...persistedUserMessages],
-        seenKeys: new Set(persistedUserMessages.map(buildSwarmProgressMessageKey))
-    };
-
-    await appendClusterSwarmProgressMessages(context, finalizedProgress, assistantMessages);
-    progress.messages = finalizedProgress.messages;
-    progress.seenKeys = finalizedProgress.seenKeys;
-    await context.clusterManager.replaceClusterSwarmMessages({
+    await appendClusterSwarmProgressMessages(context, progress, assistantMessages);
+    const knownRunIds = await context.clusterManager.listClusterSwarmRunIds({
+        clusterId: progress.clusterId,
+        mode: progress.mode
+    });
+    context.postMessage({
+        type: 'replaceSwarmMessages',
         clusterId: progress.clusterId,
         mode: progress.mode,
         messages: progress.messages,
-        swarmRunId: progress.swarmRunId
+        swarmRunId: progress.swarmRunId,
+        knownRunIds: Array.from(new Set([progress.swarmRunId, ...knownRunIds])),
+        keepPending: false
     });
     return progress.messages;
 }
@@ -1262,33 +1274,16 @@ function buildBroadcastConversationMessages(
  * @param agents - The list of agents
  * @returns The conversation messages
  */
-function buildCollaborationConversationMessages(
+function buildCollaborationCompletionMessages(
     result: ClusterCollaborationResult,
     agents: Agent[],
     clusterAgentIds: string[] = []
 ): PresentedChatMessage[] {
     const messages: PresentedChatMessage[] = [];
-    const rounds = Array.isArray(result.rounds) && result.rounds.length > 0
-        ? result.rounds
-        : [{
-            kind: 'revision-2' as const,
-            descriptor: buildFallbackRoundDescriptor('revision-2'),
-            entries: result.contributions || {}
-        }];
     const coordinatorLabel = result.coordinatorAgentId
         ? resolveAgentLabel(agents, result.coordinatorAgentId)
         : t('clusters.targetSwarm');
-
-    for (const round of rounds) {
-        const roundLabel = getCollaborationRoundLabel(round.descriptor);
-        for (const [agentId, entry] of Object.entries(round.entries || {})) {
-            messages.push(...buildConversationMessagesForEntry(
-                entry,
-                resolveAgentLabel(agents, agentId),
-                roundLabel
-            ));
-        }
-    }
+    const rounds = Array.isArray(result.rounds) ? result.rounds : [];
 
     const surfacedAgentIds = new Set<string>();
     for (const round of rounds) {
@@ -1321,19 +1316,21 @@ function buildCollaborationConversationMessages(
         });
     }
 
-    messages.push(result.synthesis?.ok && result.synthesis.message
-        ? {
-            ...decorateSwarmResultMessage(result.synthesis.message, result.synthesis),
-            displayName: t('clusters.finalAnswer'),
-            contextLabel: `${t('clusters.coordinator')}: ${coordinatorLabel}`
-        }
-        : buildErrorTraceMessage(
-            t('clusters.finalAnswer'),
-            `${t('clusters.coordinator')}: ${coordinatorLabel}`,
-            result.synthesis?.error || t('clusters.noSuccessfulAgents'),
-            result.coordinatorAgentId || undefined,
-            result.synthesis || undefined
-        ));
+    if (result.synthesis) {
+        messages.push(result.synthesis.ok && result.synthesis.message
+            ? {
+                ...decorateSwarmResultMessage(result.synthesis.message, result.synthesis),
+                displayName: t('clusters.finalAnswer'),
+                contextLabel: `${t('clusters.coordinator')}: ${coordinatorLabel}`
+            }
+            : buildErrorTraceMessage(
+                t('clusters.finalAnswer'),
+                `${t('clusters.coordinator')}: ${coordinatorLabel}`,
+                result.synthesis?.error || t('clusters.noSuccessfulAgents'),
+                result.coordinatorAgentId || undefined,
+                result.synthesis || undefined
+            ));
+    }
 
     return messages;
 }
@@ -1589,6 +1586,26 @@ function decorateClusterAgentLogMessages(
     }));
 }
 
+function decorateLoadedSwarmConversationMessages(
+    messages: PresentedChatMessage[],
+    agents: Agent[],
+    mode: SwarmMode
+): PresentedChatMessage[] {
+    const defaultContextLabel = mode === 'broadcast'
+        ? t('clusters.broadcast')
+        : t('clusters.collaborate');
+
+    return messages.map((message: any) => {
+        const resolvedAgentId = resolveSwarmMessageAgentId(message);
+        return {
+            ...message,
+            agentId: message.agentId || resolvedAgentId || undefined,
+            displayName: message.displayName || (resolvedAgentId ? resolveAgentLabel(agents, resolvedAgentId) : undefined),
+            contextLabel: message.contextLabel || defaultContextLabel
+        };
+    });
+}
+
 /**
  * Builds an error trace message
  * @param displayName - The display name
@@ -1684,15 +1701,18 @@ function decorateSwarmResultMessage(message: PresentedChatMessage, entry: Cluste
  */
 function buildSwarmResultMetadata(entry?: ClusterBroadcastResult): Record<string, unknown> | undefined {
     const elapsedMs = Number(entry?.timing?.elapsedMs);
-    if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
-        return undefined;
-    }   
+    const metadata: Record<string, unknown> = {};
 
-    return {
-        swarmLatencyMs: elapsedMs,
-        swarmStartedAt: entry?.timing?.startedAt,
-        swarmCompletedAt: entry?.timing?.completedAt
-    };
+    if (Number.isFinite(elapsedMs) && elapsedMs >= 0) {
+        metadata.swarmLatencyMs = elapsedMs;
+        metadata.swarmStartedAt = entry?.timing?.startedAt;
+        metadata.swarmCompletedAt = entry?.timing?.completedAt;
+    }
+    if (entry?.agentId) {
+        metadata.swarmSourceAgentId = entry.agentId;
+    }
+
+    return Object.keys(metadata).length > 0 ? metadata : undefined;
 }
 
 /**
@@ -1708,6 +1728,17 @@ function resolveAgentLabel(agents: Agent[], agentId: string): string {
     }
 
     return `${agent.name} (${agent.model})`;
+}
+
+function resolveSwarmMessageAgentId(message: PresentedChatMessage): string {
+    if (typeof message.agentId === 'string' && message.agentId.trim()) {
+        return message.agentId.trim();
+    }
+
+    const sourceAgentId = message.metadata?.swarmSourceAgentId;
+    return typeof sourceAgentId === 'string' && sourceAgentId.trim()
+        ? sourceAgentId.trim()
+        : '';
 }
 
 /**
@@ -1795,13 +1826,18 @@ async function refreshClusterSwarmRawLog(
     swarmRunId?: string
 ): Promise<void> {
     const messages = await buildClusterSwarmRawLogMessages(context, clusterId, 'collaborate', swarmRunId);
+    const knownRunIds = await context.clusterManager.listClusterSwarmRunIds({
+        clusterId,
+        mode: 'collaborate'
+    });
     context.postMessage({
         type: 'replaceSwarmMessages',
         clusterId,
         mode: 'collaborate',
         outputMode: 'raw',
         messages,
-        swarmRunId
+        swarmRunId,
+        knownRunIds: Array.from(new Set([String(swarmRunId || '').trim(), ...knownRunIds].filter(Boolean)))
     });
 }
 

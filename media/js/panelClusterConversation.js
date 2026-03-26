@@ -2,6 +2,9 @@
 // 集群对话管理面板 - 负责集群对话的加载、渲染、消息处理和状态管理
 'use strict';
 
+    const SWARM_RECENT_CACHE_LIMIT = 5;
+    const SWARM_FREQUENT_ACCESS_THRESHOLD = 3;
+
     /**
      * 获取当前选中的集群
      * @returns {Object|null} 当前集群对象或null
@@ -207,7 +210,9 @@
                 loaded: false,
                 pending: false,
                 swarmRunId: null,
-                renderSignature: ''
+                renderSignature: '',
+                accessCount: 0,
+                lastAccessedAt: 0
             };
         }
 
@@ -265,6 +270,83 @@
 
         if (options.select === true || !state.currentClusterSwarmRunSelections[registryKey]) {
             state.currentClusterSwarmRunSelections[registryKey] = normalizedRunId;
+        }
+
+        if (window.persistUiState) {
+            window.persistUiState();
+        }
+    }
+
+    function syncKnownSwarmConversationRuns(clusterId, mode, runIds, options = {}) {
+        if (!Array.isArray(runIds) || runIds.length === 0) {
+            return;
+        }
+
+        const normalized = runIds
+            .map(runId => String(runId || '').trim())
+            .filter(Boolean);
+        if (normalized.length === 0) {
+            return;
+        }
+
+        if (!state.clusterSwarmRunHistory) {
+            state.clusterSwarmRunHistory = {};
+        }
+
+        const registryKey = getSwarmConversationRegistryKey(clusterId, mode);
+        state.clusterSwarmRunHistory[registryKey] = Array.from(new Set(normalized)).slice(0, 24);
+
+        if (options.select && normalized[0]) {
+            setSelectedSwarmConversationRunId(clusterId, mode, normalized[0]);
+        } else if (window.persistUiState) {
+            window.persistUiState();
+        }
+    }
+
+    function markSwarmConversationAccess(clusterId, mode, swarmRunId) {
+        const normalizedRunId = typeof swarmRunId === 'string' ? swarmRunId.trim() : '';
+        if (!clusterId || !mode || !normalizedRunId) {
+            return;
+        }
+
+        const key = getClusterConversationKey(clusterId, {
+            targetKind: 'swarm',
+            mode,
+            swarmRunId: normalizedRunId
+        });
+        const conversation = ensureClusterConversation(key);
+        conversation.accessCount = Number(conversation.accessCount || 0) + 1;
+        conversation.lastAccessedAt = Date.now();
+        pruneSwarmConversationCache(key);
+    }
+
+    function pruneSwarmConversationCache(preserveKey) {
+        const candidates = Object.entries(state.clusterConversations || {})
+            .filter(([key, conversation]) =>
+                key.includes(':swarm:')
+                && key !== preserveKey
+                && conversation
+                && Array.isArray(conversation.messages)
+                && conversation.messages.length > 0
+                && conversation.loaded
+                && !conversation.pending
+            )
+            .sort((left, right) => Number((right[1] || {}).lastAccessedAt || 0) - Number((left[1] || {}).lastAccessedAt || 0));
+
+        const keepKeys = new Set(candidates
+            .slice(0, SWARM_RECENT_CACHE_LIMIT)
+            .map(([key]) => key));
+        keepKeys.add(preserveKey);
+
+        for (const [key, conversation] of candidates) {
+            if (keepKeys.has(key) || Number(conversation.accessCount || 0) >= SWARM_FREQUENT_ACCESS_THRESHOLD) {
+                continue;
+            }
+
+            conversation.messages = [];
+            conversation.loaded = false;
+            conversation.loading = false;
+            conversation.renderSignature = '';
         }
     }
 
@@ -338,6 +420,9 @@
 
         recordKnownSwarmConversationRunId(clusterId, mode, normalizedRunId);
         state.currentClusterSwarmRunSelections[getSwarmConversationRegistryKey(clusterId, mode)] = normalizedRunId;
+        if (window.persistUiState) {
+            window.persistUiState();
+        }
     }
 
     /**
@@ -612,23 +697,123 @@
      * @param {string} clusterId - 集群ID
      * @param {string} mode - Swarm模式
      * @param {Array} messages - 消息数组
+     * @param {Object} options - 选项
+     * @param {string} options.swarmRunId - Swarm运行ID
+     * @param {boolean} options.keepPending - 是否保持等待状态
      */
-    function appendSwarmConversationMessages(clusterId, mode, messages) {
+    function appendSwarmConversationMessages(clusterId, mode, messages, options = {}) {
+        if (!shouldAcceptSwarmConversationUpdate(clusterId, mode, messages, options)) {
+            return;
+        }
+
+        if (Array.isArray(options.knownRunIds) && options.knownRunIds.length > 0) {
+            syncKnownSwarmConversationRuns(clusterId, mode, options.knownRunIds);
+        }
+
         const key = getClusterConversationKey(clusterId, {
             targetKind: 'swarm',
             mode,
-            outputMode: 'frontend',
-            swarmRunId: getSelectedSwarmConversationRunId(clusterId, mode)
+            outputMode: options.outputMode || 'frontend',
+            swarmRunId: options.swarmRunId
         });
         const conversation = ensureClusterConversation(key);
-        conversation.messages.push(...messages);
-        conversation.pending = false;
+        const nextMessages = Array.isArray(messages) ? messages : [];
+        if (nextMessages.length === 0 && options.keepPending !== true) {
+            return;
+        }
+
+        const nextRunId = typeof options.swarmRunId === 'string' && options.swarmRunId.trim()
+            ? options.swarmRunId.trim()
+            : conversation.swarmRunId;
+        conversation.messages.push(...nextMessages);
+        conversation.loading = false;
+        conversation.pending = options.keepPending === true;
         conversation.loaded = true;
+        conversation.lastAccessedAt = Date.now();
         conversation.renderSignature = buildConversationRenderSignature(conversation.messages, {
             loading: false,
-            pending: false,
+            pending: conversation.pending,
+            swarmRunId: nextRunId
+        });
+        conversation.swarmRunId = nextRunId || conversation.swarmRunId || null;
+        pruneSwarmConversationCache(key);
+        refreshClusterConversationIfVisible(key);
+    }
+
+    /**
+     * 按消息ID修补Swarm对话消息
+     * @param {string} clusterId - 集群ID
+     * @param {string} mode - Swarm模式
+     * @param {Array} messages - 替换后的消息数组
+     * @param {Object} options - 选项
+     */
+    function patchSwarmConversationMessages(clusterId, mode, messages, options = {}) {
+        if (!shouldAcceptSwarmConversationUpdate(clusterId, mode, messages, options)) {
+            return;
+        }
+
+        if (Array.isArray(options.knownRunIds) && options.knownRunIds.length > 0) {
+            syncKnownSwarmConversationRuns(clusterId, mode, options.knownRunIds);
+        }
+
+        const key = getClusterConversationKey(clusterId, {
+            targetKind: 'swarm',
+            mode,
+            outputMode: options.outputMode || 'frontend',
+            swarmRunId: options.swarmRunId
+        });
+        const conversation = ensureClusterConversation(key);
+        const incoming = Array.isArray(messages) ? messages : [];
+        if (incoming.length === 0 && options.keepPending !== true) {
+            return;
+        }
+
+        const identifiedIncoming = [];
+        const anonymousIncoming = [];
+        for (const message of incoming) {
+            if (typeof message?.id === 'string' && message.id) {
+                identifiedIncoming.push(message);
+            } else {
+                anonymousIncoming.push(message);
+            }
+        }
+
+        const byId = new Map(identifiedIncoming.map(message => [message.id, message]));
+        if (byId.size > 0) {
+            const seenIds = new Set();
+            conversation.messages = conversation.messages.map(existing => {
+                if (existing && byId.has(existing.id)) {
+                    seenIds.add(existing.id);
+                    return byId.get(existing.id);
+                }
+                return existing;
+            });
+
+            for (const [messageId, message] of byId.entries()) {
+                if (!seenIds.has(messageId)) {
+                    conversation.messages.push(message);
+                }
+            }
+        }
+
+        if (anonymousIncoming.length > 0) {
+            conversation.messages.push(...anonymousIncoming);
+        }
+
+        conversation.loading = false;
+        conversation.pending = options.keepPending === true;
+        conversation.loaded = true;
+        const nextRunId = typeof options.swarmRunId === 'string' && options.swarmRunId.trim()
+            ? options.swarmRunId.trim()
+            : conversation.swarmRunId;
+        conversation.swarmRunId = nextRunId || conversation.swarmRunId || null;
+        conversation.lastAccessedAt = Date.now();
+        conversation.renderSignature = buildConversationRenderSignature(conversation.messages, {
+            loading: false,
+            pending: conversation.pending,
             swarmRunId: conversation.swarmRunId
         });
+        pruneSwarmConversationCache(key);
         refreshClusterConversationIfVisible(key);
     }
 
@@ -645,6 +830,10 @@
     function replaceSwarmConversationMessages(clusterId, mode, messages, options = {}) {
         if (!shouldAcceptSwarmConversationUpdate(clusterId, mode, messages, options)) {
             return;
+        }
+
+        if (Array.isArray(options.knownRunIds) && options.knownRunIds.length > 0) {
+            syncKnownSwarmConversationRuns(clusterId, mode, options.knownRunIds);
         }
 
         const key = getClusterConversationKey(clusterId, {
@@ -672,7 +861,9 @@
         conversation.loaded = true;
         conversation.pending = options.keepPending === true;
         conversation.swarmRunId = nextRunId || null;
+        conversation.lastAccessedAt = Date.now();
         conversation.renderSignature = nextSignature;
+        pruneSwarmConversationCache(key);
         refreshClusterConversationIfVisible(key);
     }
 
@@ -689,29 +880,36 @@
             return;
         }
 
-        const key = getClusterConversationKey(clusterId, {
-            targetKind: 'swarm',
-            mode,
-            outputMode: options.outputMode || 'frontend',
-            swarmRunId: options.swarmRunId
-        });
-        const conversation = ensureClusterConversation(key);
-        const nextRunId = typeof options.swarmRunId === 'string' && options.swarmRunId.trim()
-            ? options.swarmRunId.trim()
-            : conversation.swarmRunId;
-        const nextSignature = buildConversationRenderSignature(conversation.messages, {
-            loading: false,
-            pending: false,
-            swarmRunId: nextRunId
-        });
-        if (conversation.renderSignature === nextSignature) {
-            return;
-        }
+        const outputModes = options.outputMode
+            ? [options.outputMode]
+            : (mode === 'collaborate' ? ['frontend', 'raw'] : ['frontend']);
 
-        conversation.pending = false;
-        conversation.swarmRunId = nextRunId || conversation.swarmRunId || null;
-        conversation.renderSignature = nextSignature;
-        refreshClusterConversationIfVisible(key);
+        for (const outputMode of outputModes) {
+            const key = getClusterConversationKey(clusterId, {
+                targetKind: 'swarm',
+                mode,
+                outputMode,
+                swarmRunId: options.swarmRunId
+            });
+            const conversation = ensureClusterConversation(key);
+            const nextRunId = typeof options.swarmRunId === 'string' && options.swarmRunId.trim()
+                ? options.swarmRunId.trim()
+                : conversation.swarmRunId;
+            const nextSignature = buildConversationRenderSignature(conversation.messages, {
+                loading: false,
+                pending: false,
+                swarmRunId: nextRunId
+            });
+            if (conversation.renderSignature === nextSignature) {
+                continue;
+            }
+
+            conversation.pending = false;
+            conversation.loading = false;
+            conversation.swarmRunId = nextRunId || conversation.swarmRunId || null;
+            conversation.renderSignature = nextSignature;
+            refreshClusterConversationIfVisible(key);
+        }
     }
 
     /**

@@ -959,6 +959,7 @@
         // 渲染跟踪段
         const body = entry.messages.map(msg => `
             <div class="trace-segment trace-segment-${escapeHtml(msg.role || 'assistant')}">
+                ${renderClusterTraceSegmentHeader(msg, headerMessage, entry)}
                 ${msg.role === 'tool' ? renderToolMessage(msg, Array.isArray(msg.parts) ? msg.parts : []) : renderMessageContent(msg)}
             </div>
         `).join('');
@@ -972,6 +973,25 @@
                     ${time ? `<span class="message-time">${time}</span>` : ''}
                 </div>
                 <div class="trace-body">${body}</div>
+            </div>
+        `;
+    }
+
+    function renderClusterTraceSegmentHeader(msg, headerMessage, entry) {
+        if (!msg || (entry?.messages?.length || 0) <= 1) {
+            return '';
+        }
+
+        const sourceLabel = getMessageRoleLabel(msg) || getMessageRoleLabel(headerMessage);
+        const contextLabel = msg.contextLabel || entry?.contextLabel || '';
+        if (!sourceLabel && !contextLabel) {
+            return '';
+        }
+
+        return `
+            <div class="trace-segment-header">
+                ${sourceLabel ? `<span class="trace-segment-source">${escapeHtml(sourceLabel)}</span>` : ''}
+                ${contextLabel ? `<span class="cluster-status-pill">${escapeHtml(contextLabel)}</span>` : ''}
             </div>
         `;
     }
@@ -1283,6 +1303,9 @@
         }
 
         setSelectedSwarmConversationRunId(cluster.id, state.currentClusterSwarmMode, normalizedRunId);
+        if (typeof markSwarmConversationAccess === 'function') {
+            markSwarmConversationAccess(cluster.id, state.currentClusterSwarmMode, normalizedRunId);
+        }
         renderClusterWorkspace();
     }
 
@@ -1320,6 +1343,7 @@
             targetKind: target.kind,
             exportKind: exportKind === 'raw' ? 'raw' : 'readable',
             mode: target.mode,
+            swarmRunId: target.swarmRunId || undefined,
             agentId: target.agentId,
             agentViewMode: target.agentViewMode
         });

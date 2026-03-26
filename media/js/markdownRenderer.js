@@ -12,6 +12,72 @@
         "'": '&#39;'
     };
 
+    const INLINE_MATH_PLACEHOLDER_PREFIX = '\u0000INLINEMATH';
+    const MATH_COMMAND_SYMBOLS = {
+        alpha: 'α',
+        beta: 'β',
+        gamma: 'γ',
+        delta: 'δ',
+        epsilon: 'ϵ',
+        varepsilon: 'ε',
+        theta: 'θ',
+        vartheta: 'ϑ',
+        lambda: 'λ',
+        mu: 'μ',
+        pi: 'π',
+        varpi: 'ϖ',
+        sigma: 'σ',
+        varsigma: 'ς',
+        phi: 'φ',
+        varphi: 'ϕ',
+        omega: 'ω',
+        Gamma: 'Γ',
+        Delta: 'Δ',
+        Theta: 'Θ',
+        Lambda: 'Λ',
+        Pi: 'Π',
+        Sigma: 'Σ',
+        Phi: 'Φ',
+        Omega: 'Ω',
+        cdot: '·',
+        times: '×',
+        pm: '±',
+        mp: '∓',
+        neq: '≠',
+        ne: '≠',
+        le: '≤',
+        leq: '≤',
+        ge: '≥',
+        geq: '≥',
+        approx: '≈',
+        sim: '∼',
+        to: '→',
+        leftarrow: '←',
+        rightarrow: '→',
+        Leftarrow: '⇐',
+        Rightarrow: '⇒',
+        leftrightarrow: '↔',
+        Leftrightarrow: '⇔',
+        infty: '∞',
+        partial: '∂',
+        nabla: '∇',
+        forall: '∀',
+        exists: '∃',
+        in: '∈',
+        notin: '∉',
+        subset: '⊂',
+        subseteq: '⊆',
+        supset: '⊃',
+        supseteq: '⊇',
+        cup: '∪',
+        cap: '∩',
+        land: '∧',
+        lor: '∨',
+        sum: '∑',
+        prod: '∏',
+        int: '∫'
+    };
+
     /**
      * 转义HTML特殊字符
      * 将 &, <, >, ", ' 转换为对应的HTML实体
@@ -30,6 +96,289 @@
      */
     function escapeAttribute(value) {
         return escapeHtml(value).replace(/`/g, '&#96;');
+    }
+
+    function normalizeMathSource(value) {
+        return String(value ?? '')
+            .replace(/(^|[\s{([])le(?=$|[\s}\])])/g, '$1\\le')
+            .replace(/(^|[\s{([])ge(?=$|[\s}\])])/g, '$1\\ge')
+            .replace(/<=/g, '\\le ')
+            .replace(/>=/g, '\\ge ')
+            .replace(/!=/g, '\\neq ');
+    }
+
+    function extractInlineMathPlaceholders(text) {
+        const mathBlocks = [];
+        let output = '';
+        let index = 0;
+
+        while (index < text.length) {
+            const char = text[index];
+            if (char !== '$' || text[index + 1] === '$' || (index > 0 && text[index - 1] === '\\')) {
+                output += char;
+                index += 1;
+                continue;
+            }
+
+            let cursor = index + 1;
+            let foundEnd = -1;
+            while (cursor < text.length) {
+                if (text[cursor] === '$' && text[cursor - 1] !== '\\') {
+                    foundEnd = cursor;
+                    break;
+                }
+                cursor += 1;
+            }
+
+            if (foundEnd <= index + 1) {
+                output += char;
+                index += 1;
+                continue;
+            }
+
+            const source = text.slice(index + 1, foundEnd);
+            const placeholder = `${INLINE_MATH_PLACEHOLDER_PREFIX}${mathBlocks.length}\u0000`;
+            mathBlocks.push(renderMath(normalizeMathSource(source), false));
+            output += placeholder;
+            index = foundEnd + 1;
+        }
+
+        return {
+            text: output,
+            mathBlocks
+        };
+    }
+
+    function restorePlaceholders(html, placeholders, prefix) {
+        let output = html;
+        placeholders.forEach((rendered, index) => {
+            const token = `${prefix}${index}\u0000`;
+            output = output.split(token).join(rendered);
+        });
+        return output;
+    }
+
+    function renderMath(source, displayMode) {
+        const parser = createMathParser(source);
+        const body = parser.parseExpression();
+        const className = displayMode ? 'md-math md-math-block' : 'md-math md-math-inline';
+        return `<span class="${className}">${body || '<span class="md-math-empty"></span>'}</span>`;
+    }
+
+    function createMathParser(source) {
+        const text = String(source ?? '').trim();
+        let index = 0;
+
+        function peek(offset = 0) {
+            return text[index + offset] || '';
+        }
+
+        function consume() {
+            return text[index++] || '';
+        }
+
+        function skipWhitespace() {
+            while (/\s/.test(peek())) {
+                index += 1;
+            }
+        }
+
+        function readCommandName() {
+            let name = '';
+            while (/[A-Za-z]/.test(peek())) {
+                name += consume();
+            }
+            return name;
+        }
+
+        function readTextUntil(stopChar) {
+            let value = '';
+            while (index < text.length) {
+                const char = consume();
+                if (char === stopChar) {
+                    break;
+                }
+                value += char;
+            }
+            return value;
+        }
+
+        function readBalancedTextGroup() {
+            skipWhitespace();
+            if (peek() !== '{') {
+                return '';
+            }
+
+            consume();
+            let depth = 1;
+            let value = '';
+            while (index < text.length && depth > 0) {
+                const char = consume();
+                if (char === '{') {
+                    depth += 1;
+                    value += char;
+                    continue;
+                }
+                if (char === '}') {
+                    depth -= 1;
+                    if (depth === 0) {
+                        break;
+                    }
+                    value += char;
+                    continue;
+                }
+                value += char;
+            }
+
+            return value;
+        }
+
+        function parseGroup() {
+            skipWhitespace();
+            if (peek() === '{') {
+                consume();
+                const value = parseExpression('}');
+                if (peek() === '}') {
+                    consume();
+                }
+                return value;
+            }
+
+            return parseAtom();
+        }
+
+        function renderIdentifier(value) {
+            return String(value ?? '')
+                .split('')
+                .map((char) => /[A-Za-z]/.test(char)
+                    ? `<span class="md-math-var">${escapeHtml(char)}</span>`
+                    : `<span class="md-math-num">${escapeHtml(char)}</span>`)
+                .join('');
+        }
+
+        function parseCommand() {
+            consume();
+            const name = readCommandName();
+            if (!name) {
+                return '<span class="md-math-operator">\\</span>';
+            }
+
+            if (name === 'frac') {
+                const numerator = parseGroup();
+                const denominator = parseGroup();
+                return `
+                    <span class="md-math-frac">
+                        <span class="md-math-frac-num">${numerator}</span>
+                        <span class="md-math-frac-bar"></span>
+                        <span class="md-math-frac-den">${denominator}</span>
+                    </span>
+                `.replace(/\s+/g, ' ');
+            }
+
+            if (name === 'sqrt') {
+                if (peek() === '[') {
+                    consume();
+                    readTextUntil(']');
+                }
+                const radicand = parseGroup();
+                return `<span class="md-math-sqrt"><span class="md-math-sqrt-sign">√</span><span class="md-math-sqrt-body">${radicand}</span></span>`;
+            }
+
+            if (name === 'text' || name === 'mathrm') {
+                const content = readBalancedTextGroup();
+                return `<span class="md-math-text">${escapeHtml(content)}</span>`;
+            }
+
+            if (MATH_COMMAND_SYMBOLS[name]) {
+                const symbol = MATH_COMMAND_SYMBOLS[name];
+                const className = /^[A-Za-z]$/.test(symbol) || /[α-ωΑ-Ωϵϑϕϖς]/.test(symbol)
+                    ? 'md-math-var'
+                    : 'md-math-operator';
+                return `<span class="${className}">${escapeHtml(symbol)}</span>`;
+            }
+
+            return `<span class="md-math-command">${escapeHtml(`\\${name}`)}</span>`;
+        }
+
+        function parseAtom() {
+            skipWhitespace();
+            const char = peek();
+            if (!char) {
+                return '';
+            }
+
+            if (char === '{') {
+                consume();
+                const value = parseExpression('}');
+                if (peek() === '}') {
+                    consume();
+                }
+                return `<span class="md-math-group">${value}</span>`;
+            }
+
+            if (char === '\\') {
+                return parseCommand();
+            }
+
+            if (/[A-Za-z0-9]/.test(char)) {
+                let value = '';
+                while (/[A-Za-z0-9]/.test(peek())) {
+                    value += consume();
+                }
+                return renderIdentifier(value);
+            }
+
+            if ('+-=*/()[],:;|'.includes(char)) {
+                consume();
+                return `<span class="md-math-operator">${escapeHtml(char)}</span>`;
+            }
+
+            consume();
+            return `<span class="md-math-symbol">${escapeHtml(char)}</span>`;
+        }
+
+        function attachScripts(base) {
+            let output = base;
+
+            while (true) {
+                skipWhitespace();
+                const marker = peek();
+                if (marker !== '^' && marker !== '_') {
+                    break;
+                }
+
+                consume();
+                const className = marker === '^' ? 'md-math-sup' : 'md-math-sub';
+                const script = parseGroup();
+                output = `<span class="md-math-script-wrap">${output}<span class="${className}">${script}</span></span>`;
+            }
+
+            return output;
+        }
+
+        function parseExpression(stopChar = '') {
+            const parts = [];
+            while (index < text.length) {
+                if (stopChar && peek() === stopChar) {
+                    break;
+                }
+
+                if (/\s/.test(peek())) {
+                    skipWhitespace();
+                    parts.push('<span class="md-math-space"></span>');
+                    continue;
+                }
+
+                const atom = parseAtom();
+                parts.push(attachScripts(atom));
+            }
+
+            return parts.join('');
+        }
+
+        return {
+            parseExpression
+        };
     }
 
     /**
@@ -195,6 +544,9 @@
             return placeholder;
         });
 
+        const inlineMath = extractInlineMathPlaceholders(source);
+        source = inlineMath.text;
+
         // 依次渲染各种内联格式
         let html = escapeHtml(source)
             // 图片：![alt](url "title")
@@ -231,6 +583,8 @@
             const placeholder = `\u0000INLINECODE${index}\u0000`;
             html = html.split(placeholder).join(code);
         });
+
+        html = restorePlaceholders(html, inlineMath.mathBlocks, INLINE_MATH_PLACEHOLDER_PREFIX);
 
         return html;
     }
@@ -428,6 +782,35 @@
             if (placeholderMatch) {
                 parts.push(line.trim());
                 index += 1;
+                continue;
+            }
+
+            // 块级公式：$$...$$
+            if (line.trim().startsWith('$$')) {
+                let mathSource = line.trim().slice(2);
+                let mathIndex = index;
+
+                if (mathSource.endsWith('$$')) {
+                    mathSource = mathSource.slice(0, -2);
+                    parts.push(renderMath(normalizeMathSource(mathSource), true));
+                    index += 1;
+                    continue;
+                }
+
+                const mathLines = [mathSource];
+                mathIndex += 1;
+                while (mathIndex < lines.length) {
+                    const nextLine = lines[mathIndex];
+                    if (nextLine.trim().endsWith('$$')) {
+                        mathLines.push(nextLine.trim().slice(0, -2));
+                        break;
+                    }
+                    mathLines.push(nextLine);
+                    mathIndex += 1;
+                }
+
+                parts.push(renderMath(normalizeMathSource(mathLines.join('\n')), true));
+                index = Math.min(lines.length, mathIndex + 1);
                 continue;
             }
 

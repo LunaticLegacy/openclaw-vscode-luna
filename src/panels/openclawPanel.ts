@@ -1529,6 +1529,7 @@ export class OpenClawPanel {
         targetKind: 'swarm' | 'agent';
         exportKind: ClusterContextExportKind;
         mode?: 'broadcast' | 'collaborate';
+        swarmRunId?: string;
         agentId?: string;
         agentViewMode?: 'chat' | 'broadcast' | 'collaborate';
     }) {
@@ -1850,7 +1851,14 @@ export class OpenClawPanel {
 
         return options.targetKind === 'agent'
             ? this._buildClusterAgentContextExport(clusterId, cluster, String(options.agentId || '').trim(), options.agentViewMode)
-            : this._buildClusterSwarmContextExport(clusterId, cluster, options.mode === 'collaborate' ? 'collaborate' : 'broadcast');
+            : this._buildClusterSwarmContextExport(
+                clusterId,
+                cluster,
+                options.mode === 'collaborate' ? 'collaborate' : 'broadcast',
+                typeof options.swarmRunId === 'string' && options.swarmRunId.trim()
+                    ? options.swarmRunId.trim()
+                    : undefined
+            );
     }
 
     /**
@@ -1863,9 +1871,10 @@ export class OpenClawPanel {
     private async _buildClusterSwarmContextExport(
         clusterId: string,
         cluster: AgentCluster,
-        mode: 'broadcast' | 'collaborate'
+        mode: 'broadcast' | 'collaborate',
+        swarmRunId?: string
     ): Promise<ClusterContextExportBundle> {
-        const messages = await this._clusterManager.getClusterSwarmMessages({ clusterId, mode });
+        const messages = await this._clusterManager.getClusterSwarmMessages({ clusterId, mode, swarmRunId });
         return buildClusterContextExportBundle(
             `${sanitizeFileSegment(cluster.name)}-swarm-${mode}-context`,
             {
@@ -1877,6 +1886,7 @@ export class OpenClawPanel {
                     agentIds: [...cluster.agentIds]
                 },
                 mode,
+                swarmRunId,
                 messageCount: messages.length,
                 messages
             }

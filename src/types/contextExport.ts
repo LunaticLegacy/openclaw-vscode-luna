@@ -26,6 +26,7 @@ export interface ClusterSwarmContextExportBody {
     kind: 'cluster-swarm-context';
     cluster: ExportClusterInfo;
     mode: 'broadcast' | 'collaborate';
+    swarmRunId?: string;
     messageCount: number;
     messages: ChatMessage[];
 }

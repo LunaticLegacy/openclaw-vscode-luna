@@ -106,6 +106,9 @@ export function parseClusterSwarmReplayImport(
                 agentIds: [...body.cluster.agentIds]
             },
             mode: body.mode,
+            swarmRunId: typeof body.swarmRunId === 'string' && body.swarmRunId.trim()
+                ? body.swarmRunId.trim()
+                : undefined,
             messageCount: normalizedMessages.length,
             messages: normalizedMessages
         }
@@ -207,6 +210,9 @@ function renderReadableClusterContextMarkdown(body: ClusterContextExportBody): s
         lines.push(`- Message Counts: direct=${body.messageCounts.direct}, broadcast=${body.messageCounts.broadcast}, collaborate=${body.messageCounts.collaborate}`);
     } else {
         lines.push(`- Mode: ${body.mode}`);
+        if (body.swarmRunId) {
+            lines.push(`- Run ID: ${body.swarmRunId}`);
+        }
         lines.push(`- Message Count: ${body.messageCount}`);
     }
     lines.push('');

@@ -911,6 +911,55 @@ suite('clusterManager', () => {
         }
     });
 
+    test('preserves swarm presentation metadata when storing and loading run-scoped messages', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-swarm-presentation-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Presentation Swarm',
+                agentIds: ['alpha', 'beta']
+            });
+
+            await manager.replaceClusterSwarmMessages({
+                clusterId: cluster.id,
+                mode: 'collaborate',
+                swarmRunId: 'run-presented',
+                messages: [{
+                    ...createContextMessage('swarm-presented', 'Presented reply'),
+                    displayName: 'Alpha (gpt-test)',
+                    contextLabel: 'Opening Positions',
+                    agentId: 'alpha',
+                    toolCallId: 'tool-1',
+                    toolName: 'search_docs',
+                    toolArguments: { query: 'presentation metadata' },
+                    toolDetails: { hits: 1 },
+                    isError: false
+                }]
+            });
+
+            const messages = await manager.getClusterSwarmMessages({
+                clusterId: cluster.id,
+                mode: 'collaborate',
+                swarmRunId: 'run-presented'
+            });
+
+            assert.equal(messages[0]?.displayName, 'Alpha (gpt-test)');
+            assert.equal(messages[0]?.contextLabel, 'Opening Positions');
+            assert.equal(messages[0]?.agentId, 'alpha');
+            assert.equal(messages[0]?.toolCallId, 'tool-1');
+            assert.equal(messages[0]?.toolName, 'search_docs');
+            assert.deepEqual(messages[0]?.toolArguments, { query: 'presentation metadata' });
+            assert.deepEqual(messages[0]?.toolDetails, { hits: 1 });
+            assert.equal(messages[0]?.isError, false);
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
+
     test('forbids workers from finalizing during critique and reserves finalization for synthesis coordinator', async () => {
         const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-phase-guards-'));
         const storagePath = path.join(root, 'clusters.json');

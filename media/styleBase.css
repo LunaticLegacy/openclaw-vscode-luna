@@ -188,6 +188,117 @@ body {
     display: none !important;
 }
 
+.md-math {
+    font-family: "Cambria Math", "STIX Two Math", "Times New Roman", serif;
+    line-height: 1.45;
+    color: inherit;
+}
+
+.md-math-inline {
+    display: inline-block;
+    max-width: 100%;
+    vertical-align: middle;
+    padding: 0 0.08em;
+}
+
+.md-math-block {
+    display: block;
+    overflow-x: auto;
+    text-align: center;
+    margin: 0.9rem 0;
+    padding: 0.75rem 1rem;
+    border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--bg-secondary) 82%, var(--bg-primary));
+}
+
+.md-math-space {
+    display: inline-block;
+    width: 0.35em;
+}
+
+.md-math-var {
+    font-style: italic;
+}
+
+.md-math-num,
+.md-math-text,
+.md-math-command {
+    font-style: normal;
+}
+
+.md-math-operator,
+.md-math-symbol {
+    padding: 0 0.03em;
+}
+
+.md-math-frac {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: stretch;
+    vertical-align: middle;
+    margin: 0 0.1em;
+    min-width: 1.6em;
+}
+
+.md-math-frac-num,
+.md-math-frac-den {
+    display: block;
+    text-align: center;
+    font-size: 0.9em;
+    line-height: 1.15;
+    padding: 0 0.15em;
+}
+
+.md-math-frac-bar {
+    display: block;
+    border-top: 1px solid currentColor;
+    margin: 0.08em 0;
+}
+
+.md-math-sqrt {
+    display: inline-flex;
+    align-items: stretch;
+    vertical-align: middle;
+    margin-right: 0.08em;
+}
+
+.md-math-sqrt-sign {
+    font-size: 1.15em;
+    line-height: 1;
+    padding-right: 0.08em;
+}
+
+.md-math-sqrt-body {
+    display: inline-block;
+    border-top: 1px solid currentColor;
+    padding: 0.12em 0.1em 0 0.15em;
+}
+
+.md-math-script-wrap {
+    display: inline-flex;
+    align-items: flex-start;
+    position: relative;
+    margin-right: 0.04em;
+}
+
+.md-math-sup,
+.md-math-sub {
+    font-size: 0.75em;
+    line-height: 1;
+    position: relative;
+    left: 0.03em;
+}
+
+.md-math-sup {
+    top: -0.55em;
+}
+
+.md-math-sub {
+    top: 0.45em;
+    margin-left: -0.1em;
+}
+
 /* Navigation */
 .nav-tabs {
     padding: 8px;

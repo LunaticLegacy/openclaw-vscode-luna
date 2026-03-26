@@ -14,6 +14,7 @@ export interface ClusterContextExportOptions {
     clusterId: string;
     targetKind: 'swarm' | 'agent';
     mode?: 'broadcast' | 'collaborate';
+    swarmRunId?: string;
     agentId?: string;
     agentViewMode?: 'chat' | 'broadcast' | 'collaborate';
 }

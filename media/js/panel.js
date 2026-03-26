@@ -503,7 +503,26 @@
                 replaceSwarmConversationMessages(message.clusterId, message.mode, message.messages || [], {
                     swarmRunId: message.swarmRunId,
                     keepPending: Boolean(message.keepPending),
-                    outputMode: message.outputMode
+                    outputMode: message.outputMode,
+                    knownRunIds: message.knownRunIds || []
+                });
+                break;
+
+            case 'appendSwarmMessages':
+                appendSwarmConversationMessages(message.clusterId, message.mode, message.messages || [], {
+                    swarmRunId: message.swarmRunId,
+                    keepPending: Boolean(message.keepPending),
+                    outputMode: message.outputMode,
+                    knownRunIds: message.knownRunIds || []
+                });
+                break;
+
+            case 'patchSwarmMessages':
+                patchSwarmConversationMessages(message.clusterId, message.mode, message.messages || [], {
+                    swarmRunId: message.swarmRunId,
+                    keepPending: Boolean(message.keepPending),
+                    outputMode: message.outputMode,
+                    knownRunIds: message.knownRunIds || []
                 });
                 break;
 
