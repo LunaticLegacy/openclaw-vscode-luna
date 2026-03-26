@@ -75,6 +75,7 @@ import {
     handleClusterAgentSessionCommand as clusterAgentSessionCommandAction,
     handleCollaborate as collaborateClusterAction,
     handleCreateClusterFromMemberPreset as createClusterFromMemberPresetAction,
+    hardRefreshClusterWorkspace as hardRefreshClusterWorkspaceAction,
     handleRemoveAgentsFromCluster as removeAgentsFromClusterAction,
     handleSaveCluster as saveClusterAction,
     loadClusterAgentMessages as loadClusterAgentMessagesAction,
@@ -1493,6 +1494,18 @@ export class OpenClawPanel {
         await loadClusterSwarmMessagesAction(this._createClusterActionContext(), clusterId, mode, outputMode, swarmRunId);
     }
 
+    private async _hardRefreshClusterWorkspace(options: {
+        clusterId: string;
+        targetKind?: 'swarm' | 'agent';
+        mode?: 'broadcast' | 'collaborate';
+        outputMode?: 'frontend' | 'raw';
+        agentId?: string;
+        agentViewMode?: 'chat' | 'broadcast' | 'collaborate';
+        swarmRunId?: string;
+    }) {
+        await hardRefreshClusterWorkspaceAction(this._createClusterActionContext(), options);
+    }
+
     /**
      * Handles sending a message to a cluster agent
      * @param clusterId - The cluster ID
@@ -2442,6 +2455,7 @@ export class OpenClawPanel {
             loadClusterSwarmMessages: this._loadClusterSwarmMessages.bind(this),
             loadClusterAgentMessages: this._loadClusterAgentMessages.bind(this),
             loadClusterAgentSwarmMessages: this._loadClusterAgentSwarmMessages.bind(this),
+            hardRefreshClusterWorkspace: this._hardRefreshClusterWorkspace.bind(this),
             exportClusterConversation: this._exportClusterConversation.bind(this),
             exportClusterSwarm: this._exportClusterSwarm.bind(this),
             importClusterSwarm: this._importClusterSwarm.bind(this),

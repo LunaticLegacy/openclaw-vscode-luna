@@ -342,6 +342,48 @@ export async function loadClusterSwarmMessages(
     }
 }
 
+export async function hardRefreshClusterWorkspace(
+    context: ClusterActionContext,
+    {
+        clusterId,
+        targetKind = 'swarm',
+        mode = 'broadcast',
+        outputMode = 'frontend',
+        agentId,
+        agentViewMode = 'chat',
+        swarmRunId
+    }: {
+        clusterId: string;
+        targetKind?: 'swarm' | 'agent';
+        mode?: SwarmMode;
+        outputMode?: SwarmConversationOutputMode;
+        agentId?: string;
+        agentViewMode?: 'chat' | 'broadcast' | 'collaborate';
+        swarmRunId?: string;
+    }
+): Promise<void> {
+    if (!clusterId) {
+        return;
+    }
+
+    await Promise.all([
+        context.loadAgents(),
+        context.loadClusters(clusterId)
+    ]);
+
+    if (targetKind === 'agent' && agentId) {
+        if (agentViewMode === 'broadcast' || agentViewMode === 'collaborate') {
+            await loadClusterAgentSwarmMessages(context, clusterId, agentId, agentViewMode, swarmRunId);
+            return;
+        }
+
+        await loadClusterAgentMessages(context, clusterId, agentId);
+        return;
+    }
+
+    await loadClusterSwarmMessages(context, clusterId, mode, outputMode, swarmRunId);
+}
+
 /**
  * Loads messages for a specific agent in a cluster
  * @param context - The cluster action context

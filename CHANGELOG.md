@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project follows Semantic Versioning.
 
+## [0.8.2] - 2026-03-26
+
+### Added
+- SWARM: Added live swarm-session reconstruction for `collaborate/frontend`, so the view can rebuild the visible result flow from agent swarm sessions instead of relying only on aggregate swarm snapshots.
+- SWARM: Added per-agent collaborate session rendering for both inputs and outputs inside agent subviews.
+- SWARM & UI/UX: Added a hard refresh action for swarm workspace views, forcing a full swarm reload path instead of only repainting the current panel.
+- SWARM & UI/UX: Added tool-call duration badges in live swarm/chat rendering.
+- SWARM & UI/UX: Added an empty-state `Import Swarm JSON` entry point, so a new swarm can be created directly from exported swarm JSON even when no swarm is currently open.
+
+### Changed
+- SWARM & UI/UX: Updated collaborate run labels to show clearer run metadata instead of ambiguous `Run 1 / Run 2 / Run 3` style labels.
+- CHAT & UI/UX: Changed the chat toolbar default state to collapsed.
+
+### Fixed
+- SWARM: Fixed swarm export so it respects the selected run instead of exporting every run indiscriminately.
+- SWARM: Fixed missing source attribution in collaborate/frontend for swarm messages and trace segments.
+- SWARM: Fixed collaborate rendering so tool calls and tool results can reconcile in place during live updates instead of staying stuck in a pending state after interleaved agent messages.
+- SWARM: Fixed collaborate/frontend rendering so assistant output, tool calls, and tool results all participate in the reconstructed session flow.
+- SWARM: Fixed collapse/expand stutter in the swarm workspace header.
+- SWARM: Fixed several TypeScript compile blockers in cluster commands, agent tree sorting, RSS parsing, and outbound type imports; `npm run compile` now passes again.
+
 ## [0.8.1] - 2026-03-20
 
 THIS IS AN EMERGENCY FIX FOR [0.8.0](#080---2026-03-19), WHICH IS LITERALLY AN UNTESTED VERSION. SORRY FOR THIS FAULT.

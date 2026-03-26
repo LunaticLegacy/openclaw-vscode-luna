@@ -715,7 +715,9 @@
             ? `
                 <div class="tool-call-list">
                     ${toolCalls.map(toolCall => `
-                        <details class="tool-card tool-card-pending"${buildToolCardDataAttributes(toolCall.id, toolCall.name)}>
+                        <details class="tool-card tool-card-pending"${buildToolCardDataAttributes(toolCall.id, toolCall.name, {
+                            startedAt: typeof msg?.timestamp === 'string' ? msg.timestamp : ''
+                        })}>
                             <summary class="tool-card-summary">
                                 <div class="tool-card-header">
                                     <span class="tool-card-status">&#9203;</span>

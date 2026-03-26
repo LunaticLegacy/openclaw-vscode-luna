@@ -1046,6 +1046,91 @@ suite('clusterManager', () => {
         }
     });
 
+    test('reconstructs collaborate session flow with tool calls, tool results, and assistant output', async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-session-flow-'));
+        const storagePath = path.join(root, 'clusters.json');
+        const service = new FakeCollaborationService();
+        const manager = new ClusterManager(service as unknown as OpenClawService, storagePath);
+
+        try {
+            const cluster = await manager.createCluster({
+                name: 'Session Flow Swarm',
+                agentIds: ['alpha']
+            });
+            const swarmRunId = 'run-session-flow';
+            const sessionKey = `cluster:${cluster.id}:swarm:collaborate:run:${swarmRunId}:agent:alpha`;
+            (manager as any).swarmSessionIds.set(sessionKey, 'session-1');
+            (service as any).sessionAgentIds.set('session-1', 'alpha');
+            (service as any).sessionMessages.set('session-1', [
+                {
+                    id: 'user-1',
+                    role: 'user',
+                    content: 'Debate stage: revision round 2',
+                    timestamp: '2026-03-20T00:00:00.000Z'
+                },
+                {
+                    id: 'assistant-tool-start',
+                    role: 'assistant',
+                    content: '',
+                    timestamp: '2026-03-20T00:00:01.000Z',
+                    parts: [{
+                        type: 'toolCall',
+                        id: 'tool-1',
+                        name: 'read_repo',
+                        arguments: { path: 'README.md' }
+                    }],
+                    metadata: {
+                        stopReason: 'toolUse'
+                    }
+                },
+                {
+                    id: 'tool-result',
+                    role: 'tool',
+                    content: 'README loaded',
+                    timestamp: '2026-03-20T00:00:03.000Z',
+                    toolCallId: 'tool-1',
+                    toolName: 'read_repo',
+                    parts: [{
+                        type: 'toolResult',
+                        toolCallId: 'tool-1',
+                        name: 'read_repo',
+                        arguments: { path: 'README.md' },
+                        result: 'README loaded'
+                    }]
+                },
+                {
+                    id: 'assistant-final',
+                    role: 'assistant',
+                    content: '',
+                    timestamp: '2026-03-20T00:00:04.000Z',
+                    parts: [{
+                        type: 'text',
+                        text: 'Revision Round 2 final answer'
+                    }]
+                }
+            ]);
+
+            const messages = await manager.getClusterSwarmSessionMessages({
+                clusterId: cluster.id,
+                mode: 'collaborate',
+                swarmRunId
+            });
+
+            assert.deepEqual(messages.map((message: any) => message.id), [
+                'assistant-tool-start',
+                'tool-result',
+                'assistant-final'
+            ]);
+            assert.equal(messages[0]?.metadata?.swarmSessionStageKind, 'revision-2');
+            assert.equal(messages[1]?.role, 'tool');
+            assert.equal(messages[1]?.toolCallId, 'tool-1');
+            assert.equal((messages[2]?.parts?.[0] as any)?.text, 'Revision Round 2 final answer');
+        } finally {
+            manager.dispose();
+            await fs.rm(root, { recursive: true, force: true });
+        }
+    });
+
     test('reconstructs collaborate frontend flow from swarm session outputs', async () => {
         const root = await fs.mkdtemp(path.join(os.tmpdir(), 'openclaw-vscode-cluster-manager-session-flow-'));
         const storagePath = path.join(root, 'clusters.json');

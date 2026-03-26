@@ -152,6 +152,9 @@
             if (elements.btnExportClusterSwarm) {
                 elements.btnExportClusterSwarm.disabled = true;
             }
+            if (elements.btnRefreshClusterWorkspace) {
+                elements.btnRefreshClusterWorkspace.disabled = true;
+            }
             if (elements.clusterWorkmodeSummary) {
                 elements.clusterWorkmodeSummary.innerHTML = '';
             }
@@ -195,6 +198,9 @@
         }
         if (elements.btnExportClusterSwarm) {
             elements.btnExportClusterSwarm.disabled = isReplay;
+        }
+        if (elements.btnRefreshClusterWorkspace) {
+            elements.btnRefreshClusterWorkspace.disabled = isReplay;
         }
         // 显示回放横幅
         if (elements.clusterReplayBanner) {
@@ -900,7 +906,7 @@
     function sanitizeClusterConversationMessages(messages, options = {}) {
         const source = Array.isArray(messages) ? messages : [];
         if (options.preserveSessionFlow) {
-            return source.filter(Boolean);
+            return normalizeClusterSessionFlowMessages(source);
         }
         const resolvedToolKeys = new Set();
 
@@ -975,6 +981,154 @@
                 ...msg,
                 parts: nextParts
             };
+    }
+
+    function normalizeClusterSessionFlowMessages(messages) {
+        const source = Array.isArray(messages) ? messages : [];
+        const normalized = [];
+        const pendingToolIndexes = new Map();
+
+        source.forEach(message => {
+            if (!message) {
+                return;
+            }
+
+            const toolCallParts = Array.isArray(message.parts)
+                ? message.parts.filter(part => part?.type === 'toolCall')
+                : [];
+            const toolResultParts = Array.isArray(message.parts)
+                ? message.parts.filter(part => part?.type === 'toolResult')
+                : [];
+
+            const residualMessage = message.role === 'assistant'
+                ? buildClusterResidualAssistantMessage(message)
+                : null;
+            if (residualMessage && !shouldHideMessage(residualMessage)) {
+                normalized.push(residualMessage);
+            }
+
+            toolCallParts.forEach((part, index) => {
+                const syntheticMessage = buildClusterSyntheticToolCallMessage(message, part, index);
+                const toolKey = getClusterToolKey(part?.id, part?.name);
+                normalized.push(syntheticMessage);
+                if (toolKey !== '::tool') {
+                    pendingToolIndexes.set(toolKey, normalized.length - 1);
+                }
+            });
+
+            if (toolResultParts.length > 0) {
+                toolResultParts.forEach((part, index) => {
+                    const toolKey = getClusterToolKey(part?.toolCallId, part?.name);
+                    const pendingIndex = pendingToolIndexes.get(toolKey);
+                    const pendingMessage = pendingIndex !== undefined ? normalized[pendingIndex] : undefined;
+                    const completedMessage = buildClusterSyntheticToolResultMessage(message, part, index, pendingMessage);
+
+                    if (pendingIndex !== undefined) {
+                        normalized[pendingIndex] = completedMessage;
+                        pendingToolIndexes.delete(toolKey);
+                    } else {
+                        normalized.push(completedMessage);
+                    }
+                });
+                return;
+            }
+
+            if (toolCallParts.length > 0) {
+                return;
+            }
+
+            if (!residualMessage) {
+                normalized.push(message);
+            }
+        });
+
+        return normalized.filter(Boolean);
+    }
+
+    function buildClusterResidualAssistantMessage(message) {
+        if (!message || message.role !== 'assistant' || !Array.isArray(message.parts) || message.parts.length === 0) {
+            return message;
+        }
+
+        const nextParts = message.parts.filter(part => part?.type !== 'toolCall' && part?.type !== 'toolResult');
+        const changed = nextParts.length !== message.parts.length;
+        if (!changed) {
+            return message;
+        }
+
+        const nextMetadata = {
+            ...(message.metadata || {})
+        };
+        delete nextMetadata.stopReason;
+
+        return {
+            ...message,
+            parts: nextParts,
+            metadata: Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined
+        };
+    }
+
+    function buildClusterSyntheticToolCallMessage(message, toolCallPart, index) {
+        return {
+            ...message,
+            id: `${message.id || 'cluster-tool-call'}:synthetic:${index}`,
+            role: 'assistant',
+            content: '',
+            parts: [{
+                type: 'toolCall',
+                id: toolCallPart?.id,
+                name: toolCallPart?.name || message.toolName || 'tool',
+                arguments: toolCallPart?.arguments ?? message.toolArguments
+            }],
+            metadata: {
+                ...(message.metadata || {}),
+                stopReason: 'toolUse',
+                toolStartedAt: typeof message.timestamp === 'string' ? message.timestamp : ''
+            }
+        };
+    }
+
+    function buildClusterSyntheticToolResultMessage(message, toolResultPart, index, pendingMessage) {
+        const startedAt = typeof pendingMessage?.metadata?.toolStartedAt === 'string' && pendingMessage.metadata.toolStartedAt.trim()
+            ? pendingMessage.metadata.toolStartedAt.trim()
+            : (typeof pendingMessage?.timestamp === 'string' ? pendingMessage.timestamp : '');
+        const completedAt = typeof message.timestamp === 'string' ? message.timestamp : '';
+        const startedAtMs = Date.parse(startedAt);
+        const completedAtMs = Date.parse(completedAt);
+        const durationMs = Number.isFinite(startedAtMs) && Number.isFinite(completedAtMs) && completedAtMs >= startedAtMs
+            ? completedAtMs - startedAtMs
+            : undefined;
+
+        return {
+            ...message,
+            id: pendingMessage?.id || `${message.id || 'cluster-tool-result'}:synthetic:${index}`,
+            role: 'tool',
+            content: toolResultPart?.result ?? message.content ?? '',
+            timestamp: startedAt || message.timestamp,
+            toolCallId: toolResultPart?.toolCallId ?? message.toolCallId,
+            toolName: toolResultPart?.name || message.toolName || pendingMessage?.toolName || 'tool',
+            toolArguments: toolResultPart?.arguments ?? message.toolArguments ?? pendingMessage?.toolArguments,
+            toolDetails: toolResultPart?.details ?? message.toolDetails,
+            isError: Boolean(toolResultPart?.isError ?? message.isError),
+            parts: [{
+                type: 'toolResult',
+                toolCallId: toolResultPart?.toolCallId ?? message.toolCallId,
+                name: toolResultPart?.name || message.toolName || pendingMessage?.toolName || 'tool',
+                arguments: toolResultPart?.arguments ?? message.toolArguments ?? pendingMessage?.toolArguments,
+                result: toolResultPart?.result ?? message.content ?? '',
+                details: toolResultPart?.details ?? message.toolDetails,
+                isError: Boolean(toolResultPart?.isError ?? message.isError)
+            }],
+            displayName: message.displayName || pendingMessage?.displayName,
+            contextLabel: message.contextLabel || pendingMessage?.contextLabel,
+            metadata: {
+                ...(pendingMessage?.metadata || {}),
+                ...(message.metadata || {}),
+                toolStartedAt: startedAt || undefined,
+                toolCompletedAt: completedAt || undefined,
+                toolDurationMs: durationMs
+            }
+        };
     }
 
     /**
@@ -1280,6 +1434,48 @@
             clusterId: cluster.id,
             agentId: target.agentId,
             mode: target.agentViewMode,
+            swarmRunId: target.swarmRunId || undefined
+        });
+    }
+
+    function hardRefreshCurrentClusterWorkspace() {
+        const cluster = getCurrentCluster();
+        if (!cluster || isReplayCluster(cluster)) {
+            return;
+        }
+
+        Object.entries(state.clusterConversations || {}).forEach(([key, conversation]) => {
+            if (!key.startsWith(`cluster:${cluster.id}:`) || !conversation) {
+                return;
+            }
+
+            conversation.messages = [];
+            conversation.loaded = false;
+            conversation.pending = false;
+            conversation.loading = false;
+            conversation.renderSignature = '';
+        });
+
+        const target = getCurrentClusterTargetInfo(cluster);
+        const activeConversation = ensureClusterConversation(target.key);
+        activeConversation.loading = true;
+        activeConversation.loaded = false;
+        activeConversation.pending = false;
+        activeConversation.renderSignature = buildConversationRenderSignature(activeConversation.messages, {
+            loading: true,
+            pending: false,
+            swarmRunId: activeConversation.swarmRunId || target.swarmRunId
+        });
+        renderClusterWorkspace();
+
+        vscode.postMessage({
+            type: 'hardRefreshClusterWorkspace',
+            clusterId: cluster.id,
+            targetKind: target.kind,
+            mode: target.kind === 'swarm' ? target.mode : undefined,
+            outputMode: target.kind === 'swarm' ? target.outputMode : undefined,
+            agentId: target.kind === 'agent' ? target.agentId : undefined,
+            agentViewMode: target.kind === 'agent' ? target.agentViewMode : undefined,
             swarmRunId: target.swarmRunId || undefined
         });
     }

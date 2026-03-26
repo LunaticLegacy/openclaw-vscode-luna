@@ -28,14 +28,17 @@
         // 提取错误状态
         const toolStatus = extractToolStatus(toolPart?.result) || extractToolStatus(toolDetails);
         const isError = Boolean(toolPart?.isError ?? msg.isError) || toolStatus === 'error';
+        const toolDurationMs = getToolDurationMs(msg);
+        const startedAt = getToolStartedAt(msg);
 
         // 构建工具卡片HTML
         return `
-            <details class="tool-card ${isError ? 'tool-card-error' : 'tool-card-success'}"${buildToolCardDataAttributes(toolCallId, toolName)}>
+            <details class="tool-card ${isError ? 'tool-card-error' : 'tool-card-success'}"${buildToolCardDataAttributes(toolCallId, toolName, { startedAt })}>
                 <summary class="tool-card-summary">
                     <div class="tool-card-header">
                         <span class="tool-card-status">${isError ? '&#10060;' : '&#9989;'}</span>
                         <span class="tool-card-name">${escapeHtml(toolName)}</span>
+                        ${renderToolDurationBadge(toolDurationMs)}
                     </div>
                 </summary>
                 <div class="tool-card-body">
@@ -170,6 +173,49 @@
         return typeof value === 'string' ? value.trim() : '';
     }
 
+    function getToolStartedAt(message) {
+        return typeof message?.metadata?.toolStartedAt === 'string' && message.metadata.toolStartedAt.trim()
+            ? message.metadata.toolStartedAt.trim()
+            : (typeof message?.timestamp === 'string' ? message.timestamp : '');
+    }
+
+    function getToolDurationMs(message) {
+        const explicit = Number(message?.metadata?.toolDurationMs);
+        if (Number.isFinite(explicit) && explicit >= 0) {
+            return explicit;
+        }
+
+        const startedAt = Date.parse(String(message?.metadata?.toolStartedAt || ''));
+        const completedAt = Date.parse(String(message?.metadata?.toolCompletedAt || message?.timestamp || ''));
+        if (!Number.isFinite(startedAt) || !Number.isFinite(completedAt) || completedAt < startedAt) {
+            return null;
+        }
+
+        return completedAt - startedAt;
+    }
+
+    function formatToolDuration(durationMs) {
+        if (!Number.isFinite(durationMs) || durationMs < 0) {
+            return '';
+        }
+
+        if (durationMs < 1000) {
+            return `${Math.round(durationMs)}ms`;
+        }
+
+        const seconds = durationMs / 1000;
+        return seconds >= 10 ? `${seconds.toFixed(0)}s` : `${seconds.toFixed(1)}s`;
+    }
+
+    function renderToolDurationBadge(durationMs) {
+        const formatted = formatToolDuration(durationMs);
+        if (!formatted) {
+            return '';
+        }
+
+        return `<span class="message-metric-badge tool-card-duration">${escapeHtml(formatted)}</span>`;
+    }
+
     /**
      * 编码工具调用ID
      * 用于在HTML属性中安全使用
@@ -194,13 +240,17 @@
      * @param {string} toolName - 工具名称
      * @returns {string} HTML数据属性字符串（如 ' data-tool-name="xxx" data-tool-call-id="yyy"'）
      */
-    function buildToolCardDataAttributes(toolCallId, toolName) {
+    function buildToolCardDataAttributes(toolCallId, toolName, options = {}) {
         const normalizedCallId = normalizeToolCallId(toolCallId);
         const normalizedName = normalizeToolName(toolName || 'tool');
         const attributes = [`data-tool-name="${escapeHtml(normalizedName)}"`];
 
         if (normalizedCallId) {
             attributes.push(`data-tool-call-id="${escapeHtml(encodeToolCallId(normalizedCallId))}"`);
+        }
+
+        if (typeof options.startedAt === 'string' && options.startedAt.trim()) {
+            attributes.push(`data-tool-started-at="${escapeHtml(options.startedAt.trim())}"`);
         }
 
         return ` ${attributes.join(' ')}`;

@@ -465,12 +465,12 @@ class RSSAdapter implements SourceProviderAdapter {
       };
     };
 
-    let match;
-    while ((match = itemRegex.exec(xml)) !== undefined) {
+    let match: RegExpExecArray | null;
+    while ((match = itemRegex.exec(xml)) !== null) {
       const item = processMatch(match[1]);
       if (item) items.push(item);
     }
-    while ((match = entryRegex.exec(xml)) !== undefined) {
+    while ((match = entryRegex.exec(xml)) !== null) {
       const item = processMatch(match[1]);
       if (item) items.push(item);
     }

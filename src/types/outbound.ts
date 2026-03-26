@@ -1,4 +1,4 @@
-import type { SwarmDeliveryContext } from '../openclaw/types';
+import type { SwarmDeliveryContext } from './openclaw';
 
 export type OutboundDeliveryStatus =
     | 'pending'

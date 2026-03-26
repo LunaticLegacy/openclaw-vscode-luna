@@ -61,6 +61,10 @@ export function registerClusterCommands(
                     clusterId = selectedCluster.clusterId;
                 }
 
+                if (!clusterId) {
+                    return;
+                }
+
                 const cluster = await runtime.clusterManager.getCluster(clusterId);
                 if (!cluster) {
                     vscode.window.showErrorMessage(t('clusterManager.notFound', { clusterId }));

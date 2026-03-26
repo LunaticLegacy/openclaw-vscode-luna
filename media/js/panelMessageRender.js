@@ -123,19 +123,27 @@
      * @returns {void}
      */
     function appendTraceMessage(msg) {
-        const container = getOrCreateTraceContainer(msg);
-        const body = container.querySelector('.trace-body');
-        if (!body) {
-            return;
-        }
-
         // 工具消息：查找对应的待处理工具卡片并替换
         if (msg.role === 'tool') {
             const toolContext = getToolResultContext(msg);
-            const pendingCard = findPendingToolCard(body, toolContext.toolCallId, toolContext.toolName);
+            const pendingCard = findPendingToolCard(elements.chatMessages, toolContext.toolCallId, toolContext.toolName);
             if (pendingCard) {
+                const startedAt = typeof pendingCard.dataset.toolStartedAt === 'string' ? pendingCard.dataset.toolStartedAt : '';
+                const startedAtMs = Date.parse(startedAt);
+                const completedAtMs = Date.parse(String(msg.timestamp || ''));
+                const resolvedMessage = Number.isFinite(startedAtMs) && Number.isFinite(completedAtMs) && completedAtMs >= startedAtMs
+                    ? {
+                        ...msg,
+                        metadata: {
+                            ...(msg.metadata || {}),
+                            toolStartedAt: startedAt,
+                            toolCompletedAt: msg.timestamp,
+                            toolDurationMs: completedAtMs - startedAtMs
+                        }
+                    }
+                    : msg;
                 const rendered = document.createElement('div');
-                rendered.innerHTML = renderToolMessage(msg, toolContext.parts).trim();
+                rendered.innerHTML = renderToolMessage(resolvedMessage, toolContext.parts).trim();
                 const nextCard = rendered.firstElementChild;
                 if (nextCard) {
                     pendingCard.replaceWith(nextCard);
@@ -145,6 +153,12 @@
                     return;
                 }
             }
+        }
+
+        const container = getOrCreateTraceContainer(msg);
+        const body = container.querySelector('.trace-body');
+        if (!body) {
+            return;
         }
 
         // 创建追踪段并添加到追踪体

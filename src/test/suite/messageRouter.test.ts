@@ -53,6 +53,36 @@ suite('messageRouter', () => {
             swarmRunId: 'run-11'
         }]);
     });
+
+    test('forwards hard refresh target details for cluster workspace', async () => {
+        const refreshCalls: any[] = [];
+        const context = createMessageRouterContext({
+            hardRefreshClusterWorkspace: async (options: any) => {
+                refreshCalls.push(options);
+            }
+        });
+
+        await handlePanelMessage(context as any, {
+            type: 'hardRefreshClusterWorkspace',
+            clusterId: 'cluster-9',
+            targetKind: 'agent',
+            agentId: 'beta',
+            agentViewMode: 'collaborate',
+            mode: 'collaborate',
+            outputMode: 'frontend',
+            swarmRunId: 'run-live'
+        });
+
+        assert.deepEqual(refreshCalls, [{
+            clusterId: 'cluster-9',
+            targetKind: 'agent',
+            mode: 'collaborate',
+            outputMode: 'frontend',
+            agentId: 'beta',
+            agentViewMode: 'collaborate',
+            swarmRunId: 'run-live'
+        }]);
+    });
 });
 
 function createMessageRouterContext(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -76,6 +106,7 @@ function createMessageRouterContext(overrides: Record<string, unknown> = {}): Re
         loadClusterSwarmMessages: noop,
         loadClusterAgentMessages: noop,
         loadClusterAgentSwarmMessages: noop,
+        hardRefreshClusterWorkspace: noop,
         exportClusterConversation: noop,
         exportClusterSwarm: noop,
         importClusterSwarm: noop,

@@ -3725,11 +3725,11 @@ function reconstructSwarmSessionMessagesFromHistory({
             continue;
         }
 
-        if (message.role !== 'assistant') {
+        if (message.role !== 'assistant' && message.role !== 'tool') {
             continue;
         }
 
-        if (!hasRenderableMessageBody(message)) {
+        if (!hasRenderableSwarmSessionMessage(message)) {
             continue;
         }
 
@@ -3963,12 +3963,35 @@ function hasRenderableMessageBody(message: ChatMessage): boolean {
             return Boolean(part.thinking?.trim());
         }
 
+        if (part.type === 'toolCall') {
+            return Boolean(String(part.name || '').trim() || String(part.id || '').trim());
+        }
+
         if (part.type === 'toolResult') {
-            return Boolean(part.result?.trim());
+            return Boolean(String(part.result || '').trim() || String(part.details || '').trim());
         }
 
         return false;
     });
+}
+
+function hasRenderableSwarmSessionMessage(message: ChatMessage): boolean {
+    if (hasRenderableMessageBody(message)) {
+        return true;
+    }
+
+    if (message.role === 'tool') {
+        return Boolean(
+            String(message.toolName || '').trim()
+            || String(message.toolCallId || '').trim()
+            || message.toolArguments !== undefined
+            || message.toolDetails !== undefined
+        );
+    }
+
+    return Array.isArray(message.parts) && message.parts.some((part: any) =>
+        part?.type === 'toolCall' || part?.type === 'toolResult'
+    );
 }
 
 /**

@@ -804,7 +804,9 @@
         elements.btnExportClusterReadableContext = document.getElementById('btn-export-cluster-readable-context');
         elements.btnExportClusterRawContext = document.getElementById('btn-export-cluster-raw-context');
         elements.btnExportClusterSwarm = document.getElementById('btn-export-cluster-swarm');
+        elements.btnRefreshClusterWorkspace = document.getElementById('btn-refresh-cluster-workspace');
         elements.btnImportClusterSwarm = document.getElementById('btn-import-cluster-swarm');
+        elements.btnImportClusterSwarmEmpty = document.getElementById('btn-import-cluster-swarm-empty');
         elements.btnImportClusterReplay = document.getElementById('btn-import-cluster-replay');
         elements.btnImportClusterReplayEmpty = document.getElementById('btn-import-cluster-replay-empty');
         elements.btnClearClusterReplay = document.getElementById('btn-clear-cluster-replay');
@@ -1321,7 +1323,15 @@
         elements.btnExportClusterSwarm?.addEventListener('click', () => {
             exportCurrentClusterSwarm();
         });
+        elements.btnRefreshClusterWorkspace?.addEventListener('click', () => {
+            if (typeof hardRefreshCurrentClusterWorkspace === 'function') {
+                hardRefreshCurrentClusterWorkspace();
+            }
+        });
         elements.btnImportClusterSwarm?.addEventListener('click', () => {
+            vscode.postMessage({ type: 'importClusterSwarm' });
+        });
+        elements.btnImportClusterSwarmEmpty?.addEventListener('click', () => {
             vscode.postMessage({ type: 'importClusterSwarm' });
         });
 

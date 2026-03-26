@@ -46,6 +46,15 @@ interface MessageRouterContext {
         mode: 'broadcast' | 'collaborate',
         swarmRunId?: string
     ): Promise<void>;
+    hardRefreshClusterWorkspace(options: {
+        clusterId: string;
+        targetKind?: 'swarm' | 'agent';
+        mode?: 'broadcast' | 'collaborate';
+        outputMode?: 'frontend' | 'raw';
+        agentId?: string;
+        agentViewMode?: 'chat' | 'broadcast' | 'collaborate';
+        swarmRunId?: string;
+    }): Promise<void>;
     exportClusterConversation(options: ClusterConversationExportOptions): Promise<void>;
     exportClusterSwarm(options: ClusterSwarmExportOptions): Promise<void>;
     importClusterSwarm(): Promise<void>;
@@ -170,6 +179,24 @@ export async function handlePanelMessage(context: MessageRouterContext, message:
                         : undefined
                 );
             }
+            break;
+
+        case 'hardRefreshClusterWorkspace':
+            await context.hardRefreshClusterWorkspace({
+                clusterId: message.clusterId,
+                targetKind: message.targetKind === 'agent' ? 'agent' : 'swarm',
+                mode: message.mode === 'collaborate' ? 'collaborate' : 'broadcast',
+                outputMode: message.outputMode === 'raw' ? 'raw' : 'frontend',
+                agentId: typeof message.agentId === 'string' ? message.agentId : undefined,
+                agentViewMode: message.agentViewMode === 'broadcast'
+                    ? 'broadcast'
+                    : message.agentViewMode === 'collaborate'
+                        ? 'collaborate'
+                        : 'chat',
+                swarmRunId: typeof message.swarmRunId === 'string' && message.swarmRunId.trim()
+                    ? message.swarmRunId.trim()
+                    : undefined
+            });
             break;
 
         case 'exportClusterConversation':

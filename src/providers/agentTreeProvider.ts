@@ -91,12 +91,12 @@ export class AgentTreeProvider implements vscode.TreeDataProvider<AgentTreeItem>
             return [];
         }
 
-        const sortedAgents = agents.sort((a: any, b: any) => {
-            const statusOrder = { active: 0, idle: 1, offline: 2 };
+        const sortedAgents = agents.sort((a: Agent, b: Agent) => {
+            const statusOrder: Record<Agent['status'], number> = { active: 0, idle: 1, offline: 2 };
             return statusOrder[a.status] - statusOrder[b.status];
         });
 
-        return sortedAgents.map((agent: any) =>
+        return sortedAgents.map((agent: Agent) =>
             new AgentTreeItem(agent, vscode.TreeItemCollapsibleState.None)
         );
     }
