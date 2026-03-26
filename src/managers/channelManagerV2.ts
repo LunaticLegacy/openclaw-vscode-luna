@@ -13,6 +13,7 @@ import type {
   ChannelType,
   ChannelSettings,
   LegacyChannelConfig,
+  DeleteChannelOptions,
 } from '../types/channel';
 
 /**
@@ -43,10 +44,10 @@ const CURRENT_VERSION = 2;
  * ```
  */
 export class ChannelManagerV2 extends EventEmitter {
-  private readonly storageFilePath: string;
-  private readonly channels: Map<string, ChannelConfig> = new Map();
-  private loaded = false;
-  private loadPromise: Promise<void> | null = null;
+  private readonly storageFilePath: string; // 持久化存储路径
+  private readonly channels: Map<string, ChannelConfig> = new Map(); // 频道缓存
+  private loaded = false; // 是否已加载持久化数据
+  private loadPromise: Promise<void> | undefined = undefined; // 加载中的 Promise
 
   /**
    * 创建 ChannelManagerV2 实例
@@ -68,8 +69,8 @@ export class ChannelManagerV2 extends EventEmitter {
   public async getChannels(refresh: boolean = false): Promise<ChannelConfig[]> {
     await this.ensureLoaded(refresh);
     return Array.from(this.channels.values())
-      .filter(c => !c.archivedAt)
-      .sort((a, b) => {
+      .filter((c: any) => !c.archivedAt)
+      .sort((a: any, b: any) => {
         // Sort by parent, then by order
         if (a.parentId !== b.parentId) {
           return (a.parentId || '').localeCompare(b.parentId || '');
@@ -82,11 +83,11 @@ export class ChannelManagerV2 extends EventEmitter {
    * 获取指定频道
    * 
    * @param channelId - 频道ID
-   * @returns 频道对象或 null
+   * @returns 频道对象或 undefined
    */
-  public async getChannel(channelId: string): Promise<ChannelConfig | null> {
+  public async getChannel(channelId: string): Promise<ChannelConfig | undefined> {
     await this.ensureLoaded();
-    return this.channels.get(channelId) || null;
+    return this.channels.get(channelId) || undefined;
   }
 
   /**
@@ -126,10 +127,10 @@ export class ChannelManagerV2 extends EventEmitter {
 
     // Sort children by order
     const sortChildren = (node: ChannelTreeNode) => {
-      node.children.sort((a, b) => a.order - b.order);
+      node.children.sort((a: any, b: any) => a.order - b.order);
       node.children.forEach(sortChildren);
     };
-    roots.sort((a, b) => a.order - b.order);
+    roots.sort((a: any, b: any) => a.order - b.order);
     roots.forEach(sortChildren);
 
     return { roots, all: allNodes };
@@ -157,7 +158,7 @@ export class ChannelManagerV2 extends EventEmitter {
 
     // Calculate order (append to end of siblings)
     const siblings = Array.from(this.channels.values())
-      .filter(c => c.parentId === parentId && !c.archivedAt);
+      .filter((c: any) => c.parentId === parentId && !c.archivedAt);
     const order = siblings.length;
 
     const channel: ChannelConfig = {
@@ -223,7 +224,7 @@ export class ChannelManagerV2 extends EventEmitter {
       if (oldParentId) {
         const oldParent = this.channels.get(oldParentId);
         if (oldParent) {
-          oldParent.childrenIds = oldParent.childrenIds.filter(id => id !== channelId);
+          oldParent.childrenIds = oldParent.childrenIds.filter((id: any) => id !== channelId);
           oldParent.updatedAt = now;
         }
       }
@@ -240,7 +241,7 @@ export class ChannelManagerV2 extends EventEmitter {
 
       // Recalculate order in new sibling group
       const siblings = Array.from(this.channels.values())
-        .filter(c => c.parentId === newParentId && c.id !== channelId && !c.archivedAt);
+        .filter((c: any) => c.parentId === newParentId && c.id !== channelId && !c.archivedAt);
       channel.order = params.order ?? siblings.length;
     } else if (params.order !== undefined && params.order !== channel.order) {
       channel.order = params.order;
@@ -314,10 +315,7 @@ export class ChannelManagerV2 extends EventEmitter {
    * @returns 删除的ID列表和移动的ID列表
    * @throws Error - 当频道不存在时抛出
    */
-  public async deleteChannel(channelId: string, options?: {
-    recursive?: boolean;
-    moveChildrenToParent?: boolean;
-  }): Promise<{ deletedIds: string[]; movedIds: string[] }> {
+  public async deleteChannel(channelId: string, options?: DeleteChannelOptions): Promise<{ deletedIds: string[]; movedIds: string[] }> {
     await this.ensureLoaded();
 
     const channel = this.channels.get(channelId);
@@ -348,7 +346,7 @@ export class ChannelManagerV2 extends EventEmitter {
         // Update grandparent's children
         const grandparent = this.channels.get(channel.parentId);
         if (grandparent) {
-          grandparent.childrenIds = grandparent.childrenIds.filter(id => id !== channelId);
+          grandparent.childrenIds = grandparent.childrenIds.filter((id: any) => id !== channelId);
           grandparent.childrenIds.push(...channel.childrenIds);
         }
       } else {
@@ -367,7 +365,7 @@ export class ChannelManagerV2 extends EventEmitter {
     if (channel.parentId) {
       const parent = this.channels.get(channel.parentId);
       if (parent) {
-        parent.childrenIds = parent.childrenIds.filter(id => id !== channelId);
+        parent.childrenIds = parent.childrenIds.filter((id: any) => id !== channelId);
       }
     }
 
@@ -429,7 +427,7 @@ export class ChannelManagerV2 extends EventEmitter {
    * @returns 更新后的频道
    */
   public async clearChannelSessionId(channelId: string): Promise<ChannelConfig> {
-    return this.updateChannel(channelId, { sessionId: null as unknown as string });
+    return this.updateChannel(channelId, { sessionId: undefined as unknown as string });
   }
 
   /**
@@ -515,11 +513,11 @@ export class ChannelManagerV2 extends EventEmitter {
     await this.ensureLoaded();
 
     const siblings = Array.from(this.channels.values())
-      .filter(c => c.parentId === parentId && !c.archivedAt)
-      .sort((a, b) => a.order - b.order);
+      .filter((c: any) => c.parentId === parentId && !c.archivedAt)
+      .sort((a: any, b: any) => a.order - b.order);
 
     const now = new Date().toISOString();
-    siblings.forEach((channel, index) => {
+    siblings.forEach((channel: any, index: any) => {
       if (channel.order !== index) {
         channel.order = index;
         channel.updatedAt = now;
@@ -576,7 +574,7 @@ export class ChannelManagerV2 extends EventEmitter {
     this.removeAllListeners();
     this.channels.clear();
     this.loaded = false;
-    this.loadPromise = null;
+    this.loadPromise = undefined;
   }
 
   // ===== Private Methods =====
@@ -604,7 +602,7 @@ export class ChannelManagerV2 extends EventEmitter {
     try {
       await this.loadPromise;
     } finally {
-      this.loadPromise = null;
+      this.loadPromise = undefined;
     }
   }
 
@@ -679,7 +677,7 @@ export class ChannelManagerV2 extends EventEmitter {
     };
 
     await fs.mkdir(path.dirname(this.storageFilePath), { recursive: true });
-    await fs.writeFile(this.storageFilePath, JSON.stringify(payload, null, 2), 'utf8');
+    await fs.writeFile(this.storageFilePath, JSON.stringify(payload, undefined, 2), 'utf8');
   }
 
   /**
@@ -786,7 +784,7 @@ function buildChannelId(name: string): string {
  * @param value - 输入值
  * @returns 规范化后的字符串或 undefined
  */
-function normalizeOptionalText(value: string | null | undefined): string | undefined {
+function normalizeOptionalText(value: string | undefined): string | undefined {
   const normalized = String(value || '').trim();
   return normalized ? normalized : undefined;
 }

@@ -7,7 +7,7 @@ import { isActiveActivityState } from '../../services/openclaw/openclawModeRunti
 import { OpenClawService } from '../../services/openclawService';
 
 function wait(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve: any) => setTimeout(resolve, ms));
 }
 
 suite('Status Indicators', () => {
@@ -116,6 +116,43 @@ suite('Status Indicators', () => {
 
             assert.equal(agentManager.endAgentRun(agent.id), true);
             assert.equal((await agentManager.getAgent(agent.id))?.status, 'active');
+            await wait(1300);
+            assert.equal((await agentManager.getAgent(agent.id))?.status, 'idle');
+        } finally {
+            agentManager.dispose();
+            service.dispose();
+        }
+    });
+
+    test('does not keep agents active forever when an idle update is missed', async () => {
+        const localConfig: LocalServiceConfig = {
+            mode: 'local',
+            providers: [{
+                id: 'fake-provider',
+                baseUrl: 'http://127.0.0.1:1',
+                api: 'openai-completions',
+                apiKey: 'test-key',
+                models: [{
+                    id: 'fake-model',
+                    name: 'Fake Model'
+                }]
+            }],
+            sourceDescription: 'status-missed-idle-test'
+        };
+        const service = new OpenClawService(localConfig);
+        const agentManager = new AgentManager(service);
+
+        try {
+            const [agent] = await agentManager.getAgents(true);
+            assert.ok(agent, 'Expected one local agent');
+            assert.equal(agent.status, 'idle');
+
+            (service as unknown as { emit(event: string, value: unknown): void }).emit('agentUpdated', {
+                ...agent,
+                status: 'active'
+            });
+            assert.equal((await agentManager.getAgent(agent.id))?.status, 'active');
+
             await wait(1300);
             assert.equal((await agentManager.getAgent(agent.id))?.status, 'idle');
         } finally {

@@ -5,6 +5,7 @@ import type { AgentManager } from '../../managers/agentManager';
 import { isDuplicateAgentNameError } from '../../managers/agentManager';
 import type { OpenClawBooleanCapabilityId, OpenClawService } from '../../services/openclawService';
 import type { MemoryService } from '../../services/memory';
+import type { AgentBatchCreateData } from '../../types/panel';
 import { getCapabilityUnavailableMessage } from '../../utils/capabilitySupport';
 import { runWithNotificationProgress, showSuccessStatus } from '../../utils/statusFeedback';
 
@@ -100,9 +101,9 @@ interface AgentActionContext {
     postMessage(message: Record<string, unknown>): void;
     ensureCapability(capabilityId: OpenClawBooleanCapabilityId): boolean;
     loadAgents(): Promise<void>;
-    getCurrentAgentId(): string | null;
-    setCurrentAgentId(agentId: string | null): void;
-    setCurrentSessionId(sessionId: string | null): void;
+    getCurrentAgentId(): string | undefined;
+    setCurrentAgentId(agentId: string | undefined): void;
+    setCurrentSessionId(sessionId: string | undefined): void;
 }
 
 /**
@@ -123,18 +124,18 @@ export async function handleCreateAgent(context: AgentActionContext, data: any):
  */
 export async function handleCreateAgentsBatch(
     context: AgentActionContext,
-    data: { agents?: Array<{ name?: string; model?: string; systemPrompt?: string; presetId?: string; enabledSkills?: string[] }> }
+    data: AgentBatchCreateData
 ): Promise<void> {
     const requestedAgents = Array.isArray(data?.agents) ? data.agents : [];
     const normalizedAgents = requestedAgents
-        .map(agent => ({
+        .map((agent: any) => ({
             name: typeof agent?.name === 'string' ? agent.name.trim() : '',
             model: typeof agent?.model === 'string' ? agent.model.trim() : '',
             systemPrompt: typeof agent?.systemPrompt === 'string' ? agent.systemPrompt.trim() : '',
             presetId: typeof agent?.presetId === 'string' ? agent.presetId.trim() : undefined,
             enabledSkills: Array.isArray(agent?.enabledSkills) ? agent.enabledSkills.filter(Boolean) : undefined
         }))
-        .filter(agent => agent.name && agent.model);
+        .filter((agent: any) => agent.name && agent.model);
 
     if (normalizedAgents.length === 0) {
         context.postMessage({
@@ -153,7 +154,7 @@ export async function handleCreateAgentsBatch(
             title: t('agentBatch.pending'),
             cancellable: false
         },
-        async progress => {
+        async (progress: any) => {
             for (let index = 0; index < normalizedAgents.length; index += 1) {
                 const agent = normalizedAgents[index];
                 progress.report({
@@ -209,10 +210,10 @@ export async function handleDeleteAgent(context: AgentActionContext, agentId: st
     try {
         await context.agentManager.deleteAgent(agentId);
         if (context.getCurrentAgentId() === agentId) {
-            context.setCurrentAgentId(null);
-            context.setCurrentSessionId(null);
+            context.setCurrentAgentId(undefined);
+            context.setCurrentSessionId(undefined);
             context.postMessage({ type: 'clearChat' });
-            context.postMessage({ type: 'setActiveAgent', agentId: null });
+            context.postMessage({ type: 'setActiveAgent', agentId: undefined });
         }
         await context.loadAgents();
         context.postMessage({
@@ -250,7 +251,7 @@ export async function promptDeleteAgentsBatch(context: AgentActionContext): Prom
     }
 
     const selections = await vscode.window.showQuickPick(
-        agents.map(agent => ({
+        agents.map((agent: any) => ({
             label: agent.name,
             description: agent.model,
             agentId: agent.id
@@ -281,7 +282,7 @@ export async function promptDeleteAgentsBatch(context: AgentActionContext): Prom
             title: t('agentBatch.deleting'),
             cancellable: false
         },
-        async progress => {
+        async (progress: any) => {
             for (let index = 0; index < selections.length; index += 1) {
                 const selection = selections[index];
                 progress.report({
@@ -291,8 +292,8 @@ export async function promptDeleteAgentsBatch(context: AgentActionContext): Prom
                 try {
                     await context.agentManager.deleteAgent(selection.agentId);
                     if (context.getCurrentAgentId() === selection.agentId) {
-                        context.setCurrentAgentId(null);
-                        context.setCurrentSessionId(null);
+                        context.setCurrentAgentId(undefined);
+                        context.setCurrentSessionId(undefined);
                     }
                 } catch (error) {
                     failures.push(`${selection.label}: ${String(error)}`);
@@ -301,9 +302,9 @@ export async function promptDeleteAgentsBatch(context: AgentActionContext): Prom
         }
     );
 
-    if (context.getCurrentAgentId() === null) {
+    if (context.getCurrentAgentId() === undefined) {
         context.postMessage({ type: 'clearChat' });
-        context.postMessage({ type: 'setActiveAgent', agentId: null });
+        context.postMessage({ type: 'setActiveAgent', agentId: undefined });
     }
 
     await context.loadAgents();

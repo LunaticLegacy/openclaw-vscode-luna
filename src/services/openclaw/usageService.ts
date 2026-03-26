@@ -10,6 +10,7 @@ import {
     LocalAgent,
     RealtimeUsageSnapshot
 } from './types';
+import type { UsageCurrencyHint } from '../../types/serviceParams';
 
 /**
  * Service for tracking local mode API usage statistics.
@@ -80,7 +81,7 @@ export class LocalUsageService {
      */
     public getRealtimeUsage(activeSessions: number): RealtimeUsageSnapshot {
         const now = Date.now();
-        this.requestTimestamps = this.requestTimestamps.filter(timestamp => now - timestamp < 60000);
+        this.requestTimestamps = this.requestTimestamps.filter((timestamp: any) => now - timestamp < 60000);
         return {
             activeSessions,
             requestsPerMinute: this.requestTimestamps.length,
@@ -131,7 +132,7 @@ export class LocalUsageService {
  * @param currency - Optional currency info
  * @returns The empty API usage object
  */
-export function createEmptyUsage(currency?: { code: string; symbol: string }): APIUsage {
+export function createEmptyUsage(currency?: UsageCurrencyHint): APIUsage {
     return {
         totalRequests: 0,
         totalTokens: 0,
@@ -180,7 +181,7 @@ export function cloneUsage(usage: APIUsage): APIUsage {
  */
 export function mapOpenClawUsage(
     sessionsUsage: OpenClawSessionsUsageResult,
-    usageCost: OpenClawUsageCostResult | null,
+    usageCost: OpenClawUsageCostResult | undefined,
     agentId?: string,
     modelHints: {
         sessionModels?: Map<string, string>;
@@ -188,9 +189,9 @@ export function mapOpenClawUsage(
         defaultModel?: string;
     } = {}
 ): APIUsage {
-    const sessions = (sessionsUsage.sessions || []).filter(session => !agentId || session.agentId === agentId);
+    const sessions = (sessionsUsage.sessions || []).filter((session: any) => !agentId || session.agentId === agentId);
     const currency = inferCurrencyFromHints(
-        sessions.flatMap(session => [session.modelProvider || '', session.model || ''])
+        sessions.flatMap((session: any) => [session.modelProvider || '', session.model || ''])
     );
     const usage = createEmptyUsage(currency);
     const fallbackWindowModel = resolveFallbackWindowModel(sessionsUsage, modelHints.defaultModel);
@@ -361,10 +362,10 @@ export function buildSessionModelHints(sessions: OpenClawSessionsListEntry[]): M
  */
 export function inferCurrencyFromHints(hints: string[]): { code: string; symbol: string } | undefined {
     const normalized = hints
-        .map(hint => hint.trim().toLowerCase())
+        .map((hint: any) => hint.trim().toLowerCase())
         .filter(Boolean);
 
-    if (normalized.length > 0 && normalized.every(hint => hint.includes('moonshot') || hint.includes('kimi'))) {
+    if (normalized.length > 0 && normalized.every((hint: any) => hint.includes('moonshot') || hint.includes('kimi'))) {
         return { code: 'CNY', symbol: '¥' };
     }
 
@@ -376,7 +377,7 @@ export function inferCurrencyFromHints(hints: string[]): { code: string; symbol:
  * @param values - Array of model name values
  * @returns Array of unique model names
  */
-export function uniqueModelNames(values: Array<string | undefined | null>): string[] {
+export function uniqueModelNames(values: Array<string | undefined>): string[] {
     const models: string[] = [];
     const seen = new Set<string>();
 
@@ -498,7 +499,7 @@ function collectKnownUsageModels(sessionsUsage: OpenClawSessionsUsageResult): st
  * @param value - The model name value
  * @returns The normalized model name or undefined
  */
-function normalizeUsageModelName(value: string | undefined | null): string | undefined {
+function normalizeUsageModelName(value: string | undefined): string | undefined {
     const normalized = value?.trim();
     if (!normalized) {
         return undefined;

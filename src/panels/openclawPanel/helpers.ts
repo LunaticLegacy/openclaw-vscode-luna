@@ -31,7 +31,7 @@ export function normalizeOutgoingMessageContent(content: string): string {
  * @returns The JSON stringified signature
  */
 export function buildMessageSyncSignature(messages: ChatMessage[]): string {
-    return JSON.stringify(messages.map(message => ({
+    return JSON.stringify(messages.map((message: any) => ({
         id: message.id,
         role: message.role,
         content: message.content,
@@ -52,7 +52,7 @@ export function buildMessageSyncSignature(messages: ChatMessage[]): string {
  * @returns A promise that resolves after the delay
  */
 export function delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve: any) => setTimeout(resolve, ms));
 }
 
 /**
@@ -94,7 +94,7 @@ export function mergePanelChannels(
         });
     }
 
-    return Array.from(merged.values()).sort((left, right) => {
+    return Array.from(merged.values()).sort((left: any, right: any) => {
         if ((left.source || 'local') !== (right.source || 'local')) {
             return left.source === 'local' ? -1 : 1;
         }

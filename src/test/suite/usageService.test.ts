@@ -54,7 +54,7 @@ suite('usageService', () => {
                     }
                 }
             ]
-        }, null);
+        }, undefined);
 
         assert.equal(usage.byChannel?.chat?.requests, 3);
         assert.equal(usage.byChannel?.chat?.tokens, 100);

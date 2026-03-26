@@ -44,7 +44,7 @@ export function registerClusterCommands(
                     }
 
                     const selectedCluster = await vscode.window.showQuickPick(
-                        clusters.map(cluster => ({
+                        clusters.map((cluster: any) => ({
                             label: cluster.name,
                             description: t('clusterTree.agentsCount', { count: cluster.agentIds.length }),
                             clusterId: cluster.id
@@ -59,6 +59,10 @@ export function registerClusterCommands(
                     }
 
                     clusterId = selectedCluster.clusterId;
+                }
+
+                if (!clusterId) {
+                    return;
                 }
 
                 const cluster = await runtime.clusterManager.getCluster(clusterId);

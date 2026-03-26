@@ -55,9 +55,9 @@ export class LocalModeRuntime {
 
     /**
      * Gets the preferred agent ID.
-     * @returns The first available agent ID or null
+     * @returns The first available agent ID or undefined
      */
-    public getPreferredAgentId(): Promise<string | null> {
+    public getPreferredAgentId(): Promise<string | undefined> {
         return Promise.resolve(this.repository.getPreferredAgentId());
     }
 
@@ -76,15 +76,15 @@ export class LocalModeRuntime {
      */
     public getAvailableModels(agents?: Agent[]): Promise<string[]> {
         const sourceAgents = agents || this.repository.getAgents();
-        return Promise.resolve(uniqueModelNames(sourceAgents.map(agent => agent.model)));
+        return Promise.resolve(uniqueModelNames(sourceAgents.map((agent: any) => agent.model)));
     }
 
     /**
      * Gets a specific agent by ID.
      * @param agentId - The agent ID to look up
-     * @returns The agent or null if not found
+     * @returns The agent or undefined if not found
      */
-    public getAgent(agentId: string): Promise<Agent | null> {
+    public getAgent(agentId: string): Promise<Agent | undefined> {
         return Promise.resolve(this.repository.getAgent(agentId));
     }
 
@@ -391,7 +391,7 @@ export class LocalModeRuntime {
     private initialize(): void {
         this.repository.initialize(this.config.providers);
         this.usageService.initialize(
-            this.repository.getAgents().map(agent => {
+            this.repository.getAgents().map((agent: any) => {
                 const localAgent = agent as LocalAgent;
                 return {
                     agentId: localAgent.id,
@@ -399,7 +399,7 @@ export class LocalModeRuntime {
                     model: localAgent.model
                 };
             }),
-            this.config.providers.flatMap(provider => [provider.id, ...provider.models.map(model => model.id)])
+            this.config.providers.flatMap((provider: any) => [provider.id, ...provider.models.map((model: any) => model.id)])
         );
     }
 

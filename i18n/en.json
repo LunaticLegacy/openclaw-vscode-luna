@@ -131,6 +131,7 @@
   "clusters.finalAnswer": "Final Answer",
   "clusters.coordinator": "Coordinator",
   "clusters.contributions": "Contributions",
+  "clusters.collaborateNoAgentOutput": "No collaborate output was captured for this agent in this run.",
   "clusters.debateRounds": "Debate Rounds",
   "clusters.debateRoundOpening": "Round 1 - Opening Positions",
   "clusters.debateRoundCritique1": "Round 2 - Peer Review",

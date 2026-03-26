@@ -52,10 +52,10 @@ suite('runtimeLogExport', () => {
 
             assert.equal(result.scannedRoot, root);
             assert.deepEqual(
-                result.files.map(entry => entry.path).sort(),
+                result.files.map((entry: any) => entry.path).sort(),
                 ['cron/jobs.json', 'logs/gateway.log', 'notes.txt']
             );
-            assert.equal(result.files.some(entry => entry.path.includes('/sessions/')), false);
+            assert.equal(result.files.some((entry: any) => entry.path.includes('/sessions/')), false);
         } finally {
             await fs.rm(root, { recursive: true, force: true });
         }

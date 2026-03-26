@@ -191,6 +191,14 @@
                                         <div class="form-group">
                                             <label for="connection-gateway-token" data-i18n="setup.gatewayTokenLabel">Gateway Token</label>
                                             <input type="password" id="connection-gateway-token" autocomplete="off" placeholder="Optional token">
+                                            <button
+                                                type="button"
+                                                class="secure-toggle-btn"
+                                                data-press-reveal="connection-gateway-token"
+                                                data-i18n-title="common.holdToReveal"
+                                                title="Hold to reveal"
+                                                aria-label="Hold to reveal"
+                                            >&#128065;</button>
                                         </div>
                                         <div id="connection-settings-hint" class="form-hint"></div>
                                         <div id="connection-settings-status" class="console-setup-status hidden"></div>
@@ -391,15 +399,15 @@
                         </div>
                     </div>
 
-                    <div id="chat-command-bar" class="chat-command-bar">
+                    <div id="chat-command-bar" class="chat-command-bar collapsed">
                         <button
                             id="btn-toggle-chat-command-bar"
                             class="chat-command-bar-toggle"
                             type="button"
-                            aria-expanded="true"
-                            title="Collapse chat toolbar"
+                            aria-expanded="false"
+                            title="Expand chat toolbar"
                         >
-                            <span id="chat-command-bar-toggle-icon" class="chat-command-bar-toggle-icon" aria-hidden="true">&#9660;</span>
+                            <span id="chat-command-bar-toggle-icon" class="chat-command-bar-toggle-icon" aria-hidden="true">&#9654;</span>
                             <span class="chat-command-bar-toggle-copy">
                                 <span class="chat-command-bar-title" data-i18n="chat.commandBar.title">Chat Toolbar</span>
                                 <span id="chat-command-bar-summary" class="chat-command-bar-summary">0 subagents · OpenClaw commands</span>
@@ -461,6 +469,7 @@
                         <h2 data-i18n="sidebar.clusters">Clusters</h2>
                         <p data-i18n="clusters.emptyWorkspace">Select or create a cluster to start a swarm conversation.</p>
                         <div class="empty-state-actions">
+                            <button id="btn-import-cluster-swarm-empty" class="btn btn-secondary" data-i18n="clusters.importSwarm">Import Swarm JSON</button>
                             <button id="btn-import-cluster-replay-empty" class="btn btn-secondary" data-i18n="clusters.importReplay">Import Replay JSON</button>
                             <button id="btn-create-cluster" class="btn btn-primary" data-i18n="clusters.create">Create Cluster</button>
                         </div>
@@ -515,6 +524,7 @@
                                     <div id="cluster-workmode-summary" class="cluster-workmode-summary"></div>
                                 </div>
                                 <div class="cluster-header-actions">
+                                    <button id="btn-refresh-cluster-workspace" class="btn btn-secondary" data-i18n="common.refresh">Refresh</button>
                                     <button id="btn-import-cluster-replay" class="btn btn-secondary" data-i18n="clusters.importReplay">Import Replay JSON</button>
                                     <button id="btn-export-cluster-readable-context" class="btn btn-secondary" data-i18n="clusters.exportReadableContext">Export Readable Context</button>
                                     <button id="btn-export-cluster-raw-context" class="btn btn-secondary" data-i18n="clusters.exportRawContext">Export Raw Context</button>

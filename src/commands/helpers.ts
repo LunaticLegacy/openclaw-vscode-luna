@@ -84,9 +84,9 @@ export function resolveTaskId(taskArg: any): string | undefined {
 
 /**
  * 选择 Agent 预设配置
- * @returns 选中的 Agent 预设配置，或 null/undefined（用户取消）
+ * @returns 选中的 Agent 预设配置，或 undefined/undefined（用户取消）
  */
-export async function pickAgentPreset(): Promise<AgentPresetOption | null | undefined> {
+export async function pickAgentPreset(): Promise<AgentPresetOption | undefined> {
     const items = [
         {
             label: t('newAgent.preset.custom'),
@@ -94,7 +94,7 @@ export async function pickAgentPreset(): Promise<AgentPresetOption | null | unde
             detail: t('newAgent.preset.hint'),
             presetId: CUSTOM_AGENT_PRESET_ID
         },
-        ...getAgentPresets().map(preset => ({
+        ...getAgentPresets().map((preset: any) => ({
             label: preset.label,
             description: preset.defaultName,
             detail: `${preset.description} ${t('newAgent.preset.recommendedModel')}: ${preset.recommendedModel}`,

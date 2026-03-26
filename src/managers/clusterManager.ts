@@ -30,14 +30,21 @@ export interface CreateClusterParams {
     workspaceConfig?: ClusterWorkspaceConfig;
 }
 
-function buildCancelledClusterResult(
-    agentId: string,
-    startedAtMs: number,
-    startedAt: string,
-    trace: ChatMessage[] = [],
-    deliveryId?: string,
-    failureClass?: FailureClass
-): ClusterBroadcastResult {
+function buildCancelledClusterResult({
+    agentId,
+    startedAtMs,
+    startedAt,
+    trace = [],
+    deliveryId,
+    failureClass
+}: {
+    agentId: string;
+    startedAtMs: number;
+    startedAt: string;
+    trace?: ChatMessage[];
+    deliveryId?: string;
+    failureClass?: FailureClass;
+}): ClusterBroadcastResult {
     return {
         agentId,
         ok: false,
@@ -46,7 +53,7 @@ function buildCancelledClusterResult(
         deliveryStatus: 'cancelled',
         failureClass,
         deliveryId,
-        timing: buildClusterResultTiming(startedAtMs, startedAt)
+        timing: buildClusterResultTiming({ startedAtMs, startedAt })
     };
 }
 
@@ -97,6 +104,69 @@ export interface BroadcastClusterOptions {
     swarmRunId?: string;
 }
 
+export interface UpdateClusterRequest extends UpdateClusterParams {
+    clusterId: string;
+}
+
+export interface BroadcastClusterRequest {
+    clusterId: string;
+    message: string;
+    options?: BroadcastClusterOptions;
+}
+
+export interface CollaborateClusterRequest {
+    clusterId: string;
+    message: string;
+    options?: CollaborateClusterOptions;
+}
+
+export interface ClusterAgentRequest {
+    clusterId: string;
+    agentId: string;
+}
+
+export interface ClusterAgentMessagesRequest extends ClusterAgentRequest {
+    messages: ChatMessage[];
+}
+
+export interface ClusterAgentSwarmRequest extends ClusterAgentRequest {
+    mode: 'broadcast' | 'collaborate';
+    swarmRunId?: string;
+    preferLiveState?: boolean;
+}
+
+export interface ClusterAgentSwarmMessagesRequest extends ClusterAgentSwarmRequest {
+    messages: ChatMessage[];
+}
+
+export interface ClusterSwarmRequest {
+    clusterId: string;
+    mode: 'broadcast' | 'collaborate';
+    swarmRunId?: string;
+    preferLiveState?: boolean;
+}
+
+export interface ClusterSwarmMessagesRequest extends ClusterSwarmRequest {
+    messages: ChatMessage[];
+}
+
+export interface ClusterSwarmRunSummary {
+    runId: string;
+    clusterId: string;
+    mode: SwarmMode;
+    status: SwarmRunState['status'];
+    phase: SwarmRunState['phase'];
+    currentRound: number;
+    startedAt?: string;
+    stoppedAt?: string;
+    isActive: boolean;
+}
+
+interface SwarmSessionConversationRequest extends ClusterSwarmRequest {
+    agentId?: string;
+    includeInputs?: boolean;
+}
+
 interface SwarmSendContext {
     swarmRunId: string;
     phase: string;
@@ -108,6 +178,157 @@ interface SwarmSendContext {
     groupCompletionPolicy?: 'all' | 'any';
     requiresDeliveryForProgress?: boolean;
     messageKind?: string;
+}
+
+interface SwarmSendOptions {
+    clusterId: string;
+    mode: 'broadcast' | 'collaborate';
+    swarmRunId?: string;
+    debateSessionIds?: Map<string, string>;
+    swarm?: SwarmSendContext;
+}
+
+interface SwarmSendResultOptions extends SwarmSendOptions {
+    onAgentResult?: (agentId: string, result: ClusterBroadcastResult) => Promise<void> | void;
+}
+
+interface SendMessageToAgentsRequest {
+    agentIds: string[];
+    message: string | ((agentId: string) => string | Promise<string>);
+    options: SwarmSendResultOptions;
+}
+
+interface SendHierarchicalMessagesRequest {
+    plan: SwarmActivationPlan;
+    message: (node: SwarmActivationNode, routing: SwarmRoutingContext) => string | Promise<string>;
+    options: SwarmSendResultOptions;
+}
+
+interface SendMessageToAgentRequest {
+    agentId: string;
+    message: string;
+    options: SwarmSendOptions;
+}
+
+interface EnsureDebateSessionRequest {
+    agentId: string;
+    debateSessionIds: Map<string, string>;
+    clusterId: string;
+    mode: 'broadcast' | 'collaborate';
+    swarmRunId?: string;
+}
+
+interface EnsureSwarmSessionRequest {
+    agentId: string;
+    clusterId: string;
+    mode: 'broadcast' | 'collaborate';
+    swarmRunId?: string;
+}
+
+interface BuildSwarmSessionKeyRequest {
+    clusterId: string;
+    mode: 'broadcast' | 'collaborate';
+    swarmRunId: string;
+    agentId: string;
+}
+
+interface BuildSwarmRunRegistryKeyRequest {
+    clusterId: string;
+    mode: SwarmMode;
+}
+
+interface RegisterSwarmRunRequest {
+    clusterId: string;
+    mode: SwarmMode;
+    swarmRunId: string;
+    coordinatorAgentId: string | undefined;
+}
+
+interface SetSwarmRunPhaseRequest {
+    swarmRunId: string;
+    phase: SwarmRunPhase;
+    currentRound: number;
+    coordinatorAgentId?: string;
+}
+
+interface RecordRoundSnapshotRequest {
+    swarmRunId: string;
+    round: number;
+    phase: 'opening' | 'critique' | 'revision';
+    entries: Record<string, ClusterBroadcastResult>;
+}
+
+interface ClusterAgentSwarmStorageKeyRequest {
+    clusterId: string;
+    agentId: string;
+    mode: SwarmMode;
+    swarmRunId: string;
+}
+
+interface AppendClusterAgentSwarmMessagesRequest {
+    clusterId: string;
+    agentId: string;
+    mode: SwarmMode;
+    messages: ChatMessage[];
+    swarmRunId?: string;
+}
+
+interface BuildClusterSwarmStorageKeyRequest {
+    clusterId: string;
+    mode: 'broadcast' | 'collaborate';
+    swarmRunId: string;
+}
+
+interface BuildClusterAgentSessionStorageKeyRequest {
+    clusterId: string;
+    agentId: string;
+}
+
+interface ReconcileClusterAgentSessionsRequest {
+    clusterId: string;
+    agentIds: string[];
+}
+
+interface SendMessageWithTraceRequest {
+    sessionId: string;
+    message: string;
+    timeoutMs: number;
+    delivery?: SwarmDeliveryContext;
+}
+
+interface BuildSynthesisPromptRequest {
+    cluster: AgentCluster;
+    userMessage: string;
+    workspaceConfig: ClusterWorkspaceConfig;
+    coordinatorAgentId: string;
+    successfulAgentIds: string[];
+    contributions: Record<string, ClusterBroadcastResult>;
+    rounds: ClusterCollaborationRound[];
+    stopConditionSummary?: string;
+}
+
+interface EvaluateStopConditionRequest {
+    cluster: AgentCluster;
+    userMessage: string;
+    workspaceConfig: ClusterWorkspaceConfig;
+    judgeAgentId: string;
+    successfulAgentIds: string[];
+    contributions: Record<string, ClusterBroadcastResult>;
+    rounds: ClusterCollaborationRound[];
+    swarmRunId: string;
+    reviewRound: number;
+    stopConditionSessionIds: Map<string, string>;
+}
+
+interface BuildStopConditionPromptRequest {
+    cluster: AgentCluster;
+    userMessage: string;
+    workspaceConfig: ClusterWorkspaceConfig;
+    judgeAgentId: string;
+    successfulAgentIds: string[];
+    contributions: Record<string, ClusterBroadcastResult>;
+    rounds: ClusterCollaborationRound[];
+    reviewRound: number;
 }
 
 /**
@@ -125,17 +346,17 @@ export type ClusterCollaborationProgressEvent =
     | {
         kind: 'synthesis';
         swarmRunId: string;
-        coordinatorAgentId: string | null;
-        entry: ClusterBroadcastResult | null;
+        coordinatorAgentId: string | undefined;
+        entry: ClusterBroadcastResult | undefined;
     };
 
 /**
  * 协作集群选项
  */
 export interface CollaborateClusterOptions {
-    coordinatorAgentId?: string;
-    onProgress?: (event: ClusterCollaborationProgressEvent) => Promise<void> | void;
-    swarmRunId?: string;
+    coordinatorAgentId?: string;        // 合作智能体ID
+    onProgress?: (event: ClusterCollaborationProgressEvent) => Promise<void> | void;    // 检查是否在过程中的函数？
+    swarmRunId?: string;                // 集群ID
 }
 
 /**
@@ -146,14 +367,17 @@ export type ClusterCollaborationRoundKind =
     | `critique-${number}`
     | `revision-${number}`;
 
+/**
+ * 集群轮次述符
+ */
 export interface ClusterCollaborationRoundDescriptor {
-    kind: ClusterCollaborationRoundKind;
-    phase: 'opening' | 'critique' | 'revision';
-    reviewRound: number;
-    phaseIndex: number;
-    displayOrder: number;
-    labelKey: string;
-    fallbackLabel: string;
+    kind: ClusterCollaborationRoundKind;            // 类型文本
+    phase: 'opening' | 'critique' | 'revision';     // 开幕，评审，或修正
+    reviewRound: number;                            // ？
+    phaseIndex: number;                             // ？
+    displayOrder: number;                           // ？
+    labelKey: string;                               // ？
+    fallbackLabel: string;                          // ？
 }
 
 /**
@@ -173,10 +397,10 @@ export interface ClusterCollaborationResult {
     clusterId: string;
     clusterName: string;
     userMessage: string;
-    coordinatorAgentId: string | null;
+    coordinatorAgentId: string | undefined;
     rounds: ClusterCollaborationRound[];
     contributions: Record<string, ClusterBroadcastResult>;
-    synthesis: ClusterBroadcastResult | null;
+    synthesis: ClusterBroadcastResult | undefined;
 }
 
 /**
@@ -210,7 +434,7 @@ interface PersistedClustersFile {
  */
 interface SwarmActivationNode {
     agentId: string;
-    parentAgentId: string | null;
+    parentAgentId: string | undefined;
     depth: number;
     children: SwarmActivationNode[];
 }
@@ -228,23 +452,113 @@ interface SwarmActivationPlan {
  */
 interface SwarmRoutingContext {
     ancestorAgentIds: string[];
-    parentNode: SwarmActivationNode | null;
-    parentResult: ClusterBroadcastResult | null;
+    parentNode: SwarmActivationNode | undefined;
+    parentResult: ClusterBroadcastResult | undefined;
 }
 
 /**
  * 集群停止条件评估
  */
 interface ClusterStopConditionEvaluation {
-    shouldStop: boolean;
-    judgeAgentId: string | null;
-    reviewRound: number;
-    reason: string;
-    safetyCapReached?: boolean;
+    shouldStop: boolean;            // 是否应结束
+    judgeAgentId: string | undefined;    // 评价结束原因的智能体是谁？
+    reviewRound: number;            // 当前review轮次
+    reason: string;                 // 结束原因
+    safetyCapReached?: boolean;     //是否已达到安全线？（存疑）
 }
 
-const CLUSTER_AGENT_RESPONSE_TIMEOUT_MS = 45000;
-const MAX_UNLIMITED_CLUSTER_REVIEW_ROUNDS = 48;
+interface CollaborationContext {
+    cluster: AgentCluster;
+    workspaceConfig: ClusterWorkspaceConfig;
+    activationPlan: SwarmActivationPlan;
+    initialParticipantAgentIds: string[];
+    coordinatorAgentId: string | undefined;
+    swarmRunId: string;
+}
+
+interface RunOpeningRoundParams {
+    cluster: AgentCluster;
+    message: string;
+    workspaceConfig: ClusterWorkspaceConfig;
+    activationPlan: SwarmActivationPlan;
+    swarmRunId: string;
+    coordinatorAgentId?: string;
+    debateSessionIds: Map<string, string>;
+    onProgress?: (event: ClusterCollaborationProgressEvent) => Promise<void> | void;
+}
+
+interface RunUnlimitedDebateRoundsParams {
+    cluster: AgentCluster;
+    message: string;
+    workspaceConfig: ClusterWorkspaceConfig;
+    initialParticipantAgentIds: string[];
+    successfulAgentIds: string[];
+    latestUsableContributions: Record<string, ClusterBroadcastResult>;
+    coordinatorAgentId?: string;
+    swarmRunId: string;
+    debateSessionIds: Map<string, string>;
+    rounds: ClusterCollaborationRound[];
+    requestedCoordinatorAgentId?: string;
+    onProgress?: (event: ClusterCollaborationProgressEvent) => Promise<void> | void;
+}
+
+interface RunFixedDebateRoundsParams {
+    cluster: AgentCluster;
+    message: string;
+    workspaceConfig: ClusterWorkspaceConfig;
+    initialParticipantAgentIds: string[];
+    successfulAgentIds: string[];
+    latestUsableContributions: Record<string, ClusterBroadcastResult>;
+    coordinatorAgentId?: string;
+    swarmRunId: string;
+    debateSessionIds: Map<string, string>;
+    rounds: ClusterCollaborationRound[];
+    onProgress?: (event: ClusterCollaborationProgressEvent) => Promise<void> | void;
+}
+
+interface RunCritiqueRoundParams {
+    cluster: AgentCluster;
+    message: string;
+    workspaceConfig: ClusterWorkspaceConfig;
+    debateRound: ReturnType<typeof buildCollaborationDebateRound>;
+    successfulAgentIds: string[];
+    latestUsableContributions: Record<string, ClusterBroadcastResult>;
+    coordinatorAgentId?: string;
+    swarmRunId: string;
+    debateSessionIds: Map<string, string>;
+    onProgress?: (event: ClusterCollaborationProgressEvent) => Promise<void> | void;
+}
+
+interface RunRevisionRoundParams {
+    cluster: AgentCluster;
+    message: string;
+    workspaceConfig: ClusterWorkspaceConfig;
+    debateRound: ReturnType<typeof buildCollaborationDebateRound>;
+    successfulAgentIds: string[];
+    latestUsableContributions: Record<string, ClusterBroadcastResult>;
+    critiqueEntries: Record<string, ClusterBroadcastResult>;
+    coordinatorAgentId?: string;
+    swarmRunId: string;
+    debateSessionIds: Map<string, string>;
+    onProgress?: (event: ClusterCollaborationProgressEvent) => Promise<void> | void;
+}
+
+interface RunSynthesisIfNeededParams {
+    cluster: AgentCluster;
+    message: string;
+    workspaceConfig: ClusterWorkspaceConfig;
+    coordinatorAgentId?: string;
+    successfulAgentIds: string[];
+    latestUsableContributions: Record<string, ClusterBroadcastResult>;
+    rounds: ClusterCollaborationRound[];
+    swarmRunId: string;
+    debateSessionIds: Map<string, string>;
+    lastStopConditionEvaluation?: ClusterStopConditionEvaluation;
+    onProgress?: (event: ClusterCollaborationProgressEvent) => Promise<void> | void;
+}
+
+const CLUSTER_AGENT_RESPONSE_TIMEOUT_MS = 180000;
+const MAX_UNLIMITED_CLUSTER_REVIEW_ROUNDS = 10000;      // 我真不相信还有10000轮迭代也解决不动的问题（汗）
 
 /**
  * 集群管理器，负责管理智能体集群的创建、广播、协作和状态持久化
@@ -257,24 +571,24 @@ const MAX_UNLIMITED_CLUSTER_REVIEW_ROUNDS = 48;
  * ```typescript
  * const manager = new ClusterManager(service, storageFilePath);
  * const cluster = await manager.createCluster({ name: 'Dev Team', agentIds: ['agent-1', 'agent-2'] });
- * const results = await manager.broadcastToCluster(cluster.id, 'Hello team!');
+ * const results = await manager.broadcastToCluster({ clusterId: cluster.id, message: 'Hello team!' });
  * ```
  */
 export class ClusterManager extends EventEmitter {
-    private service: OpenClawService;
-    private clusters: Map<string, AgentCluster> = new Map();
-    private workspaceConfigs: Map<string, ClusterWorkspaceConfig> = new Map();
-    private clusterAgentSessionIds: Map<string, string> = new Map();
-    private clusterAgentMessages: Map<string, ChatMessage[]> = new Map();
-    private clusterAgentSwarmMessages: Map<string, ChatMessage[]> = new Map();
-    private clusterSwarmMessages: Map<string, ChatMessage[]> = new Map();
-    private storageFilePath: string;
-    private persistedStateLoaded = false;
-    private persistedStateLoadPromise: Promise<void> | null = null;
-    private swarmSessionIds: Map<string, string> = new Map();
-    private activeSwarmRunsByKey: Map<string, string> = new Map();
-    private latestSwarmRunsByKey: Map<string, string> = new Map();
-    private swarmRunStates: Map<string, SwarmRunState> = new Map();
+    private service: OpenClawService;                                                   // 服务本身
+    private clusters: Map<string, AgentCluster> = new Map();                            // 集群列表
+    private workspaceConfigs: Map<string, ClusterWorkspaceConfig> = new Map();          // 工作空间配置列表
+    private clusterAgentSessionIds: Map<string, string> = new Map();                    // 集群智能体会话id
+    private clusterAgentMessages: Map<string, ChatMessage[]> = new Map();               // 集群智能体消息
+    private clusterAgentSwarmMessages: Map<string, ChatMessage[]> = new Map();          // 集群智能体群消息
+    private clusterSwarmMessages: Map<string, ChatMessage[]> = new Map();               // 集群消息
+    private storageFilePath: string;                                                    // 存储文件地址
+    private persistedStateLoaded = false;                                               // 持久化
+    private persistedStateLoadPromise: Promise<void> | undefined = undefined;                     // async持久化
+    private swarmSessionIds: Map<string, string> = new Map();                           // swarm
+    private activeSwarmRunsByKey: Map<string, string> = new Map();                      // 所有
+    private latestSwarmRunsByKey: Map<string, string> = new Map();                      // 最后一次swarm运行？？
+    private swarmRunStates: Map<string, SwarmRunState> = new Map();                     // swarm运行状态
 
     /**
      * 创建 ClusterManager 实例
@@ -301,6 +615,8 @@ export class ClusterManager extends EventEmitter {
      * 设置服务事件监听器
      */
     private setupListeners() {
+        // 绑定集群创建事件。
+        // 对于每一个事件，如果不支持远程集群则直接退。
         this.service.on('clusterCreated', (cluster: AgentCluster) => {
             if (!this.service.supportsRemoteClusters()) {
                 return;
@@ -328,7 +644,7 @@ export class ClusterManager extends EventEmitter {
             this.emit('clusterDeleted', clusterId);
         });
 
-        this.service.on('deliveryEvent', event => {
+        this.service.on('deliveryEvent', (event: any) => {
             if (event?.entry?.swarm?.clusterId) {
                 this.emit('deliveryEvent', event);
             }
@@ -348,21 +664,21 @@ export class ClusterManager extends EventEmitter {
             if (refresh || this.clusters.size === 0) {
                 const clusters = await this.service.getClusters();
                 this.clusters.clear();
-                clusters.forEach(cluster => this.clusters.set(cluster.id, this.applyWorkspaceConfig(cluster)));
+                clusters.forEach((cluster: any) => this.clusters.set(cluster.id, this.applyWorkspaceConfig(cluster)));
             }
-            return Array.from(this.clusters.values()).map(cluster => this.applyWorkspaceConfig(cluster));
+            return Array.from(this.clusters.values()).map((cluster: any) => this.applyWorkspaceConfig(cluster));
         }
 
-        return Array.from(this.clusters.values()).map(cluster => this.applyWorkspaceConfig(cluster));
+        return Array.from(this.clusters.values()).map((cluster: any) => this.applyWorkspaceConfig(cluster));
     }
 
     /**
      * 获取指定集群
      * 
      * @param clusterId - 集群ID
-     * @returns 集群对象或 null
+     * @returns 集群对象或 undefined
      */
-    public async getCluster(clusterId: string): Promise<AgentCluster | null> {
+    public async getCluster(clusterId: string): Promise<AgentCluster | undefined> {
         await this.ensurePersistedStateLoaded();
 
         if (this.service.supportsRemoteClusters()) {
@@ -374,11 +690,11 @@ export class ClusterManager extends EventEmitter {
             if (cluster) {
                 this.clusters.set(clusterId, this.applyWorkspaceConfig(cluster));
             }
-            return cluster ? this.applyWorkspaceConfig(cluster) : null;
+            return cluster ? this.applyWorkspaceConfig(cluster) : undefined;
         }
 
-        const cluster = this.clusters.get(clusterId) || null;
-        return cluster ? this.applyWorkspaceConfig(cluster) : null;
+        const cluster = this.clusters.get(clusterId) || undefined;
+        return cluster ? this.applyWorkspaceConfig(cluster) : undefined;
     }
 
     /**
@@ -400,7 +716,7 @@ export class ClusterManager extends EventEmitter {
             await this.persistState();
             const resolvedCluster = this.applyWorkspaceConfig(cluster);
             this.clusters.set(cluster.id, resolvedCluster);
-            this.reconcileClusterAgentSessions(cluster.id, resolvedCluster.agentIds);
+            this.reconcileClusterAgentSessions({ clusterId: cluster.id, agentIds: resolvedCluster.agentIds });
             return resolvedCluster;
         }
 
@@ -415,21 +731,21 @@ export class ClusterManager extends EventEmitter {
 
         const resolvedCluster = this.applyWorkspaceConfig(cluster);
         this.clusters.set(cluster.id, resolvedCluster);
-        this.reconcileClusterAgentSessions(cluster.id, resolvedCluster.agentIds);
+        this.reconcileClusterAgentSessions({ clusterId: cluster.id, agentIds: resolvedCluster.agentIds });
         await this.persistState();
         this.emit('clusterCreated', resolvedCluster);
         return resolvedCluster;
     }
 
     /**
-     * 更新集群
+     * 更新集群（列表？）
      * 
      * @param clusterId - 集群ID
      * @param params - 更新参数
      * @returns 更新后的集群
      * @throws Error - 当集群不存在时抛出
      */
-    public async updateCluster(clusterId: string, params: UpdateClusterParams): Promise<AgentCluster> {
+    public async updateCluster({ clusterId, ...params }: UpdateClusterRequest): Promise<AgentCluster> {
         if (this.service.supportsRemoteClusters()) {
             const cluster = await this.service.updateCluster(clusterId, {
                 name: params.name,
@@ -444,7 +760,7 @@ export class ClusterManager extends EventEmitter {
                 ...(params.status !== undefined ? { status: params.status } : {})
             });
             this.clusters.set(clusterId, resolvedCluster);
-            this.reconcileClusterAgentSessions(clusterId, resolvedCluster.agentIds);
+            this.reconcileClusterAgentSessions({ clusterId, agentIds: resolvedCluster.agentIds });
             return resolvedCluster;
         }
 
@@ -466,7 +782,7 @@ export class ClusterManager extends EventEmitter {
         // i should update workspace config
         const resolvedCluster = this.applyWorkspaceConfig(updatedCluster);
         this.clusters.set(clusterId, updatedCluster);
-        this.reconcileClusterAgentSessions(clusterId, resolvedCluster.agentIds);
+        this.reconcileClusterAgentSessions({ clusterId, agentIds: resolvedCluster.agentIds });
         await this.persistState();
         this.emit('clusterUpdated', updatedCluster);
         return updatedCluster;
@@ -515,15 +831,16 @@ export class ClusterManager extends EventEmitter {
      * @returns 各智能体的响应结果
      * @throws Error - 当集群不存在或没有可用智能体时抛出
      */
-    public async broadcastToCluster(
-        clusterId: string,
-        message: string,
-        options: BroadcastClusterOptions = {}
-    ): Promise<Record<string, ClusterBroadcastResult>> {
+    public async broadcastToCluster({
+        clusterId,
+        message,
+        options = {}
+    }: BroadcastClusterRequest): Promise<Record<string, ClusterBroadcastResult>> {
         if (this.service.supportsRemoteClusters()) {
+            // 在支持远程集群的情况下，发送到集群
             const responses = await this.service.sendToCluster(clusterId, message);
             return Object.fromEntries(
-                Object.entries(responses).map(([agentId, response]) => [
+                Object.entries(responses).map(([agentId, response]: any) => [
                     agentId,
                     {
                         agentId,
@@ -534,56 +851,71 @@ export class ClusterManager extends EventEmitter {
             );
         }
 
+        // 获得集群
         const cluster = await this.getCluster(clusterId);
         if (!cluster) {
             throw new Error(t('clusterManager.notFound', { clusterId }));
         }
 
-        const activationPlan = resolveSwarmActivationPlan(
-            cluster.agentIds,
-            workspaceConfigOrDefault(cluster.workspaceConfig),
-            'broadcast',
-            message
-        );
+        // 激活方式是什么？
+        const activationPlan = resolveSwarmActivationPlan({
+            agentIds: cluster.agentIds,
+            workspaceConfig: workspaceConfigOrDefault(cluster.workspaceConfig),
+            mode: 'broadcast',
+            userMessage: message
+        });
         if (activationPlan.orderedAgentIds.length === 0) {
             throw new Error(t('clusterManager.noEligibleAgents'));
         }
 
-        const swarmRunId = options.swarmRunId || buildSwarmRunId(cluster.id, 'broadcast');
-        this.registerSwarmRun(cluster.id, 'broadcast', swarmRunId, null);
+        const swarmRunId = options.swarmRunId || buildSwarmRunId({ clusterId: cluster.id, mode: 'broadcast' });
+        this.registerSwarmRun({
+            clusterId: cluster.id,
+            mode: 'broadcast',
+            swarmRunId,
+            coordinatorAgentId: undefined
+        });
         await this.persistState();
 
         try {
-            this.setSwarmRunPhase(swarmRunId, 'broadcast', 1);
-            const broadcastGroupId = buildSwarmTransactionGroupId(swarmRunId, 'broadcast');
-            const results = await this.sendHierarchicalMessages(
-                activationPlan,
-                async (node, routing) => routing.parentNode
-                    ? buildDelegatedBroadcastPrompt(cluster.name, message, {
-                        delegatedByAgentId: routing.parentNode.agentId,
-                        routeAgentIds: [...routing.ancestorAgentIds, routing.parentNode.agentId],
-                        parentContext: extractSwarmResultContext(routing.parentResult)
+            this.setSwarmRunPhase({
+                swarmRunId,
+                phase: 'broadcast',
+                currentRound: 1
+            });
+            const broadcastGroupId = buildSwarmTransactionGroupId({ swarmRunId, phase: 'broadcast' });
+            const results = await this.sendHierarchicalMessages({
+                plan: activationPlan,
+                message: async (node: any, routing: any) => routing.parentNode
+                    ? buildDelegatedBroadcastPrompt({
+                        clusterName: cluster.name,
+                        message,
+                        delegatedContext: {
+                            delegatedByAgentId: routing.parentNode.agentId,
+                            routeAgentIds: [...routing.ancestorAgentIds, routing.parentNode.agentId],
+                            parentContext: extractSwarmResultContext({ result: routing.parentResult })
+                        }
                     })
                     : message,
-                {
-                clusterId,
-                mode: 'broadcast',
-                swarm: {
-                    swarmRunId,
-                    phase: 'broadcast',
-                    round: 1,
-                    transactionGroupId: broadcastGroupId,
-                    expectedGroupSize: activationPlan.orderedAgentIds.length,
-                    groupCompletionPolicy: 'all',
-                    requiresDeliveryForProgress: true,
-                    messageKind: 'broadcast'
-                },
-                onAgentResult: options.onAgentResult
+                options: {
+                    clusterId,
+                    mode: 'broadcast',
+                    swarm: {
+                        swarmRunId,
+                        phase: 'broadcast',
+                        round: 1,
+                        transactionGroupId: broadcastGroupId,
+                        expectedGroupSize: activationPlan.orderedAgentIds.length,
+                        groupCompletionPolicy: 'all',
+                        requiresDeliveryForProgress: true,
+                        messageKind: 'broadcast'
+                    },
+                    onAgentResult: options.onAgentResult
                 }
-            );
+            });
 
             if (this.isSwarmRunActive(swarmRunId)) {
-                await this.updateCluster(clusterId, { status: 'active' });
+                await this.updateCluster({ clusterId, status: 'active' });
             }
             return results;
         } finally {
@@ -601,388 +933,113 @@ export class ClusterManager extends EventEmitter {
      * @returns 协作结果
      * @throws Error - 当集群不存在或没有可用智能体时抛出
      */
-    public async collaborateOnCluster(
-        clusterId: string,
-        message: string,
-        options: CollaborateClusterOptions = {}
-    ): Promise<ClusterCollaborationResult> {
-        const cluster = await this.getCluster(clusterId);
-        if (!cluster) {
-            throw new Error(t('clusterManager.notFound', { clusterId }));
-        }
-        const workspaceConfig = normalizeClusterWorkspaceConfig(cluster.workspaceConfig);
-        const activationPlan = resolveSwarmActivationPlan(
-            cluster.agentIds,
+    public async collaborateOnCluster({
+        clusterId,
+        message,
+        options = {}
+    }: CollaborateClusterRequest): Promise<ClusterCollaborationResult> {
+        const {
+            cluster,
             workspaceConfig,
-            'collaborate',
-            message
-        );
-        if (activationPlan.orderedAgentIds.length === 0) {
-            throw new Error(t('clusterManager.noEligibleAgents'));
-        }
-        const initialParticipantAgentIds = [...activationPlan.orderedAgentIds];
-        const coordinatorAgentId = resolveCoordinatorAgentId(
-            cluster.agentIds,
+            activationPlan,
             initialParticipantAgentIds,
-            workspaceConfig.coordinatorAgentId,
-            options.coordinatorAgentId
-        );
-        const swarmRunId = options.swarmRunId || buildSwarmRunId(cluster.id, 'collaborate');
-        this.registerSwarmRun(cluster.id, 'collaborate', swarmRunId, coordinatorAgentId);
-        await this.persistState();
+            coordinatorAgentId,
+            swarmRunId
+        } = await this.prepareCollaborationContext({ clusterId, message, options });
 
+        // 保存一个ID内容，以及轮次内容。
         const debateSessionIds = new Map<string, string>();
         const rounds: ClusterCollaborationRound[] = [];
 
+        // try
         try {
-            this.setSwarmRunPhase(swarmRunId, 'opening', 1, coordinatorAgentId);
-            const openingGroupId = buildSwarmTransactionGroupId(swarmRunId, 'opening');
-            const openingDescriptor = buildCollaborationRoundDescriptor('opening');
-            const openingEntries = await this.sendHierarchicalMessages(
+            // 开门红，在推完开幕之后进入正式的讨论。
+            const { descriptor: openingDescriptor, entries: openingEntries } = await this.runOpeningRound({
+                cluster,
+                message,
+                workspaceConfig,
                 activationPlan,
-                async (node, routing) => buildOpeningContributionPrompt(
-                    cluster.name,
-                    message,
-                    workspaceConfig,
-                    node.agentId,
-                    routing.parentNode
-                        ? {
-                            delegatedByAgentId: routing.parentNode.agentId,
-                            routeAgentIds: [...routing.ancestorAgentIds, routing.parentNode.agentId],
-                            parentContext: extractSwarmResultContext(routing.parentResult)
-                        }
-                        : undefined
-                ),
-                {
-                clusterId: cluster.id,
-                mode: 'collaborate',
-                debateSessionIds,
                 swarmRunId,
-                swarm: {
-                    swarmRunId,
-                    phase: 'opening',
-                    round: 1,
-                    transactionGroupId: openingGroupId,
-                    expectedGroupSize: activationPlan.orderedAgentIds.length,
-                    groupCompletionPolicy: 'all',
-                    requiresDeliveryForProgress: true,
-                    messageKind: 'opening'
-                },
-                onAgentResult: (agentId, entry) => options.onProgress?.({
-                    kind: 'round-entry',
-                    swarmRunId,
-                    roundKind: 'opening',
-                    round: openingDescriptor,
-                    agentId,
-                    entry
-                })
-                }
-            );
+                coordinatorAgentId,
+                debateSessionIds,
+                onProgress: options.onProgress
+            });
+            // 推入新的轮次内容
             rounds.push({
                 kind: 'opening',
                 descriptor: openingDescriptor,
                 entries: openingEntries
             });
-            this.recordRoundSnapshot(swarmRunId, 1, 'opening', openingEntries);
+            this.recordRoundSnapshot({
+                swarmRunId,
+                round: 1,
+                phase: 'opening',
+                entries: openingEntries
+            });
 
             let latestUsableContributions = openingEntries;
-            let successfulAgentIds = getSuccessfulAgentIds(initialParticipantAgentIds, latestUsableContributions);
+            let successfulAgentIds = getSuccessfulAgentIds({
+                agentIds: initialParticipantAgentIds,
+                entries: latestUsableContributions
+            });
+            
+            // 判断是否进入无限轮回，并通过通用接口解析结束条件
             const runUntilConditionMet = Boolean(workspaceConfig.runUntilConditionMet && workspaceConfig.stopCondition?.trim());
-            let lastStopConditionEvaluation: ClusterStopConditionEvaluation | null = null;
+            let lastStopConditionEvaluation: ClusterStopConditionEvaluation | undefined = undefined;
 
             if (runUntilConditionMet) {
-                const stopConditionSessionIds = new Map<string, string>();
-                for (let reviewRound = 1; reviewRound <= MAX_UNLIMITED_CLUSTER_REVIEW_ROUNDS; reviewRound += 1) {
-                    if (!this.isSwarmRunActive(swarmRunId) || successfulAgentIds.length === 0) {
-                        break;
-                    }
-
-                    const debateRound = buildCollaborationDebateRound(reviewRound);
-                    const critiqueDescriptor = buildCollaborationRoundDescriptor(debateRound.critiqueKind);
-                    this.setSwarmRunPhase(swarmRunId, 'critique', reviewRound, coordinatorAgentId);
-                    const critiqueGroupId = buildSwarmTransactionGroupId(swarmRunId, debateRound.critiqueKind);
-                    const critiqueEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildPeerReviewPrompt(
-                        cluster.name,
-                        message,
-                        workspaceConfig,
-                        agentId,
-                        successfulAgentIds,
-                        latestUsableContributions,
-                        debateRound.reviewRound
-                    ), {
-                        clusterId: cluster.id,
-                        mode: 'collaborate',
-                        debateSessionIds,
-                        swarmRunId,
-                        swarm: {
-                            swarmRunId,
-                            phase: debateRound.critiqueKind,
-                            round: debateRound.reviewRound,
-                            transactionGroupId: critiqueGroupId,
-                            expectedGroupSize: successfulAgentIds.length,
-                            groupCompletionPolicy: 'all',
-                            requiresDeliveryForProgress: true,
-                            messageKind: 'critique'
-                        },
-                        onAgentResult: (agentId, entry) => options.onProgress?.({
-                            kind: 'round-entry',
-                            swarmRunId,
-                            roundKind: debateRound.critiqueKind,
-                            round: critiqueDescriptor,
-                            agentId,
-                            entry
-                        })
-                    });
-                    rounds.push({
-                        kind: debateRound.critiqueKind,
-                        descriptor: critiqueDescriptor,
-                        entries: critiqueEntries
-                    });
-                    this.recordRoundSnapshot(swarmRunId, debateRound.reviewRound, 'critique', critiqueEntries);
-
-                    if (!this.isSwarmRunActive(swarmRunId)) {
-                        break;
-                    }
-
-                    this.setSwarmRunPhase(swarmRunId, 'revision', reviewRound, coordinatorAgentId);
-                    const revisionGroupId = buildSwarmTransactionGroupId(swarmRunId, debateRound.revisionKind);
-                    const revisionDescriptor = buildCollaborationRoundDescriptor(debateRound.revisionKind);
-                    const revisionEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildRevisionPrompt(
-                        cluster.name,
-                        message,
-                        workspaceConfig,
-                        agentId,
-                        successfulAgentIds,
-                        latestUsableContributions,
-                        critiqueEntries,
-                        debateRound.reviewRound
-                    ), {
-                        clusterId: cluster.id,
-                        mode: 'collaborate',
-                        debateSessionIds,
-                        swarmRunId,
-                        swarm: {
-                            swarmRunId,
-                            phase: debateRound.revisionKind,
-                            round: debateRound.reviewRound,
-                            transactionGroupId: revisionGroupId,
-                            expectedGroupSize: successfulAgentIds.length,
-                            groupCompletionPolicy: 'all',
-                            requiresDeliveryForProgress: true,
-                            messageKind: 'revision'
-                        },
-                        onAgentResult: (agentId, entry) => options.onProgress?.({
-                            kind: 'round-entry',
-                            swarmRunId,
-                            roundKind: debateRound.revisionKind,
-                            round: revisionDescriptor,
-                            agentId,
-                            entry
-                        })
-                    });
-                    rounds.push({
-                        kind: debateRound.revisionKind,
-                        descriptor: revisionDescriptor,
-                        entries: revisionEntries
-                    });
-                    this.recordRoundSnapshot(swarmRunId, debateRound.reviewRound, 'revision', revisionEntries);
-
-                    latestUsableContributions = mergeLatestSuccessfulEntries(
-                        initialParticipantAgentIds,
-                        revisionEntries,
-                        latestUsableContributions
-                    );
-                    successfulAgentIds = getSuccessfulAgentIds(initialParticipantAgentIds, latestUsableContributions);
-
-                    if (!this.isSwarmRunActive(swarmRunId) || successfulAgentIds.length === 0) {
-                        break;
-                    }
-
-                    const stopJudgeAgentId = resolveCoordinatorAgentId(
-                        cluster.agentIds,
-                        successfulAgentIds,
-                        workspaceConfig.coordinatorAgentId,
-                        options.coordinatorAgentId
-                    );
-                    if (!stopJudgeAgentId) {
-                        continue;
-                    }
-
-                    this.setSwarmRunPhase(swarmRunId, 'stop-condition', reviewRound, coordinatorAgentId);
-                    lastStopConditionEvaluation = await this.evaluateStopCondition(
-                        cluster,
-                        message,
-                        workspaceConfig,
-                        stopJudgeAgentId,
-                        successfulAgentIds,
-                        latestUsableContributions,
-                        rounds,
-                        swarmRunId,
-                        reviewRound,
-                        stopConditionSessionIds
-                    );
-                    if (!this.isSwarmRunActive(swarmRunId) || lastStopConditionEvaluation.shouldStop) {
-                        break;
-                    }
-
-                    if (reviewRound === MAX_UNLIMITED_CLUSTER_REVIEW_ROUNDS) {
-                        lastStopConditionEvaluation = {
-                            shouldStop: false,
-                            judgeAgentId: stopJudgeAgentId,
-                            reviewRound,
-                            reason: `Safety cap reached after ${reviewRound} review rounds.`,
-                            safetyCapReached: true
-                        };
-                    }
-                }
-            } else {
-                for (const debateRound of buildCollaborationDebateRounds(workspaceConfig.rounds)) {
-                    const critiqueDescriptor = buildCollaborationRoundDescriptor(debateRound.critiqueKind);
-                    if (!this.isSwarmRunActive(swarmRunId) || successfulAgentIds.length === 0) {
-                        break;
-                    }
-
-                    this.setSwarmRunPhase(swarmRunId, 'critique', debateRound.reviewRound, coordinatorAgentId);
-                    const critiqueGroupId = buildSwarmTransactionGroupId(swarmRunId, debateRound.critiqueKind);
-                    const critiqueEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildPeerReviewPrompt(
-                        cluster.name,
-                        message,
-                        workspaceConfig,
-                        agentId,
-                        successfulAgentIds,
-                        latestUsableContributions,
-                        debateRound.reviewRound
-                    ), {
-                        clusterId: cluster.id,
-                        mode: 'collaborate',
-                        debateSessionIds,
-                        swarmRunId,
-                        swarm: {
-                            swarmRunId,
-                            phase: debateRound.critiqueKind,
-                            round: debateRound.reviewRound,
-                            transactionGroupId: critiqueGroupId,
-                            expectedGroupSize: successfulAgentIds.length,
-                            groupCompletionPolicy: 'all',
-                            requiresDeliveryForProgress: true,
-                            messageKind: 'critique'
-                        },
-                        onAgentResult: (agentId, entry) => options.onProgress?.({
-                            kind: 'round-entry',
-                            swarmRunId,
-                            roundKind: debateRound.critiqueKind,
-                            round: critiqueDescriptor,
-                            agentId,
-                            entry
-                        })
-                    });
-                    rounds.push({
-                        kind: debateRound.critiqueKind,
-                        descriptor: critiqueDescriptor,
-                        entries: critiqueEntries
-                    });
-                    this.recordRoundSnapshot(swarmRunId, debateRound.reviewRound, 'critique', critiqueEntries);
-
-                    if (!this.isSwarmRunActive(swarmRunId)) {
-                        break;
-                    }
-
-                    this.setSwarmRunPhase(swarmRunId, 'revision', debateRound.reviewRound, coordinatorAgentId);
-                    const revisionGroupId = buildSwarmTransactionGroupId(swarmRunId, debateRound.revisionKind);
-                    const revisionDescriptor = buildCollaborationRoundDescriptor(debateRound.revisionKind);
-                    const revisionEntries = await this.sendMessageToAgents(successfulAgentIds, agentId => buildRevisionPrompt(
-                        cluster.name,
-                        message,
-                        workspaceConfig,
-                        agentId,
-                        successfulAgentIds,
-                        latestUsableContributions,
-                        critiqueEntries,
-                        debateRound.reviewRound
-                    ), {
-                        clusterId: cluster.id,
-                        mode: 'collaborate',
-                        debateSessionIds,
-                        swarmRunId,
-                        swarm: {
-                            swarmRunId,
-                            phase: debateRound.revisionKind,
-                            round: debateRound.reviewRound,
-                            transactionGroupId: revisionGroupId,
-                            expectedGroupSize: successfulAgentIds.length,
-                            groupCompletionPolicy: 'all',
-                            requiresDeliveryForProgress: true,
-                            messageKind: 'revision'
-                        },
-                        onAgentResult: (agentId, entry) => options.onProgress?.({
-                            kind: 'round-entry',
-                            swarmRunId,
-                            roundKind: debateRound.revisionKind,
-                            round: revisionDescriptor,
-                            agentId,
-                            entry
-                        })
-                    });
-                    rounds.push({
-                        kind: debateRound.revisionKind,
-                        descriptor: revisionDescriptor,
-                        entries: revisionEntries
-                    });
-                    this.recordRoundSnapshot(swarmRunId, debateRound.reviewRound, 'revision', revisionEntries);
-
-                    latestUsableContributions = mergeLatestSuccessfulEntries(
-                        initialParticipantAgentIds,
-                        revisionEntries,
-                        latestUsableContributions
-                    );
-                    successfulAgentIds = getSuccessfulAgentIds(initialParticipantAgentIds, latestUsableContributions);
-                }
-            }
-
-            let synthesis: ClusterBroadcastResult | null = null;
-            if (this.isSwarmRunActive(swarmRunId) && coordinatorAgentId && successfulAgentIds.length > 0) {
-                this.setSwarmRunPhase(swarmRunId, 'synthesis', rounds.length + 1, coordinatorAgentId);
-                const synthesisPrompt = await this.buildSynthesisPrompt(
+                // 无限轮回模式
+                const result = await this.runUnlimitedDebateRounds({
                     cluster,
                     message,
                     workspaceConfig,
-                    coordinatorAgentId,
+                    initialParticipantAgentIds,
                     successfulAgentIds,
                     latestUsableContributions,
-                    rounds,
-                    buildStopConditionSummary(workspaceConfig, lastStopConditionEvaluation)
-                );
-                const synthesisGroupId = buildSwarmTransactionGroupId(swarmRunId, 'synthesis');
-                synthesis = await this.sendMessageToAgent(coordinatorAgentId, synthesisPrompt, {
-                    clusterId: cluster.id,
-                    mode: 'collaborate',
-                    debateSessionIds,
+                    coordinatorAgentId,
                     swarmRunId,
-                    swarm: {
-                        swarmRunId,
-                        phase: 'synthesis',
-                        round: rounds.length + 1,
-                        transactionGroupId: synthesisGroupId,
-                        expectedGroupSize: 1,
-                        groupCompletionPolicy: 'all',
-                        requiresDeliveryForProgress: true,
-                        messageKind: 'synthesis',
-                        sourceAgentId: coordinatorAgentId,
-                        targetAgentId: coordinatorAgentId
-                    }
+                    debateSessionIds,
+                    rounds,
+                    requestedCoordinatorAgentId: options.coordinatorAgentId,
+                    onProgress: options.onProgress
                 });
-                if (this.isSwarmRunActive(swarmRunId)) {
-                    await options.onProgress?.({
-                        kind: 'synthesis',
-                        swarmRunId,
-                        coordinatorAgentId,
-                        entry: synthesis
-                    });
-                }
+                latestUsableContributions = result.latestUsableContributions;
+                successfulAgentIds = result.successfulAgentIds;
+                lastStopConditionEvaluation = result.lastStopConditionEvaluation;
+            } else {
+                const result = await this.runFixedDebateRounds({
+                    cluster,
+                    message,
+                    workspaceConfig,
+                    initialParticipantAgentIds,
+                    successfulAgentIds,
+                    latestUsableContributions,
+                    coordinatorAgentId,
+                    swarmRunId,
+                    debateSessionIds,
+                    rounds,
+                    onProgress: options.onProgress
+                });
+                latestUsableContributions = result.latestUsableContributions;
+                successfulAgentIds = result.successfulAgentIds;
             }
 
+            const synthesis = await this.runSynthesisIfNeeded({
+                cluster,
+                message,
+                workspaceConfig,
+                coordinatorAgentId,
+                successfulAgentIds,
+                latestUsableContributions,
+                rounds,
+                swarmRunId,
+                debateSessionIds,
+                lastStopConditionEvaluation,
+                onProgress: options.onProgress
+            });
+
             if (this.isSwarmRunActive(swarmRunId)) {
-                await this.updateCluster(clusterId, { status: 'active' });
+                await this.updateCluster({ clusterId, status: 'active' });
             }
 
             return {
@@ -1002,17 +1059,602 @@ export class ClusterManager extends EventEmitter {
     }
 
     /**
+     * 准备合作上下文内容
+     * 
+     * @param clusterId 
+     * @param message 
+     * @param options 
+     * @returns await一个 cluster上下文内容。
+     */
+    private async prepareCollaborationContext({
+        clusterId,
+        message,
+        options
+    }: {
+        clusterId: string;
+        message: string;
+        options: CollaborateClusterOptions;
+    }): Promise<CollaborationContext> {
+        // 获取当前cluster信息
+        const cluster = await this.getCluster(clusterId);
+        if (!cluster) {
+            throw new Error(t('clusterManager.notFound', { clusterId }));
+        }
+
+        // 获取clulster的工作空间信息
+        const workspaceConfig = normalizeClusterWorkspaceConfig(cluster.workspaceConfig);
+
+        // 创建激活swarm的计划
+        const activationPlan = resolveSwarmActivationPlan({
+            agentIds: cluster.agentIds,
+            workspaceConfig,
+            mode: 'collaborate',
+            userMessage: message
+        });
+        if (activationPlan.orderedAgentIds.length === 0) {
+            throw new Error(t('clusterManager.noEligibleAgents'));
+        }
+
+        // 初始化参与到swarm的内容ID，并解析协调者的ID
+        const initialParticipantAgentIds = [...activationPlan.orderedAgentIds];
+        const coordinatorAgentId = resolveCoordinatorAgentId({
+            clusterAgentIds: cluster.agentIds,
+            successfulAgentIds: initialParticipantAgentIds,
+            configuredAgentId: workspaceConfig.coordinatorAgentId,
+            preferredAgentId: options.coordinatorAgentId
+        });
+        const swarmRunId = options.swarmRunId || buildSwarmRunId({ clusterId: cluster.id, mode: 'collaborate' });
+
+        // 注册swarm run的内容，并等待持久化当前情况
+        this.registerSwarmRun({
+            clusterId: cluster.id,
+            mode: 'collaborate',
+            swarmRunId,
+            coordinatorAgentId
+        });
+        await this.persistState();
+
+        return {
+            cluster,
+            workspaceConfig,
+            activationPlan,
+            initialParticipantAgentIds,
+            coordinatorAgentId,
+            swarmRunId
+        };
+    }
+
+    private async runOpeningRound(params: RunOpeningRoundParams): Promise<{
+        descriptor: ClusterCollaborationRoundDescriptor;
+        entries: Record<string, ClusterBroadcastResult>;
+    }> {
+        const {
+            cluster,
+            message,
+            workspaceConfig,
+            activationPlan,
+            swarmRunId,
+            coordinatorAgentId,
+            debateSessionIds,
+            onProgress
+        } = params;
+        this.setSwarmRunPhase({
+            swarmRunId,
+            phase: 'opening',
+            currentRound: 1,
+            coordinatorAgentId
+        });
+        const openingGroupId = buildSwarmTransactionGroupId({ swarmRunId, phase: 'opening' });
+        const openingDescriptor = buildCollaborationRoundDescriptor('opening');
+        const openingEntries = await this.sendHierarchicalMessages({
+            plan: activationPlan,
+            message: async (node: any, routing: any) => buildOpeningContributionPrompt({
+                clusterName: cluster.name,
+                message,
+                workspaceConfig,
+                agentId: node.agentId,
+                delegatedContext: routing.parentNode
+                    ? {
+                        delegatedByAgentId: routing.parentNode.agentId,
+                        routeAgentIds: [...routing.ancestorAgentIds, routing.parentNode.agentId],
+                        parentContext: extractSwarmResultContext({ result: routing.parentResult })
+                    }
+                    : undefined
+            }),
+            options: {
+                clusterId: cluster.id,
+                mode: 'collaborate',
+                debateSessionIds,
+                swarmRunId,
+                swarm: {
+                    swarmRunId,
+                    phase: 'opening',
+                    round: 1,
+                    transactionGroupId: openingGroupId,
+                    expectedGroupSize: activationPlan.orderedAgentIds.length,
+                    groupCompletionPolicy: 'all',
+                    requiresDeliveryForProgress: true,
+                    messageKind: 'opening'
+                },
+                onAgentResult: (agentId: any, entry: any) => onProgress?.({
+                    kind: 'round-entry',
+                    swarmRunId,
+                    roundKind: 'opening',
+                    round: openingDescriptor,
+                    agentId,
+                    entry
+                })
+            }
+        });
+
+        return { descriptor: openingDescriptor, entries: openingEntries };
+    }
+
+    /**
+     * 无限轮回。
+     * @param params 
+     * @returns 
+     */
+    private async runUnlimitedDebateRounds(params: RunUnlimitedDebateRoundsParams): Promise<{
+        latestUsableContributions: Record<string, ClusterBroadcastResult>;
+        successfulAgentIds: string[];
+        lastStopConditionEvaluation?: ClusterStopConditionEvaluation;
+    }> {
+        const {
+            cluster,
+            message,
+            workspaceConfig,
+            initialParticipantAgentIds,
+            coordinatorAgentId,
+            swarmRunId,
+            debateSessionIds,
+            rounds,
+            requestedCoordinatorAgentId,
+            onProgress
+        } = params;
+        let { successfulAgentIds, latestUsableContributions } = params;
+
+        // 结束条件，以及结束轮的ID
+        let lastStopConditionEvaluation: ClusterStopConditionEvaluation | undefined = undefined;
+        const stopConditionSessionIds = new Map<string, string>();
+
+        // 轮回本体
+        for (let reviewRound = 1; reviewRound <= MAX_UNLIMITED_CLUSTER_REVIEW_ROUNDS; reviewRound += 1) {
+            // 如果swarm不活跃，或没有任何智能体进行有效回复，则退出轮回
+            if (!this.isSwarmRunActive(swarmRunId) || successfulAgentIds.length === 0) {
+                break;
+            }
+
+            // 辩论轮
+            const debateRound = buildCollaborationDebateRound(reviewRound);
+            const critique = await this.runCritiqueRound({
+                cluster,
+                message,
+                workspaceConfig,
+                debateRound,
+                successfulAgentIds,
+                latestUsableContributions,
+                coordinatorAgentId,
+                swarmRunId,
+                debateSessionIds,
+                onProgress
+            });
+            rounds.push({
+                kind: debateRound.critiqueKind,
+                descriptor: critique.descriptor,
+                entries: critique.entries
+            });
+            this.recordRoundSnapshot({
+                swarmRunId,
+                round: debateRound.reviewRound,
+                phase: 'critique',
+                entries: critique.entries
+            });
+
+            // 确保swarm活跃
+            if (!this.isSwarmRunActive(swarmRunId)) {
+                break;
+            }
+
+            const revision = await this.runRevisionRound({
+                cluster,
+                message,
+                workspaceConfig,
+                debateRound,
+                successfulAgentIds,
+                latestUsableContributions,
+                critiqueEntries: critique.entries,
+                coordinatorAgentId,
+                swarmRunId,
+                debateSessionIds,
+                onProgress
+            });
+            rounds.push({
+                kind: debateRound.revisionKind,
+                descriptor: revision.descriptor,
+                entries: revision.entries
+            });
+            this.recordRoundSnapshot({
+                swarmRunId,
+                round: debateRound.reviewRound,
+                phase: 'revision',
+                entries: revision.entries
+            });
+
+            latestUsableContributions = mergeLatestSuccessfulEntries({
+                agentIds: initialParticipantAgentIds,
+                nextEntries: revision.entries,
+                fallbackEntries: latestUsableContributions
+            });
+            successfulAgentIds = getSuccessfulAgentIds({
+                agentIds: initialParticipantAgentIds,
+                entries: latestUsableContributions
+            });
+
+            if (!this.isSwarmRunActive(swarmRunId) || successfulAgentIds.length === 0) {
+                break;
+            }
+
+            const stopJudgeAgentId = resolveCoordinatorAgentId({
+                clusterAgentIds: cluster.agentIds,
+                successfulAgentIds,
+                configuredAgentId: workspaceConfig.coordinatorAgentId,
+                preferredAgentId: requestedCoordinatorAgentId
+            });
+            if (!stopJudgeAgentId) {
+                continue;
+            }
+
+            this.setSwarmRunPhase({
+                swarmRunId,
+                phase: 'stop-condition',
+                currentRound: reviewRound,
+                coordinatorAgentId
+            });
+            lastStopConditionEvaluation = await this.evaluateStopCondition({
+                cluster,
+                userMessage: message,
+                workspaceConfig,
+                judgeAgentId: stopJudgeAgentId,
+                successfulAgentIds,
+                contributions: latestUsableContributions,
+                rounds,
+                swarmRunId,
+                reviewRound,
+                stopConditionSessionIds
+            });
+            if (!this.isSwarmRunActive(swarmRunId) || lastStopConditionEvaluation.shouldStop) {
+                break;
+            }
+
+            if (reviewRound === MAX_UNLIMITED_CLUSTER_REVIEW_ROUNDS) {
+                lastStopConditionEvaluation = {
+                    shouldStop: false,
+                    judgeAgentId: stopJudgeAgentId,
+                    reviewRound,
+                    reason: `Safety cap reached after ${reviewRound} review rounds.`,
+                    safetyCapReached: true
+                };
+            }
+        }
+
+        return {
+            latestUsableContributions,
+            successfulAgentIds,
+            lastStopConditionEvaluation
+        };
+    }
+
+    private async runFixedDebateRounds(params: RunFixedDebateRoundsParams): Promise<{
+        latestUsableContributions: Record<string, ClusterBroadcastResult>;
+        successfulAgentIds: string[];
+    }> {
+        const {
+            cluster,
+            message,
+            workspaceConfig,
+            initialParticipantAgentIds,
+            coordinatorAgentId,
+            swarmRunId,
+            debateSessionIds,
+            rounds,
+            onProgress
+        } = params;
+        let { successfulAgentIds, latestUsableContributions } = params;
+
+        for (const debateRound of buildCollaborationDebateRounds(workspaceConfig.rounds)) {
+            if (!this.isSwarmRunActive(swarmRunId) || successfulAgentIds.length === 0) {
+                break;
+            }
+
+            const critique = await this.runCritiqueRound({
+                cluster,
+                message,
+                workspaceConfig,
+                debateRound,
+                successfulAgentIds,
+                latestUsableContributions,
+                coordinatorAgentId,
+                swarmRunId,
+                debateSessionIds,
+                onProgress
+            });
+            rounds.push({
+                kind: debateRound.critiqueKind,
+                descriptor: critique.descriptor,
+                entries: critique.entries
+            });
+            this.recordRoundSnapshot({
+                swarmRunId,
+                round: debateRound.reviewRound,
+                phase: 'critique',
+                entries: critique.entries
+            });
+
+            if (!this.isSwarmRunActive(swarmRunId)) {
+                break;
+            }
+
+            const revision = await this.runRevisionRound({
+                cluster,
+                message,
+                workspaceConfig,
+                debateRound,
+                successfulAgentIds,
+                latestUsableContributions,
+                critiqueEntries: critique.entries,
+                coordinatorAgentId,
+                swarmRunId,
+                debateSessionIds,
+                onProgress
+            });
+            rounds.push({
+                kind: debateRound.revisionKind,
+                descriptor: revision.descriptor,
+                entries: revision.entries
+            });
+            this.recordRoundSnapshot({
+                swarmRunId,
+                round: debateRound.reviewRound,
+                phase: 'revision',
+                entries: revision.entries
+            });
+
+            latestUsableContributions = mergeLatestSuccessfulEntries({
+                agentIds: initialParticipantAgentIds,
+                nextEntries: revision.entries,
+                fallbackEntries: latestUsableContributions
+            });
+            successfulAgentIds = getSuccessfulAgentIds({
+                agentIds: initialParticipantAgentIds,
+                entries: latestUsableContributions
+            });
+        }
+
+        return { latestUsableContributions, successfulAgentIds };
+    }
+
+    /**
+     * 运行一个评审轮。
+     * 
+     * @param params 
+     * @returns await，得到一个
+     */
+    private async runCritiqueRound(params: RunCritiqueRoundParams): Promise<{
+        descriptor: ClusterCollaborationRoundDescriptor;
+        entries: Record<string, ClusterBroadcastResult>;
+    }> {
+        const {
+            cluster,
+            message,
+            workspaceConfig,
+            debateRound,
+            successfulAgentIds,
+            latestUsableContributions,
+            coordinatorAgentId,
+            swarmRunId,
+            debateSessionIds,
+            onProgress
+        } = params;
+        const critiqueDescriptor = buildCollaborationRoundDescriptor(debateRound.critiqueKind);
+        this.setSwarmRunPhase({
+            swarmRunId,
+            phase: 'critique',
+            currentRound: debateRound.reviewRound,
+            coordinatorAgentId
+        });
+        const critiqueGroupId = buildSwarmTransactionGroupId({ swarmRunId, phase: debateRound.critiqueKind });
+
+        // 将所有信息发送到agent。注意：出问题的地方有可能是这一块。
+        const critiqueEntries = await this.sendMessageToAgents({
+            agentIds: successfulAgentIds,
+            message: (agentId: any) => buildPeerReviewPrompt({
+                clusterName: cluster.name,
+                message,
+                workspaceConfig,
+                agentId,
+                successfulAgentIds,
+                contributions: latestUsableContributions,
+                reviewRound: debateRound.reviewRound
+            }),
+            options: {
+                clusterId: cluster.id,
+                mode: 'collaborate',
+                debateSessionIds,
+                swarmRunId,
+                swarm: {
+                    swarmRunId,
+                    phase: debateRound.critiqueKind,
+                    round: debateRound.reviewRound,
+                    transactionGroupId: critiqueGroupId,
+                    expectedGroupSize: successfulAgentIds.length,
+                    groupCompletionPolicy: 'all',
+                    requiresDeliveryForProgress: true,
+                    messageKind: 'critique'
+                },
+                onAgentResult: (agentId: any, entry: any) => onProgress?.({
+                    kind: 'round-entry',
+                    swarmRunId,
+                    roundKind: debateRound.critiqueKind,
+                    round: critiqueDescriptor,
+                    agentId,
+                    entry
+                })
+            }
+        });
+
+        return { descriptor: critiqueDescriptor, entries: critiqueEntries };
+    }
+
+    private async runRevisionRound(params: RunRevisionRoundParams): Promise<{
+        descriptor: ClusterCollaborationRoundDescriptor;
+        entries: Record<string, ClusterBroadcastResult>;
+    }> {
+        const {
+            cluster,
+            message,
+            workspaceConfig,
+            debateRound,
+            successfulAgentIds,
+            latestUsableContributions,
+            critiqueEntries,
+            coordinatorAgentId,
+            swarmRunId,
+            debateSessionIds,
+            onProgress
+        } = params;
+        const revisionDescriptor = buildCollaborationRoundDescriptor(debateRound.revisionKind);
+        this.setSwarmRunPhase({
+            swarmRunId,
+            phase: 'revision',
+            currentRound: debateRound.reviewRound,
+            coordinatorAgentId
+        });
+        const revisionGroupId = buildSwarmTransactionGroupId({ swarmRunId, phase: debateRound.revisionKind });
+        const revisionEntries = await this.sendMessageToAgents({
+            agentIds: successfulAgentIds,
+            message: (agentId: any) => buildRevisionPrompt({
+                clusterName: cluster.name,
+                message,
+                workspaceConfig,
+                agentId,
+                successfulAgentIds,
+                contributions: latestUsableContributions,
+                critiqueEntries,
+                reviewRound: debateRound.reviewRound
+            }),
+            options: {
+                clusterId: cluster.id,
+                mode: 'collaborate',
+                debateSessionIds,
+                swarmRunId,
+                swarm: {
+                    swarmRunId,
+                    phase: debateRound.revisionKind,
+                    round: debateRound.reviewRound,
+                    transactionGroupId: revisionGroupId,
+                    expectedGroupSize: successfulAgentIds.length,
+                    groupCompletionPolicy: 'all',
+                    requiresDeliveryForProgress: true,
+                    messageKind: 'revision'
+                },
+                onAgentResult: (agentId: any, entry: any) => onProgress?.({
+                    kind: 'round-entry',
+                    swarmRunId,
+                    roundKind: debateRound.revisionKind,
+                    round: revisionDescriptor,
+                    agentId,
+                    entry
+                })
+            }
+        });
+
+        return { descriptor: revisionDescriptor, entries: revisionEntries };
+    }
+
+    private async runSynthesisIfNeeded(params: RunSynthesisIfNeededParams): Promise<ClusterBroadcastResult | undefined> {
+        const {
+            cluster,
+            message,
+            workspaceConfig,
+            coordinatorAgentId,
+            successfulAgentIds,
+            latestUsableContributions,
+            rounds,
+            swarmRunId,
+            debateSessionIds,
+            lastStopConditionEvaluation,
+            onProgress
+        } = params;
+        if (!this.isSwarmRunActive(swarmRunId) || !coordinatorAgentId || successfulAgentIds.length === 0) {
+            return undefined;
+        }
+
+        this.setSwarmRunPhase({
+            swarmRunId,
+            phase: 'synthesis',
+            currentRound: rounds.length + 1,
+            coordinatorAgentId
+        });
+        const synthesisPrompt = await this.buildSynthesisPrompt({
+            cluster,
+            userMessage: message,
+            workspaceConfig,
+            coordinatorAgentId,
+            successfulAgentIds,
+            contributions: latestUsableContributions,
+            rounds,
+            stopConditionSummary: buildStopConditionSummary({
+                workspaceConfig,
+                lastStopConditionEvaluation
+            })
+        });
+        const synthesisGroupId = buildSwarmTransactionGroupId({ swarmRunId, phase: 'synthesis' });
+        const synthesis = await this.sendMessageToAgent({
+            agentId: coordinatorAgentId,
+            message: synthesisPrompt,
+            options: {
+                clusterId: cluster.id,
+                mode: 'collaborate',
+                debateSessionIds,
+                swarmRunId,
+                swarm: {
+                    swarmRunId,
+                    phase: 'synthesis',
+                    round: rounds.length + 1,
+                    transactionGroupId: synthesisGroupId,
+                    expectedGroupSize: 1,
+                    groupCompletionPolicy: 'all',
+                    requiresDeliveryForProgress: true,
+                    messageKind: 'synthesis',
+                    sourceAgentId: coordinatorAgentId,
+                    targetAgentId: coordinatorAgentId
+                }
+            }
+        });
+        if (this.isSwarmRunActive(swarmRunId)) {
+            await onProgress?.({
+                kind: 'synthesis',
+                swarmRunId,
+                coordinatorAgentId,
+                entry: synthesis
+            });
+        }
+        return synthesis;
+    }
+
+    /**
      * 获取集群统计信息
      * 
      * @returns 集群统计信息
      */
     public getClusterStats(): ClusterStats {
         const clusters = Array.from(this.clusters.values());
-        const totalAgents = clusters.reduce((sum, cluster) => sum + cluster.agentIds.length, 0);
+        const totalAgents = clusters.reduce((sum: any, cluster: any) => sum + cluster.agentIds.length, 0);
 
         return {
             totalClusters: clusters.length,
-            activeClusters: clusters.filter(cluster => cluster.status === 'active').length,
+            activeClusters: clusters.filter((cluster: any) => cluster.status === 'active').length,
             totalAgents,
             avgAgentsPerCluster: clusters.length > 0 ? totalAgents / clusters.length : 0
         };
@@ -1025,7 +1667,7 @@ export class ClusterManager extends EventEmitter {
      * @returns 集群列表
      */
     public getClustersByAgent(agentId: string): AgentCluster[] {
-        return Array.from(this.clusters.values()).filter(cluster =>
+        return Array.from(this.clusters.values()).filter((cluster: any) =>
             cluster.agentIds.includes(agentId)
         );
     }
@@ -1038,16 +1680,14 @@ export class ClusterManager extends EventEmitter {
      * @returns Promise<void>
      * @throws Error - 当集群不存在时抛出
      */
-    public async addAgentToCluster(clusterId: string, agentId: string): Promise<void> {
+    public async addAgentToCluster({ clusterId, agentId }: ClusterAgentRequest): Promise<void> {
         const cluster = await this.getCluster(clusterId);
         if (!cluster) {
             throw new Error(t('clusterManager.notFound', { clusterId }));
         }
 
         if (!cluster.agentIds.includes(agentId)) {
-            await this.updateCluster(clusterId, {
-                agentIds: [...cluster.agentIds, agentId]
-            });
+            await this.updateCluster({ clusterId, agentIds: [...cluster.agentIds, agentId] });
         }
     }
 
@@ -1059,15 +1699,13 @@ export class ClusterManager extends EventEmitter {
      * @returns Promise<void>
      * @throws Error - 当集群不存在时抛出
      */
-    public async removeAgentFromCluster(clusterId: string, agentId: string): Promise<void> {
+    public async removeAgentFromCluster({ clusterId, agentId }: ClusterAgentRequest): Promise<void> {
         const cluster = await this.getCluster(clusterId);
         if (!cluster) {
             throw new Error(t('clusterManager.notFound', { clusterId }));
         }
 
-        await this.updateCluster(clusterId, {
-            agentIds: cluster.agentIds.filter(id => id !== agentId)
-        });
+        await this.updateCluster({ clusterId, agentIds: cluster.agentIds.filter((id: any) => id !== agentId) });
     }
 
     /**
@@ -1077,15 +1715,15 @@ export class ClusterManager extends EventEmitter {
      * @param agentId - 智能体ID
      * @returns 会话ID
      */
-    public async ensureClusterAgentSessionId(clusterId: string, agentId: string): Promise<string> {
+    public async ensureClusterAgentSessionId({ clusterId, agentId }: ClusterAgentRequest): Promise<string> {
         await this.ensurePersistedStateLoaded();
-        const key = this.buildClusterAgentSessionStorageKey(clusterId, agentId);
+        const key = this.buildClusterAgentSessionStorageKey({ clusterId, agentId });
         const existing = this.clusterAgentSessionIds.get(key);
         if (existing) {
             return existing;
         }
 
-        const sessionId = buildClusterAgentSessionId(clusterId, agentId);
+        const sessionId = buildClusterAgentSessionId({ clusterId, agentId });
         this.clusterAgentSessionIds.set(key, sessionId);
         await this.persistState();
         return sessionId;
@@ -1098,10 +1736,10 @@ export class ClusterManager extends EventEmitter {
      * @param agentId - 智能体ID
      * @returns 新的会话ID
      */
-    public async resetClusterAgentSessionId(clusterId: string, agentId: string): Promise<string> {
+    public async resetClusterAgentSessionId({ clusterId, agentId }: ClusterAgentRequest): Promise<string> {
         await this.ensurePersistedStateLoaded();
-        const key = this.buildClusterAgentSessionStorageKey(clusterId, agentId);
-        const sessionId = buildClusterAgentSessionId(clusterId, agentId);
+        const key = this.buildClusterAgentSessionStorageKey({ clusterId, agentId });
+        const sessionId = buildClusterAgentSessionId({ clusterId, agentId });
         this.clusterAgentSessionIds.set(key, sessionId);
         await this.persistState();
         return sessionId;
@@ -1114,10 +1752,10 @@ export class ClusterManager extends EventEmitter {
      * @param agentId - 智能体ID
      * @returns 消息列表
      */
-    public async getClusterAgentMessages(clusterId: string, agentId: string): Promise<ChatMessage[]> {
+    public async getClusterAgentMessages({ clusterId, agentId }: ClusterAgentRequest): Promise<ChatMessage[]> {
         await this.ensurePersistedStateLoaded();
         return cloneChatMessages(
-            this.clusterAgentMessages.get(this.buildClusterAgentSessionStorageKey(clusterId, agentId)) || []
+            this.clusterAgentMessages.get(this.buildClusterAgentSessionStorageKey({ clusterId, agentId })) || []
         );
     }
 
@@ -1129,9 +1767,9 @@ export class ClusterManager extends EventEmitter {
      * @param messages - 新消息列表
      * @returns Promise<void>
      */
-    public async replaceClusterAgentMessages(clusterId: string, agentId: string, messages: ChatMessage[]): Promise<void> {
+    public async replaceClusterAgentMessages({ clusterId, agentId, messages }: ClusterAgentMessagesRequest): Promise<void> {
         await this.ensurePersistedStateLoaded();
-        const key = this.buildClusterAgentSessionStorageKey(clusterId, agentId);
+        const key = this.buildClusterAgentSessionStorageKey({ clusterId, agentId });
         const normalizedMessages = normalizePersistedChatMessages(messages);
 
         if (normalizedMessages.length > 0) {
@@ -1150,9 +1788,9 @@ export class ClusterManager extends EventEmitter {
      * @param agentId - 智能体ID
      * @returns Promise<void>
      */
-    public async clearClusterAgentMessages(clusterId: string, agentId: string): Promise<void> {
+    public async clearClusterAgentMessages({ clusterId, agentId }: ClusterAgentRequest): Promise<void> {
         await this.ensurePersistedStateLoaded();
-        const key = this.buildClusterAgentSessionStorageKey(clusterId, agentId);
+        const key = this.buildClusterAgentSessionStorageKey({ clusterId, agentId });
         if (!this.clusterAgentMessages.delete(key)) {
             return;
         }
@@ -1168,35 +1806,78 @@ export class ClusterManager extends EventEmitter {
      * @param mode - 模式（广播或协作）
      * @returns 消息列表
      */
-    public async getClusterAgentSwarmMessages(
-        clusterId: string,
-        agentId: string,
-        mode: 'broadcast' | 'collaborate',
-        swarmRunId?: string
-    ): Promise<ChatMessage[]> {
+    public async getClusterAgentSwarmMessages({
+        clusterId,
+        agentId,
+        mode,
+        swarmRunId
+    }: ClusterAgentSwarmRequest): Promise<ChatMessage[]> {
         await this.ensurePersistedStateLoaded();
-        const resolvedRunId = swarmRunId || this.resolveLatestSwarmRunId(clusterId, mode);
+        const resolvedRunId = swarmRunId || this.resolveLatestSwarmRunId({ clusterId, mode });
         if (!resolvedRunId) {
             return [];
         }
         return cloneChatMessages(
-            this.clusterAgentSwarmMessages.get(this.buildClusterAgentSwarmStorageKey(clusterId, agentId, mode, resolvedRunId)) || []
+            this.clusterAgentSwarmMessages.get(this.buildClusterAgentSwarmStorageKey({
+                clusterId,
+                agentId,
+                mode,
+                swarmRunId: resolvedRunId
+            })) || []
         );
     }
 
-    public async replaceClusterAgentSwarmMessages(
-        clusterId: string,
-        agentId: string,
-        mode: 'broadcast' | 'collaborate',
-        messages: ChatMessage[],
-        swarmRunId?: string
-    ): Promise<void> {
+    public async getClusterAgentSwarmSessionMessages({
+        clusterId,
+        agentId,
+        mode,
+        swarmRunId,
+        preferLiveState
+    }: ClusterAgentSwarmRequest): Promise<ChatMessage[]> {
         await this.ensurePersistedStateLoaded();
-        const resolvedRunId = swarmRunId || this.resolveLatestSwarmRunId(clusterId, mode);
+        const resolvedRunId = swarmRunId || this.resolveLatestSwarmRunId({ clusterId, mode });
+        if (!resolvedRunId) {
+            return [];
+        }
+
+        const sessionMessages = await this.buildSwarmSessionConversationMessages({
+            clusterId,
+            agentId,
+            mode,
+            swarmRunId: resolvedRunId,
+            includeInputs: true,
+            preferLiveState
+        });
+        if (sessionMessages.length > 0) {
+            return cloneChatMessages(sessionMessages);
+        }
+
+        return this.getClusterAgentSwarmMessages({
+            clusterId,
+            agentId,
+            mode,
+            swarmRunId: resolvedRunId
+        });
+    }
+
+    public async replaceClusterAgentSwarmMessages({
+        clusterId,
+        agentId,
+        mode,
+        messages,
+        swarmRunId
+    }: ClusterAgentSwarmMessagesRequest): Promise<void> {
+        await this.ensurePersistedStateLoaded();
+        const resolvedRunId = swarmRunId || this.resolveLatestSwarmRunId({ clusterId, mode });
         if (!resolvedRunId) {
             return;
         }
-        const key = this.buildClusterAgentSwarmStorageKey(clusterId, agentId, mode, resolvedRunId);
+        const key = this.buildClusterAgentSwarmStorageKey({
+            clusterId,
+            agentId,
+            mode,
+            swarmRunId: resolvedRunId
+        });
         const normalizedMessages = normalizePersistedChatMessages(messages);
         if (normalizedMessages.length > 0) {
             this.clusterAgentSwarmMessages.set(key, normalizedMessages);
@@ -1213,14 +1894,14 @@ export class ClusterManager extends EventEmitter {
      * @param agentId - 智能体ID
      * @returns 上下文快照
      */
-    public async getClusterAgentContextSnapshot(
-        clusterId: string,
-        agentId: string
-    ): Promise<ClusterAgentContextSnapshot> {
+    public async getClusterAgentContextSnapshot({
+        clusterId,
+        agentId
+    }: ClusterAgentRequest): Promise<ClusterAgentContextSnapshot> {
         const [directMessages, broadcastMessages, collaborateMessages] = await Promise.all([
-            this.getClusterAgentMessages(clusterId, agentId),
-            this.getClusterAgentSwarmMessages(clusterId, agentId, 'broadcast'),
-            this.getClusterAgentSwarmMessages(clusterId, agentId, 'collaborate')
+            this.getClusterAgentMessages({ clusterId, agentId }),
+            this.getClusterAgentSwarmMessages({ clusterId, agentId, mode: 'broadcast' }),
+            this.getClusterAgentSwarmMessages({ clusterId, agentId, mode: 'collaborate' })
         ]);
 
         return {
@@ -1237,19 +1918,395 @@ export class ClusterManager extends EventEmitter {
      * @param mode - 模式（广播或协作）
      * @returns 消息列表
      */
-    public async getClusterSwarmMessages(
-        clusterId: string,
-        mode: 'broadcast' | 'collaborate',
-        swarmRunId?: string
-    ): Promise<ChatMessage[]> {
+    public async getClusterSwarmMessages({
+        clusterId,
+        mode,
+        swarmRunId
+    }: ClusterSwarmRequest): Promise<ChatMessage[]> {
         await this.ensurePersistedStateLoaded();
-        const resolvedRunId = swarmRunId || this.resolveLatestSwarmRunId(clusterId, mode);
+        const resolvedRunId = swarmRunId || this.resolveLatestSwarmRunId({ clusterId, mode });
         if (!resolvedRunId) {
             return [];
         }
         return cloneChatMessages(
-            this.clusterSwarmMessages.get(this.buildClusterSwarmStorageKey(clusterId, mode, resolvedRunId)) || []
+            this.clusterSwarmMessages.get(this.buildClusterSwarmStorageKey({
+                clusterId,
+                mode,
+                swarmRunId: resolvedRunId
+            })) || []
         );
+    }
+
+    public async getClusterSwarmSessionMessages({
+        clusterId,
+        mode,
+        swarmRunId,
+        preferLiveState
+    }: ClusterSwarmRequest): Promise<ChatMessage[]> {
+        await this.ensurePersistedStateLoaded();
+        const resolvedRunId = swarmRunId || this.resolveLatestSwarmRunId({ clusterId, mode });
+        if (!resolvedRunId) {
+            return [];
+        }
+
+        const aggregateMessages = this.clusterSwarmMessages.get(this.buildClusterSwarmStorageKey({
+            clusterId,
+            mode,
+            swarmRunId: resolvedRunId
+        })) || [];
+        const seedUserMessage = aggregateMessages.find((message: any) =>
+            message?.role === 'user' && hasRenderableMessageBody(message)
+        );
+        const sessionMessages = await this.buildSwarmSessionConversationMessages({
+            clusterId,
+            mode,
+            swarmRunId: resolvedRunId,
+            includeInputs: false,
+            preferLiveState
+        });
+
+        const merged = [
+            ...(seedUserMessage ? [seedUserMessage] : []),
+            ...sessionMessages
+        ].sort(compareReconstructedSwarmMessages);
+
+        if (merged.length > 0) {
+            return cloneChatMessages(merged);
+        }
+
+        return this.getClusterSwarmMessages({
+            clusterId,
+            mode,
+            swarmRunId: resolvedRunId
+        });
+    }
+
+    public async rehydrateClusterSwarmMessages({
+        clusterId,
+        mode,
+        swarmRunId
+    }: ClusterSwarmRequest): Promise<void> {
+        await this.ensurePersistedStateLoaded();
+        const resolvedRunId = swarmRunId || this.resolveLatestSwarmRunId({ clusterId, mode });
+        if (!resolvedRunId) {
+            return;
+        }
+
+        const aggregateKey = this.buildClusterSwarmStorageKey({
+            clusterId,
+            mode,
+            swarmRunId: resolvedRunId
+        });
+        const aggregateMessages = this.clusterSwarmMessages.get(aggregateKey) || [];
+        const sessionPrefix = `cluster:${clusterId}:swarm:${mode}:run:${resolvedRunId}:agent:`;
+        const hydratedById = new Map<string, ChatMessage>();
+
+        let changed = false;
+
+        for (const [key, sessionId] of this.swarmSessionIds.entries()) {
+            if (!key.startsWith(sessionPrefix) || !sessionId) {
+                continue;
+            }
+
+            const agentId = key.slice(sessionPrefix.length).trim();
+            if (!agentId) {
+                continue;
+            }
+
+            const history = normalizePersistedChatMessages(
+                await this.service.getChatHistory(sessionId).catch(() => [])
+            );
+            const historyById = new Map<string, ChatMessage>(
+                history
+                    .filter((message: any) => typeof message.id === 'string' && message.id.trim())
+                    .map((message: any) => [message.id.trim(), message] as const)
+            );
+
+            for (const [messageId, message] of historyById.entries()) {
+                const existing = hydratedById.get(messageId);
+                if (!existing || computeHydrationMessageRichness(message) >= computeHydrationMessageRichness(existing)) {
+                    hydratedById.set(messageId, message);
+                }
+            }
+
+            const rawKey = this.buildClusterAgentSwarmStorageKey({
+                clusterId,
+                agentId,
+                mode,
+                swarmRunId: resolvedRunId
+            });
+            const rawMessages = this.clusterAgentSwarmMessages.get(rawKey) || [];
+            const hydratedRawMessages = rawMessages.map((message: any) =>
+                hydratePersistedSwarmMessage(message, historyById.get(String(message.id || '').trim()))
+            );
+
+            if (didChatMessageCollectionChange(rawMessages, hydratedRawMessages)) {
+                changed = true;
+                if (hydratedRawMessages.length > 0) {
+                    this.clusterAgentSwarmMessages.set(rawKey, hydratedRawMessages);
+                } else {
+                    this.clusterAgentSwarmMessages.delete(rawKey);
+                }
+            }
+        }
+
+        const hydratedAggregateMessages = aggregateMessages.map((message: any) =>
+            hydratePersistedSwarmMessage(message, hydratedById.get(String(message.id || '').trim()))
+        );
+
+        if (didChatMessageCollectionChange(aggregateMessages, hydratedAggregateMessages)) {
+            changed = true;
+            if (hydratedAggregateMessages.length > 0) {
+                this.clusterSwarmMessages.set(aggregateKey, hydratedAggregateMessages);
+            } else {
+                this.clusterSwarmMessages.delete(aggregateKey);
+            }
+        }
+
+        if (changed) {
+            await this.persistState();
+        }
+    }
+
+    private async buildSwarmSessionConversationMessages({
+        clusterId,
+        mode,
+        swarmRunId,
+        agentId,
+        includeInputs = false,
+        preferLiveState = false
+    }: SwarmSessionConversationRequest): Promise<ChatMessage[]> {
+        const resolvedRunId = typeof swarmRunId === 'string' && swarmRunId.trim()
+            ? swarmRunId.trim()
+            : this.resolveLatestSwarmRunId({ clusterId, mode });
+        if (!resolvedRunId) {
+            return [];
+        }
+
+        const sessionEntries = this.listSwarmSessionEntries({
+            clusterId,
+            mode,
+            swarmRunId: resolvedRunId,
+            agentId
+        });
+        const reconstructed: ChatMessage[] = [];
+
+        for (const entry of sessionEntries) {
+            const history = await this.loadSwarmSessionHistory(entry.sessionId, preferLiveState);
+            reconstructed.push(...reconstructSwarmSessionMessagesFromHistory({
+                history,
+                agentId: entry.agentId,
+                mode,
+                swarmRunId: resolvedRunId,
+                includeInputs
+            }));
+        }
+
+        return reconstructed.sort(compareReconstructedSwarmMessages);
+    }
+
+    private async loadSwarmSessionHistory(sessionId: string, preferLiveState: boolean): Promise<ChatMessage[]> {
+        const history = preferLiveState && this.service.supportsLiveSessionSync()
+            ? await this.service.getLiveChatHistory(sessionId).catch(() => [])
+            : await this.service.getChatHistory(sessionId).catch(() => []);
+        return normalizePersistedChatMessages(history);
+    }
+
+    private listSwarmSessionEntries({
+        clusterId,
+        mode,
+        swarmRunId,
+        agentId
+    }: {
+        clusterId: string;
+        mode: 'broadcast' | 'collaborate';
+        swarmRunId: string;
+        agentId?: string;
+    }): Array<{ agentId: string; sessionId: string }> {
+        const prefix = typeof agentId === 'string' && agentId.trim()
+            ? this.buildSwarmSessionKey({
+                clusterId,
+                mode,
+                swarmRunId,
+                agentId: agentId.trim()
+            })
+            : `cluster:${clusterId}:swarm:${mode}:run:${swarmRunId}:agent:`;
+        const entries: Array<{ agentId: string; sessionId: string }> = [];
+
+        for (const [key, sessionId] of this.swarmSessionIds.entries()) {
+            if (!key.startsWith(prefix) || !sessionId) {
+                continue;
+            }
+
+            const resolvedAgentId = typeof agentId === 'string' && agentId.trim()
+                ? agentId.trim()
+                : key.slice(prefix.length).trim();
+            if (!resolvedAgentId) {
+                continue;
+            }
+
+            entries.push({ agentId: resolvedAgentId, sessionId });
+        }
+
+        return entries;
+    }
+
+    public async listClusterSwarmRunIds({
+        clusterId,
+        mode
+    }: ClusterSwarmRequest): Promise<string[]> {
+        const summaries = await this.listClusterSwarmRuns({ clusterId, mode });
+        return summaries.map((summary: any) => summary.runId);
+    }
+
+    public async listClusterSwarmRuns({
+        clusterId,
+        mode
+    }: ClusterSwarmRequest): Promise<ClusterSwarmRunSummary[]> {
+        await this.ensurePersistedStateLoaded();
+
+        const clusterPrefix = `${clusterId.trim()}::swarm::${mode}::`;
+        const candidates = new Set<string>();
+        const latestRunId = this.resolveLatestSwarmRunId({ clusterId, mode });
+        const activeRunId = this.getActiveSwarmRunId({ clusterId, mode });
+
+        if (latestRunId) {
+            candidates.add(latestRunId);
+        }
+        if (activeRunId) {
+            candidates.add(activeRunId);
+        }
+
+        for (const key of this.clusterSwarmMessages.keys()) {
+            if (!key.startsWith(clusterPrefix)) {
+                continue;
+            }
+            const runId = key.slice(clusterPrefix.length).trim();
+            if (runId) {
+                candidates.add(runId);
+            }
+        }
+
+        for (const [runId, state] of this.swarmRunStates.entries()) {
+            if (state.clusterId === clusterId && state.mode === mode) {
+                candidates.add(runId);
+            }
+        }
+
+        return Array.from(candidates.values())
+            .map((runId: any) => this.buildClusterSwarmRunSummary({
+                clusterId,
+                mode,
+                runId,
+                activeRunId,
+                latestRunId
+            }))
+            .sort((left: any, right: any) => {
+                if (left.runId === activeRunId) {
+                    return -1;
+                }
+                if (right.runId === activeRunId) {
+                    return 1;
+                }
+                if (left.runId === latestRunId) {
+                    return -1;
+                }
+                if (right.runId === latestRunId) {
+                    return 1;
+                }
+
+                const leftTime = Date.parse(left.startedAt || left.stoppedAt || '') || 0;
+                const rightTime = Date.parse(right.startedAt || right.stoppedAt || '') || 0;
+                return rightTime - leftTime;
+            });
+    }
+
+    private buildClusterSwarmRunSummary({
+        clusterId,
+        mode,
+        runId,
+        activeRunId,
+        latestRunId
+    }: {
+        clusterId: string;
+        mode: SwarmMode;
+        runId: string;
+        activeRunId?: string;
+        latestRunId?: string;
+    }): ClusterSwarmRunSummary {
+        const state = this.swarmRunStates.get(runId);
+        const inferredStartedAt = state?.startedAt || this.findSwarmRunMessageTimestamp({
+            clusterId,
+            mode,
+            swarmRunId: runId,
+            pick: 'first'
+        });
+        const inferredStoppedAt = state?.stoppedAt || this.findSwarmRunMessageTimestamp({
+            clusterId,
+            mode,
+            swarmRunId: runId,
+            pick: 'last'
+        });
+
+        return {
+            runId,
+            clusterId,
+            mode,
+            status: state?.status || (runId === activeRunId ? 'running' : 'completed'),
+            phase: state?.phase || (mode === 'broadcast' ? 'broadcast' : 'synthesis'),
+            currentRound: Number.isFinite(state?.currentRound) ? Number(state?.currentRound) : 1,
+            startedAt: inferredStartedAt,
+            stoppedAt: inferredStoppedAt,
+            isActive: runId === activeRunId || (runId === latestRunId && state?.status === 'running')
+        };
+    }
+
+    private findSwarmRunMessageTimestamp({
+        clusterId,
+        mode,
+        swarmRunId,
+        pick
+    }: {
+        clusterId: string;
+        mode: SwarmMode;
+        swarmRunId: string;
+        pick: 'first' | 'last';
+    }): string | undefined {
+        const timestamps: string[] = [];
+        const aggregateKey = this.buildClusterSwarmStorageKey({
+            clusterId,
+            mode,
+            swarmRunId
+        });
+        const aggregateMessages = this.clusterSwarmMessages.get(aggregateKey) || [];
+        for (const message of aggregateMessages) {
+            if (typeof message?.timestamp === 'string' && message.timestamp.trim()) {
+                timestamps.push(message.timestamp.trim());
+            }
+        }
+
+        const agentPrefix = `${clusterId.trim()}::agent::`;
+        const agentSuffix = `::${mode}::${swarmRunId.trim()}`;
+        for (const [key, messages] of this.clusterAgentSwarmMessages.entries()) {
+            if (!key.startsWith(agentPrefix) || !key.endsWith(agentSuffix)) {
+                continue;
+            }
+
+            for (const message of messages || []) {
+                if (typeof message?.timestamp === 'string' && message.timestamp.trim()) {
+                    timestamps.push(message.timestamp.trim());
+                }
+            }
+        }
+
+        if (timestamps.length === 0) {
+            return undefined;
+        }
+
+        timestamps.sort((left: any, right: any) => (Date.parse(left) || 0) - (Date.parse(right) || 0));
+        return pick === 'first'
+            ? timestamps[0]
+            : timestamps[timestamps.length - 1];
     }
 
     /**
@@ -1259,12 +2316,9 @@ export class ClusterManager extends EventEmitter {
      * @param mode - 模式（广播或协作）
      * @returns Promise<void>
      */
-    public async abortClusterSwarmRun(
-        clusterId: string,
-        mode: 'broadcast' | 'collaborate'
-    ): Promise<void> {
+    public async abortClusterSwarmRun({ clusterId, mode }: ClusterSwarmRequest): Promise<void> {
         await this.ensurePersistedStateLoaded();
-        const activeSwarmRunId = this.getActiveSwarmRunId(clusterId, mode);
+        const activeSwarmRunId = this.getActiveSwarmRunId({ clusterId, mode });
         if (activeSwarmRunId) {
             this.cancelSwarmRunState(activeSwarmRunId);
             const state = this.swarmRunStates.get(activeSwarmRunId);
@@ -1285,7 +2339,7 @@ export class ClusterManager extends EventEmitter {
         }
 
         await Promise.allSettled(
-            Array.from(sessionIds.values()).map(sessionId =>
+            Array.from(sessionIds.values()).map((sessionId: any) =>
                 this.service.abortSessionRun(sessionId).catch(() => undefined)
             )
         );
@@ -1299,18 +2353,22 @@ export class ClusterManager extends EventEmitter {
      * @param messages - 新消息列表
      * @returns Promise<void>
      */
-    public async replaceClusterSwarmMessages(
-        clusterId: string,
-        mode: 'broadcast' | 'collaborate',
-        messages: ChatMessage[],
-        swarmRunId?: string
-    ): Promise<void> {
+    public async replaceClusterSwarmMessages({
+        clusterId,
+        mode,
+        messages,
+        swarmRunId
+    }: ClusterSwarmMessagesRequest): Promise<void> {
         await this.ensurePersistedStateLoaded();
-        const resolvedRunId = swarmRunId || this.resolveLatestSwarmRunId(clusterId, mode);
+        const resolvedRunId = swarmRunId || this.resolveLatestSwarmRunId({ clusterId, mode });
         if (!resolvedRunId) {
             return;
         }
-        const key = this.buildClusterSwarmStorageKey(clusterId, mode, resolvedRunId);
+        const key = this.buildClusterSwarmStorageKey({
+            clusterId,
+            mode,
+            swarmRunId: resolvedRunId
+        });
         const normalizedMessages = normalizePersistedChatMessages(messages);
 
         if (normalizedMessages.length > 0) {
@@ -1343,7 +2401,7 @@ export class ClusterManager extends EventEmitter {
         this.clusterAgentSwarmMessages.clear();
         this.clusterSwarmMessages.clear();
         this.persistedStateLoaded = false;
-        this.persistedStateLoadPromise = null;
+        this.persistedStateLoadPromise = undefined;
         this.swarmSessionIds.clear();
         this.activeSwarmRunsByKey.clear();
         this.latestSwarmRunsByKey.clear();
@@ -1490,7 +2548,7 @@ export class ClusterManager extends EventEmitter {
                         status: swarmRunState.status || 'completed',
                         phase: swarmRunState.phase || 'synthesis',
                         currentRound: Number.isFinite(swarmRunState.currentRound) ? swarmRunState.currentRound : 1,
-                        coordinatorAgentId: typeof swarmRunState.coordinatorAgentId === 'string' ? swarmRunState.coordinatorAgentId : null,
+                        coordinatorAgentId: typeof swarmRunState.coordinatorAgentId === 'string' ? swarmRunState.coordinatorAgentId : undefined,
                         startedAt: typeof swarmRunState.startedAt === 'string' ? swarmRunState.startedAt : new Date().toISOString(),
                         stoppedAt: typeof swarmRunState.stoppedAt === 'string' ? swarmRunState.stoppedAt : undefined,
                         stopReason: typeof swarmRunState.stopReason === 'string' ? swarmRunState.stopReason : undefined,
@@ -1525,7 +2583,7 @@ export class ClusterManager extends EventEmitter {
         try {
             await this.persistedStateLoadPromise;
         } finally {
-            this.persistedStateLoadPromise = null;
+            this.persistedStateLoadPromise = undefined;
         }
     }
 
@@ -1535,24 +2593,24 @@ export class ClusterManager extends EventEmitter {
     private async persistState(): Promise<void> {
         const payload: PersistedClustersFile = {
             version: 7,
-            clusters: Array.from(this.clusters.values()).map(cluster => this.applyWorkspaceConfig(cluster)),
+            clusters: Array.from(this.clusters.values()).map((cluster: any) => this.applyWorkspaceConfig(cluster)),
             workspaceConfigs: Object.fromEntries(this.workspaceConfigs.entries()),
             clusterAgentSessions: Object.fromEntries(this.clusterAgentSessionIds.entries()),
             clusterAgentMessages: Object.fromEntries(
-                Array.from(this.clusterAgentMessages.entries()).map(([key, messages]) => [
+                Array.from(this.clusterAgentMessages.entries()).map(([key, messages]: any) => [
                     key,
                     cloneChatMessages(messages)
                 ])
             ),
             clusterAgentSwarmMessages: Object.fromEntries(
-                Array.from(this.clusterAgentSwarmMessages.entries()).map(([key, messages]) => [
+                Array.from(this.clusterAgentSwarmMessages.entries()).map(([key, messages]: any) => [
                     key,
                     cloneChatMessages(messages)
                 ])
             ),
             swarmSessions: Object.fromEntries(this.swarmSessionIds.entries()),
             swarmRunStates: Object.fromEntries(
-                Array.from(this.swarmRunStates.entries()).map(([runId, state]) => [
+                Array.from(this.swarmRunStates.entries()).map(([runId, state]: any) => [
                     runId,
                     {
                         ...state,
@@ -1563,7 +2621,7 @@ export class ClusterManager extends EventEmitter {
             activeSwarmRunsByKey: Object.fromEntries(this.activeSwarmRunsByKey.entries()),
             latestSwarmRunsByKey: Object.fromEntries(this.latestSwarmRunsByKey.entries()),
             clusterSwarmMessages: Object.fromEntries(
-                Array.from(this.clusterSwarmMessages.entries()).map(([key, messages]) => [
+                Array.from(this.clusterSwarmMessages.entries()).map(([key, messages]: any) => [
                     key,
                     cloneChatMessages(messages)
                 ])
@@ -1571,28 +2629,21 @@ export class ClusterManager extends EventEmitter {
         };
 
         await fs.mkdir(path.dirname(this.storageFilePath), { recursive: true });
-        await fs.writeFile(this.storageFilePath, JSON.stringify(payload, null, 2), 'utf8');
+        await fs.writeFile(this.storageFilePath, JSON.stringify(payload, undefined, 2), 'utf8');
     }
 
     /**
      * 向多个智能体发送消息
-     * @param agentIds - 智能体ID列表
+     * @param agentIds - 智能体ID列表（目标智能体？）
      * @param message - 消息内容或消息生成函数
      * @param options - 发送选项
      * @returns 各智能体的响应结果
      */
-    private async sendMessageToAgents(
-        agentIds: string[],
-        message: string | ((agentId: string) => string | Promise<string>),
-        options: {
-            clusterId: string;
-            mode: 'broadcast' | 'collaborate';
-            swarmRunId?: string;
-            debateSessionIds?: Map<string, string>;
-            swarm?: SwarmSendContext;
-            onAgentResult?: (agentId: string, result: ClusterBroadcastResult) => Promise<void> | void;
-        }
-    ): Promise<Record<string, ClusterBroadcastResult>> {
+    private async sendMessageToAgents({
+        agentIds,
+        message,
+        options
+    }: SendMessageToAgentsRequest): Promise<Record<string, ClusterBroadcastResult>> {
         const entries: Array<readonly [string, ClusterBroadcastResult]> = [];
         for (const agentId of agentIds) {
             if (!this.isSwarmSendContextActive(options.swarm)) {
@@ -1604,7 +2655,7 @@ export class ClusterManager extends EventEmitter {
             if (!this.isSwarmSendContextActive(options.swarm)) {
                 break;
             }
-            const result = await this.sendMessageToAgent(agentId, resolvedMessage, options);
+            const result = await this.sendMessageToAgent({ agentId, message: resolvedMessage, options });
             entries.push([agentId, result] as const);
             if (this.isSwarmSendContextActive(options.swarm)) {
                 await options.onAgentResult?.(agentId, result);
@@ -1623,23 +2674,19 @@ export class ClusterManager extends EventEmitter {
      * @param options - 发送选项
      * @returns 各智能体的响应结果
      */
-    private async sendHierarchicalMessages(
-        plan: SwarmActivationPlan,
-        message: (
-            node: SwarmActivationNode,
-            routing: SwarmRoutingContext
-        ) => string | Promise<string>,
-        options: {
-            clusterId: string;
-            mode: 'broadcast' | 'collaborate';
-            swarmRunId?: string;
-            debateSessionIds?: Map<string, string>;
-            swarm?: SwarmSendContext;
-            onAgentResult?: (agentId: string, result: ClusterBroadcastResult) => Promise<void> | void;
-        }
-    ): Promise<Record<string, ClusterBroadcastResult>> {
+    private async sendHierarchicalMessages({
+        plan,
+        message,
+        options
+    }: SendHierarchicalMessagesRequest): Promise<Record<string, ClusterBroadcastResult>> {
         const results: Record<string, ClusterBroadcastResult> = {};
 
+        /**
+         * 
+         * @param node      当前节点
+         * @param routing   当前swarm上下文？？
+         * @returns 不返回任何东西，可以await到生命周期结束
+         */
         const visitNode = async (
             node: SwarmActivationNode,
             routing: SwarmRoutingContext
@@ -1657,9 +2704,13 @@ export class ClusterManager extends EventEmitter {
                     sourceAgentId: routing.parentNode?.agentId || options.swarm.sourceAgentId
                 }
                 : undefined;
-            const result = await this.sendMessageToAgent(node.agentId, resolvedMessage, {
-                ...options,
-                swarm: swarmContext
+            const result = await this.sendMessageToAgent({
+                agentId: node.agentId,
+                message: resolvedMessage,
+                options: {
+                    ...options,
+                    swarm: swarmContext
+                }
             });
             results[node.agentId] = result;
             if (this.isSwarmSendContextActive(options.swarm)) {
@@ -1685,8 +2736,8 @@ export class ClusterManager extends EventEmitter {
         for (const rootNode of plan.rootNodes) {
             await visitNode(rootNode, {
                 ancestorAgentIds: [],
-                parentNode: null,
-                parentResult: null
+                parentNode: undefined,
+                parentResult: undefined
             });
         }
 
@@ -1700,52 +2751,65 @@ export class ClusterManager extends EventEmitter {
      * @param options - 发送选项
      * @returns 发送结果
      */
-    private async sendMessageToAgent(
-        agentId: string,
-        message: string,
-        options: {
-            clusterId: string;
-            mode: 'broadcast' | 'collaborate';
-            swarmRunId?: string;
-            debateSessionIds?: Map<string, string>;
-            swarm?: SwarmSendContext;
-        }
-    ): Promise<ClusterBroadcastResult> {
+    private async sendMessageToAgent({
+        agentId,
+        message,
+        options
+    }: SendMessageToAgentRequest): Promise<ClusterBroadcastResult> {
         const startedAtMs = Date.now();
         const startedAt = new Date(startedAtMs).toISOString();
         try {
             if (!this.isSwarmSendContextActive(options.swarm)) {
-                return buildCancelledClusterResult(agentId, startedAtMs, startedAt);
+                return buildCancelledClusterResult({ agentId, startedAtMs, startedAt });
             }
             const sessionId = options.debateSessionIds
-                ? await this.ensureDebateSession(agentId, options.debateSessionIds, options.clusterId, options.mode, options.swarmRunId || options.swarm?.swarmRunId)
-                : await this.ensureSwarmSession(agentId, options.clusterId, options.mode, options.swarmRunId || options.swarm?.swarmRunId);
+                ? await this.ensureDebateSession({
+                    agentId,
+                    debateSessionIds: options.debateSessionIds,
+                    clusterId: options.clusterId,
+                    mode: options.mode,
+                    swarmRunId: options.swarmRunId || options.swarm?.swarmRunId
+                })
+                : await this.ensureSwarmSession({
+                    agentId,
+                    clusterId: options.clusterId,
+                    mode: options.mode,
+                    swarmRunId: options.swarmRunId || options.swarm?.swarmRunId
+                });
             if (!this.isSwarmSendContextActive(options.swarm)) {
-                return buildCancelledClusterResult(agentId, startedAtMs, startedAt);
+                return buildCancelledClusterResult({ agentId, startedAtMs, startedAt });
             }
-            const swarmDelivery = buildSwarmDeliveryContext(options, agentId);
-            const traceResult = await this.sendMessageWithTrace(sessionId, message, {
+            const swarmDelivery = buildSwarmDeliveryContext({ options, agentId });
+            const traceResult = await this.sendMessageWithTrace({
+                sessionId,
+                message,
                 timeoutMs: CLUSTER_AGENT_RESPONSE_TIMEOUT_MS,
                 delivery: swarmDelivery
             });
-            await this.appendClusterAgentSwarmMessages(
-                options.clusterId,
+            await this.appendClusterAgentSwarmMessages({
+                clusterId: options.clusterId,
                 agentId,
-                options.mode,
-                buildClusterAgentSwarmLogMessages(agentId, message, traceResult, swarmDelivery, startedAt),
-                options.swarmRunId || options.swarm?.swarmRunId
-            );
+                mode: options.mode,
+                messages: buildClusterAgentSwarmLogMessages({
+                    agentId,
+                    message,
+                    traceResult,
+                    delivery: swarmDelivery,
+                    startedAt
+                }),
+                swarmRunId: options.swarmRunId || options.swarm?.swarmRunId
+            });
             if (!this.isSwarmSendContextActive(options.swarm) || traceResult.deliveryStatus === 'cancelled') {
-                return buildCancelledClusterResult(
+                return buildCancelledClusterResult({
                     agentId,
                     startedAtMs,
                     startedAt,
-                    traceResult.trace,
-                    traceResult.deliveryId,
-                    traceResult.failureClass
-                );
+                    trace: traceResult.trace,
+                    deliveryId: traceResult.deliveryId,
+                    failureClass: traceResult.failureClass
+                });
             }
-            const timing = buildClusterResultTiming(startedAtMs, startedAt);
+            const timing = buildClusterResultTiming({ startedAtMs, startedAt });
             if (traceResult.errorMessage || traceResult.timedOut) {
                 return {
                     agentId,
@@ -1778,7 +2842,7 @@ export class ClusterManager extends EventEmitter {
                 deliveryStatus: error instanceof OutboundDeliveryError ? error.status : undefined,
                 failureClass: error instanceof OutboundDeliveryError ? error.failureClass : undefined,
                 deliveryId: error instanceof OutboundDeliveryError ? error.entryId : undefined,
-                timing: buildClusterResultTiming(startedAtMs, startedAt)
+                timing: buildClusterResultTiming({ startedAtMs, startedAt })
             };
         }
     }
@@ -1791,19 +2855,19 @@ export class ClusterManager extends EventEmitter {
      * @param mode - 模式
      * @returns 会话ID
      */
-    private async ensureDebateSession(
-        agentId: string,
-        debateSessionIds: Map<string, string>,
-        clusterId: string,
-        mode: 'broadcast' | 'collaborate',
-        swarmRunId?: string
-    ): Promise<string> {
+    private async ensureDebateSession({
+        agentId,
+        debateSessionIds,
+        clusterId,
+        mode,
+        swarmRunId
+    }: EnsureDebateSessionRequest): Promise<string> {
         const existingSessionId = debateSessionIds.get(agentId);
         if (existingSessionId) {
             return existingSessionId;
         }
 
-        const sessionId = await this.ensureSwarmSession(agentId, clusterId, mode, swarmRunId);
+        const sessionId = await this.ensureSwarmSession({ agentId, clusterId, mode, swarmRunId });
         debateSessionIds.set(agentId, sessionId);
         return sessionId;
     }
@@ -1815,16 +2879,16 @@ export class ClusterManager extends EventEmitter {
      * @param mode - 模式
      * @returns 会话ID
      */
-    private async ensureSwarmSession(
-        agentId: string,
-        clusterId: string,
-        mode: 'broadcast' | 'collaborate',
-        swarmRunId?: string
-    ): Promise<string> {
+    private async ensureSwarmSession({
+        agentId,
+        clusterId,
+        mode,
+        swarmRunId
+    }: EnsureSwarmSessionRequest): Promise<string> {
         const resolvedRunId = typeof swarmRunId === 'string' && swarmRunId.trim()
             ? swarmRunId.trim()
-            : this.resolveLatestSwarmRunId(clusterId, mode) || buildSwarmRunId(clusterId, mode);
-        const key = this.buildSwarmSessionKey(clusterId, mode, resolvedRunId, agentId);
+            : this.resolveLatestSwarmRunId({ clusterId, mode }) || buildSwarmRunId({ clusterId, mode });
+        const key = this.buildSwarmSessionKey({ clusterId, mode, swarmRunId: resolvedRunId, agentId });
         const existingSessionId = this.swarmSessionIds.get(key);
         if (existingSessionId) {
             return existingSessionId;
@@ -1843,7 +2907,12 @@ export class ClusterManager extends EventEmitter {
      * @param agentId - 智能体ID
      * @returns 会话键
      */
-    private buildSwarmSessionKey(clusterId: string, mode: 'broadcast' | 'collaborate', swarmRunId: string, agentId: string): string {
+    private buildSwarmSessionKey({
+        clusterId,
+        mode,
+        swarmRunId,
+        agentId
+    }: BuildSwarmSessionKeyRequest): string {
         return `cluster:${clusterId}:swarm:${mode}:run:${swarmRunId}:agent:${agentId}`;
     }
 
@@ -1851,12 +2920,12 @@ export class ClusterManager extends EventEmitter {
      * 清除集群的所有 Swarm 会话
      * @param clusterId - 集群ID
      */
-    private buildSwarmRunRegistryKey(clusterId: string, mode: SwarmMode): string {
+    private buildSwarmRunRegistryKey({ clusterId, mode }: BuildSwarmRunRegistryKeyRequest): string {
         return `${clusterId.trim()}::${mode}`;
     }
 
-    private registerSwarmRun(clusterId: string, mode: SwarmMode, swarmRunId: string, coordinatorAgentId: string | null): void {
-        const key = this.buildSwarmRunRegistryKey(clusterId, mode);
+    private registerSwarmRun({ clusterId, mode, swarmRunId, coordinatorAgentId }: RegisterSwarmRunRequest): void {
+        const key = this.buildSwarmRunRegistryKey({ clusterId, mode });
         this.activeSwarmRunsByKey.set(key, swarmRunId);
         this.latestSwarmRunsByKey.set(key, swarmRunId);
         this.swarmRunStates.set(swarmRunId, {
@@ -1873,21 +2942,21 @@ export class ClusterManager extends EventEmitter {
         });
     }
 
-    private getActiveSwarmRunId(clusterId: string, mode: SwarmMode): string | null {
-        return this.activeSwarmRunsByKey.get(this.buildSwarmRunRegistryKey(clusterId, mode)) || null;
+    private getActiveSwarmRunId({ clusterId, mode }: BuildSwarmRunRegistryKeyRequest): string | undefined {
+        return this.activeSwarmRunsByKey.get(this.buildSwarmRunRegistryKey({ clusterId, mode })) || undefined;
     }
 
-    private resolveLatestSwarmRunId(clusterId: string, mode: SwarmMode): string | null {
-        const key = this.buildSwarmRunRegistryKey(clusterId, mode);
-        return this.activeSwarmRunsByKey.get(key) || this.latestSwarmRunsByKey.get(key) || null;
+    private resolveLatestSwarmRunId({ clusterId, mode }: BuildSwarmRunRegistryKeyRequest): string | undefined {
+        const key = this.buildSwarmRunRegistryKey({ clusterId, mode });
+        return this.activeSwarmRunsByKey.get(key) || this.latestSwarmRunsByKey.get(key) || undefined;
     }
 
-    private setSwarmRunPhase(
-        swarmRunId: string,
-        phase: SwarmRunPhase,
-        currentRound: number,
-        coordinatorAgentId?: string | null
-    ): void {
+    private setSwarmRunPhase({
+        swarmRunId,
+        phase,
+        currentRound,
+        coordinatorAgentId
+    }: SetSwarmRunPhaseRequest): void {
         const state = this.swarmRunStates.get(swarmRunId);
         if (!state || state.status !== 'running') {
             return;
@@ -1899,18 +2968,18 @@ export class ClusterManager extends EventEmitter {
         }
     }
 
-    private recordRoundSnapshot(
-        swarmRunId: string,
-        round: number,
-        phase: 'opening' | 'critique' | 'revision',
-        entries: Record<string, ClusterBroadcastResult>
-    ): SwarmRoundSnapshot {
+    private recordRoundSnapshot({
+        swarmRunId,
+        round,
+        phase,
+        entries
+    }: RecordRoundSnapshotRequest): SwarmRoundSnapshot {
         const snapshot: SwarmRoundSnapshot = {
             runId: swarmRunId,
             round,
             phase,
             entries: Object.fromEntries(
-                Object.entries(entries).map(([agentId, entry]) => [
+                Object.entries(entries).map(([agentId, entry]: any) => [
                     agentId,
                     {
                         agentId,
@@ -1952,13 +3021,18 @@ export class ClusterManager extends EventEmitter {
         } else {
             state.status = 'completed';
         }
-        const key = this.buildSwarmRunRegistryKey(state.clusterId, state.mode);
+        const key = this.buildSwarmRunRegistryKey({ clusterId: state.clusterId, mode: state.mode });
         if (this.activeSwarmRunsByKey.get(key) === swarmRunId) {
             this.activeSwarmRunsByKey.delete(key);
         }
     }
 
-    private isSwarmRunActive(swarmRunId: string | null | undefined): boolean {
+    /**
+     * 保证当前swarm正在运行
+     * @param swarmRunId swarm id
+     * @returns 
+     */
+    private isSwarmRunActive(swarmRunId: string | undefined): boolean {
         const normalizedSwarmRunId = typeof swarmRunId === 'string' ? swarmRunId.trim() : '';
         if (!normalizedSwarmRunId) {
             return true;
@@ -1967,9 +3041,17 @@ export class ClusterManager extends EventEmitter {
         if (!state || state.status !== 'running' || state.cancellationRequested) {
             return false;
         }
-        return this.activeSwarmRunsByKey.get(this.buildSwarmRunRegistryKey(state.clusterId, state.mode)) === normalizedSwarmRunId;
+        return this.activeSwarmRunsByKey.get(this.buildSwarmRunRegistryKey({
+            clusterId: state.clusterId,
+            mode: state.mode
+        })) === normalizedSwarmRunId;
     }
 
+    /**
+     * 检查swarm发送上下文活跃性
+     * @param swarm 
+     * @returns 
+     */
     private isSwarmSendContextActive(swarm?: SwarmSendContext): boolean {
         if (!swarm?.swarmRunId) {
             return true;
@@ -1977,7 +3059,12 @@ export class ClusterManager extends EventEmitter {
         return this.isSwarmRunActive(swarm.swarmRunId);
     }
 
-    private buildClusterAgentSwarmStorageKey(clusterId: string, agentId: string, mode: SwarmMode, swarmRunId: string): string {
+    private buildClusterAgentSwarmStorageKey({
+        clusterId,
+        agentId,
+        mode,
+        swarmRunId
+    }: ClusterAgentSwarmStorageKeyRequest): string {
         return `${clusterId.trim()}::agent::${agentId.trim()}::${mode}::${swarmRunId.trim()}`;
     }
 
@@ -1985,18 +3072,23 @@ export class ClusterManager extends EventEmitter {
      * Reset the visible swarm log for a cluster/mode before a new run starts so the
      * collaborate menu always shows a coherent single-run transcript.
      */
-    private async appendClusterAgentSwarmMessages(
-        clusterId: string,
-        agentId: string,
-        mode: SwarmMode,
-        messages: ChatMessage[],
-        swarmRunId?: string
-    ): Promise<void> {
-        const resolvedRunId = swarmRunId || this.resolveLatestSwarmRunId(clusterId, mode);
+    private async appendClusterAgentSwarmMessages({
+        clusterId,
+        agentId,
+        mode,
+        messages,
+        swarmRunId
+    }: AppendClusterAgentSwarmMessagesRequest): Promise<void> {
+        const resolvedRunId = swarmRunId || this.resolveLatestSwarmRunId({ clusterId, mode });
         if (!resolvedRunId) {
             return;
         }
-        const key = this.buildClusterAgentSwarmStorageKey(clusterId, agentId, mode, resolvedRunId);
+        const key = this.buildClusterAgentSwarmStorageKey({
+            clusterId,
+            agentId,
+            mode,
+            swarmRunId: resolvedRunId
+        });
         const existing = this.clusterAgentSwarmMessages.get(key) || [];
         const merged = [...existing, ...normalizePersistedChatMessages(messages)];
         if (merged.length > 0) {
@@ -2041,7 +3133,11 @@ export class ClusterManager extends EventEmitter {
      * @param mode - 模式
      * @returns 存储键
      */
-    private buildClusterSwarmStorageKey(clusterId: string, mode: 'broadcast' | 'collaborate', swarmRunId: string): string {
+    private buildClusterSwarmStorageKey({
+        clusterId,
+        mode,
+        swarmRunId
+    }: BuildClusterSwarmStorageKeyRequest): string {
         return `${clusterId.trim()}::swarm::${mode}::${swarmRunId.trim()}`;
     }
 
@@ -2051,7 +3147,10 @@ export class ClusterManager extends EventEmitter {
      * @param agentId - 智能体ID
      * @returns 存储键
      */
-    private buildClusterAgentSessionStorageKey(clusterId: string, agentId: string): string {
+    private buildClusterAgentSessionStorageKey({
+        clusterId,
+        agentId
+    }: BuildClusterAgentSessionStorageKeyRequest): string {
         return `${clusterId.trim()}::${agentId.trim()}`;
     }
 
@@ -2099,8 +3198,8 @@ export class ClusterManager extends EventEmitter {
      * @param clusterId - 集群ID
      * @param agentIds - 智能体ID列表
      */
-    private reconcileClusterAgentSessions(clusterId: string, agentIds: string[]): void {
-        const allowed = new Set(agentIds.map(agentId => this.buildClusterAgentSessionStorageKey(clusterId, agentId)));
+    private reconcileClusterAgentSessions({ clusterId, agentIds }: ReconcileClusterAgentSessionsRequest): void {
+        const allowed = new Set(agentIds.map((agentId: any) => this.buildClusterAgentSessionStorageKey({ clusterId, agentId })));
         const prefix = `${clusterId.trim()}::`;
         for (const key of this.clusterAgentSessionIds.keys()) {
             if (key.startsWith(prefix) && !allowed.has(key)) {
@@ -2116,13 +3215,13 @@ export class ClusterManager extends EventEmitter {
 
         const swarmSessionPrefix = `cluster:${clusterId}:`;
         const allowedAgentSuffixes = new Set(
-            agentIds.flatMap(agentId => [
+            agentIds.flatMap((agentId: any) => [
                 `:agent:${agentId}`,
                 `:agent:${agentId.trim()}`
             ])
         );
         for (const key of this.swarmSessionIds.keys()) {
-            const belongsToAllowedAgent = Array.from(allowedAgentSuffixes.values()).some(suffix => key.endsWith(suffix));
+            const belongsToAllowedAgent = Array.from(allowedAgentSuffixes.values()).some((suffix: any) => key.endsWith(suffix));
             if (key.startsWith(swarmSessionPrefix) && !belongsToAllowedAgent) {
                 this.swarmSessionIds.delete(key);
             }
@@ -2136,12 +3235,13 @@ export class ClusterManager extends EventEmitter {
      * @param timeoutMs - 超时毫秒
      * @returns 发送结果
      */
-    private async sendMessageWithTrace(
-        sessionId: string,
-        message: string,
-        options: { timeoutMs: number; delivery?: SwarmDeliveryContext }
-    ): Promise<{
-        message: ChatMessage | null;
+    private async sendMessageWithTrace({
+        sessionId,
+        message,
+        timeoutMs,
+        delivery
+    }: SendMessageWithTraceRequest): Promise<{
+        message: ChatMessage | undefined;
         trace: ChatMessage[];
         timedOut: boolean;
         errorMessage?: string;
@@ -2150,18 +3250,18 @@ export class ClusterManager extends EventEmitter {
         deliveryId?: string;
     }> {
         const before = await this.service.getChatHistory(sessionId).catch(() => []);
-        const knownIds = new Set(before.map(item => item.id));
+        const knownIds = new Set(before.map((item: any) => item.id));
 
-        let response: ChatMessage | null = null;
+        let response: ChatMessage | undefined = undefined;
         try {
             response = await this.service.sendMessage(sessionId, message, {
-                delivery: options.delivery,
-                timeoutMs: options.timeoutMs
+                delivery,
+                timeoutMs
             });
         } catch (error) {
             if (error instanceof OutboundDeliveryError) {
                 return {
-                    message: null,
+                    message: undefined,
                     trace: [],
                     timedOut: error.status === 'expired',
                     errorMessage: error.message,
@@ -2172,7 +3272,7 @@ export class ClusterManager extends EventEmitter {
             }
 
             return {
-                message: null,
+                message: undefined,
                 trace: [],
                 timedOut: false,
                 errorMessage: String(error)
@@ -2181,7 +3281,7 @@ export class ClusterManager extends EventEmitter {
 
         const after = await this.service.getChatHistory(sessionId).catch(() => []);
         const trace = this.normalizeTraceMessages(
-            after.filter(item => !knownIds.has(item.id))
+            after.filter((item: any) => !knownIds.has(item.id))
         );
         const finalTraceMessage = findLastAssistantMessage(trace);
 
@@ -2238,45 +3338,51 @@ export class ClusterManager extends EventEmitter {
      * @param stopConditionSummary - 停止条件摘要
      * @returns 合成提示词
      */
-    private async buildSynthesisPrompt(
-        cluster: AgentCluster,
-        userMessage: string,
-        workspaceConfig: ClusterWorkspaceConfig,
-        coordinatorAgentId: string,
-        successfulAgentIds: string[],
-        contributions: Record<string, ClusterBroadcastResult>,
-        rounds: ClusterCollaborationRound[],
-        stopConditionSummary?: string
-    ): Promise<string> {
+    private async buildSynthesisPrompt({
+        cluster,
+        userMessage,
+        workspaceConfig,
+        coordinatorAgentId,
+        successfulAgentIds,
+        contributions,
+        rounds,
+        stopConditionSummary
+    }: BuildSynthesisPromptRequest): Promise<string> {
+        // 这是在……获取agent列表？
         const agents = await Promise.all(
-            cluster.agentIds.map(async agentId => [agentId, await this.service.getAgent(agentId).catch(() => null)] as const)
+            cluster.agentIds.map(async (agentId: any) => [agentId, await this.service.getAgent(agentId).catch(() => undefined)] as const)
         );
-        const agentMap = new Map<string, Agent | null>(agents);
+        const agentMap = new Map<string, Agent | undefined>(agents);
 
         const roundSummaries = rounds
-            .map(round => {
-                const activeAgentIds = cluster.agentIds.filter(agentId => round.entries[agentId]);
+            .map((round: any) => {
+                const activeAgentIds = cluster.agentIds.filter((agentId: any) => round.entries[agentId]);
                 if (activeAgentIds.length === 0) {
                     return '';
                 }
 
                 return [
                     `## ${getCollaborationRoundPromptTitle(round.kind)}`,
-                    formatRoundEntries(activeAgentIds, round.entries, agentMap)
+                    formatRoundEntries({ agentIds: activeAgentIds, entries: round.entries, agentMap })
                 ].join('\n');
             })
             .filter(Boolean);
+        
+        // 获得最终的轮次内容。
+        const finalPositionSummary = formatRoundEntries({
+            agentIds: successfulAgentIds,
+            entries: contributions,
+            agentMap
+        });
 
-        const finalPositionSummary = formatRoundEntries(successfulAgentIds, contributions, agentMap);
-
-        const failedAgentIds = cluster.agentIds.filter(agentId => !contributions[agentId]?.ok);
+        const failedAgentIds = cluster.agentIds.filter((agentId: any) => !contributions[agentId]?.ok);
         const unavailableLine = failedAgentIds.length > 0
             ? `Unavailable agents: ${failedAgentIds.join(', ')}`
             : '';
 
         return [
             `You are coordinating the agent swarm "${cluster.name}".`,
-            ...buildCoordinatorProfilePromptLines(workspaceConfig, coordinatorAgentId),
+            ...buildCoordinatorProfilePromptLines({ workspaceConfig, agentId: coordinatorAgentId }),
             buildCoordinatorStyleInstruction(workspaceConfig.collaborationStyle),
             'You are receiving the full transcript of a multi-round swarm debate with peer review.',
             'Synthesize the strongest parts of the debate into one final answer for the user.',
@@ -2314,19 +3420,19 @@ export class ClusterManager extends EventEmitter {
      * @param stopConditionSessionIds - 停止条件会话ID映射
      * @returns 停止条件评估结果
      */
-    private async evaluateStopCondition(
-        cluster: AgentCluster,
-        userMessage: string,
-        workspaceConfig: ClusterWorkspaceConfig,
-        judgeAgentId: string,
-        successfulAgentIds: string[],
-        contributions: Record<string, ClusterBroadcastResult>,
-        rounds: ClusterCollaborationRound[],
-        swarmRunId: string,
-        reviewRound: number,
-        stopConditionSessionIds: Map<string, string>
-    ): Promise<ClusterStopConditionEvaluation> {
-        const prompt = await this.buildStopConditionPrompt(
+    private async evaluateStopCondition({
+        cluster,
+        userMessage,
+        workspaceConfig,
+        judgeAgentId,
+        successfulAgentIds,
+        contributions,
+        rounds,
+        swarmRunId,
+        reviewRound,
+        stopConditionSessionIds
+    }: EvaluateStopConditionRequest): Promise<ClusterStopConditionEvaluation> {
+        const prompt = await this.buildStopConditionPrompt({
             cluster,
             userMessage,
             workspaceConfig,
@@ -2335,26 +3441,30 @@ export class ClusterManager extends EventEmitter {
             contributions,
             rounds,
             reviewRound
-        );
-        const stopConditionGroupId = buildSwarmTransactionGroupId(swarmRunId, `stop-condition-${reviewRound}`);
-        const evaluation = await this.sendMessageToAgent(judgeAgentId, prompt, {
-            clusterId: cluster.id,
-            mode: 'collaborate',
-            debateSessionIds: stopConditionSessionIds,
-            swarm: {
-                swarmRunId,
-                phase: `stop-condition-${reviewRound}`,
-                round: reviewRound,
-                transactionGroupId: stopConditionGroupId,
-                expectedGroupSize: 1,
-                groupCompletionPolicy: 'all',
-                requiresDeliveryForProgress: true,
-                messageKind: 'stop-condition',
-                sourceAgentId: judgeAgentId,
-                targetAgentId: judgeAgentId
+        });
+        const stopConditionGroupId = buildSwarmTransactionGroupId({ swarmRunId, phase: `stop-condition-${reviewRound}` });
+        const evaluation = await this.sendMessageToAgent({
+            agentId: judgeAgentId,
+            message: prompt,
+            options: {
+                clusterId: cluster.id,
+                mode: 'collaborate',
+                debateSessionIds: stopConditionSessionIds,
+                swarm: {
+                    swarmRunId,
+                    phase: `stop-condition-${reviewRound}`,
+                    round: reviewRound,
+                    transactionGroupId: stopConditionGroupId,
+                    expectedGroupSize: 1,
+                    groupCompletionPolicy: 'all',
+                    requiresDeliveryForProgress: true,
+                    messageKind: 'stop-condition',
+                    sourceAgentId: judgeAgentId,
+                    targetAgentId: judgeAgentId
+                }
             }
         });
-        return parseStopConditionEvaluation(evaluation, judgeAgentId, reviewRound);
+        return parseStopConditionEvaluation({ evaluation, judgeAgentId, reviewRound });
     }
 
     /**
@@ -2369,37 +3479,37 @@ export class ClusterManager extends EventEmitter {
      * @param reviewRound - 评审轮次
      * @returns 停止条件提示词
      */
-    private async buildStopConditionPrompt(
-        cluster: AgentCluster,
-        userMessage: string,
-        workspaceConfig: ClusterWorkspaceConfig,
-        judgeAgentId: string,
-        successfulAgentIds: string[],
-        contributions: Record<string, ClusterBroadcastResult>,
-        rounds: ClusterCollaborationRound[],
-        reviewRound: number
-    ): Promise<string> {
+    private async buildStopConditionPrompt({
+        cluster,
+        userMessage,
+        workspaceConfig,
+        judgeAgentId,
+        successfulAgentIds,
+        contributions,
+        rounds,
+        reviewRound
+    }: BuildStopConditionPromptRequest): Promise<string> {
         const agents = await Promise.all(
-            cluster.agentIds.map(async agentId => [agentId, await this.service.getAgent(agentId).catch(() => null)] as const)
+            cluster.agentIds.map(async (agentId: any) => [agentId, await this.service.getAgent(agentId).catch(() => undefined)] as const)
         );
-        const agentMap = new Map<string, Agent | null>(agents);
+        const agentMap = new Map<string, Agent | undefined>(agents);
         const recentRounds = rounds.slice(-2)
-            .map(round => {
-                const activeAgentIds = cluster.agentIds.filter(agentId => round.entries[agentId]);
+            .map((round: any) => {
+                const activeAgentIds = cluster.agentIds.filter((agentId: any) => round.entries[agentId]);
                 if (activeAgentIds.length === 0) {
                     return '';
                 }
 
                 return [
                     `## ${getCollaborationRoundPromptTitle(round.kind)}`,
-                    formatRoundEntries(activeAgentIds, round.entries, agentMap)
+                    formatRoundEntries({ agentIds: activeAgentIds, entries: round.entries, agentMap })
                 ].join('\n');
             })
             .filter(Boolean);
 
         return [
             `You are evaluating whether the agent swarm "${cluster.name}" should continue debating.`,
-            ...buildCoordinatorProfilePromptLines(workspaceConfig, judgeAgentId),
+            ...buildCoordinatorProfilePromptLines({ workspaceConfig, agentId: judgeAgentId }),
             'You are not producing the final user answer.',
             'Do not write files, export artifacts, or perform final consolidation in stop-condition review.',
             `Current review round: ${reviewRound}.`,
@@ -2414,7 +3524,7 @@ export class ClusterManager extends EventEmitter {
             userMessage,
             '',
             'Latest viable agent positions:',
-            formatRoundEntries(successfulAgentIds, contributions, agentMap),
+            formatRoundEntries({ agentIds: successfulAgentIds, entries: contributions, agentMap }),
             recentRounds.length > 0 ? `\nRecent debate context:\n${recentRounds.join('\n\n')}` : '',
             '',
             'If the condition has been met, choose STOP. Otherwise choose CONTINUE.'
@@ -2444,7 +3554,13 @@ export class ClusterManager extends EventEmitter {
  * @param agentId - 智能体ID
  * @returns 会话ID
  */
-function buildClusterAgentSessionId(clusterId: string, agentId: string): string {
+function buildClusterAgentSessionId({
+    clusterId,
+    agentId
+}: {
+    clusterId: string;
+    agentId: string;
+}): string {
     return `cluster:${clusterId.trim()}:agent:${agentId.trim()}:session:${buildUniqueTimestampSuffix()}`;
 }
 
@@ -2453,7 +3569,7 @@ function buildClusterAgentSessionId(clusterId: string, agentId: string): string 
  * @param messages - 消息列表
  * @returns 规范化后的消息列表
  */
-function normalizePersistedChatMessages(messages: ChatMessage[] | undefined | null): ChatMessage[] {
+function normalizePersistedChatMessages(messages: ChatMessage[] | undefined): ChatMessage[] {
     if (!Array.isArray(messages)) {
         return [];
     }
@@ -2465,7 +3581,7 @@ function normalizePersistedChatMessages(messages: ChatMessage[] | undefined | nu
         }
 
         const id = typeof message.id === 'string' ? message.id.trim() : '';
-        const role = isChatMessageRole(message.role) ? message.role : null;
+        const role = isChatMessageRole(message.role) ? message.role : undefined;
         const content = typeof message.content === 'string' ? message.content : '';
         const timestamp = typeof message.timestamp === 'string' ? message.timestamp : '';
 
@@ -2479,14 +3595,296 @@ function normalizePersistedChatMessages(messages: ChatMessage[] | undefined | nu
             role,
             content,
             timestamp,
+            displayName: typeof message.displayName === 'string' ? message.displayName : undefined,
+            contextLabel: typeof message.contextLabel === 'string' ? message.contextLabel : undefined,
             agentId: typeof message.agentId === 'string' ? message.agentId : undefined,
             tokenCount: typeof message.tokenCount === 'number' ? message.tokenCount : undefined,
             parts: Array.isArray(message.parts) ? [...message.parts] : undefined,
+            toolCallId: typeof message.toolCallId === 'string' ? message.toolCallId : undefined,
+            toolName: typeof message.toolName === 'string' ? message.toolName : undefined,
+            toolArguments: message.toolArguments,
+            toolDetails: message.toolDetails,
+            isError: typeof message.isError === 'boolean' ? message.isError : undefined,
             metadata: isRecord(message.metadata) ? { ...message.metadata } : undefined
         });
     }
 
     return normalized;
+}
+
+function hydratePersistedSwarmMessage(message: ChatMessage, source?: ChatMessage): ChatMessage {
+    if (!source) {
+        return message;
+    }
+
+    const sourceHasRenderableBody = hasRenderableMessageBody(source);
+    const messageHasRenderableBody = hasRenderableMessageBody(message);
+
+    return {
+        ...message,
+        role: source.role || message.role,
+        content: sourceHasRenderableBody || !messageHasRenderableBody
+            ? source.content
+            : message.content,
+        agentId: message.agentId || source.agentId,
+        tokenCount: source.tokenCount ?? message.tokenCount,
+        parts: sourceHasRenderableBody && Array.isArray(source.parts) && source.parts.length > 0
+            ? [...source.parts]
+            : message.parts,
+        toolCallId: source.toolCallId || message.toolCallId,
+        toolName: source.toolName || message.toolName,
+        toolArguments: source.toolArguments !== undefined ? source.toolArguments : message.toolArguments,
+        toolDetails: source.toolDetails !== undefined ? source.toolDetails : message.toolDetails,
+        isError: typeof source.isError === 'boolean' ? source.isError : message.isError,
+        metadata: mergeHydratedMessageMetadata(message.metadata, source.metadata)
+    };
+}
+
+function mergeHydratedMessageMetadata(
+    messageMetadata?: Record<string, unknown>,
+    sourceMetadata?: Record<string, unknown>
+): Record<string, unknown> | undefined {
+    const merged = {
+        ...(sourceMetadata || {}),
+        ...(messageMetadata || {})
+    };
+    return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+function computeHydrationMessageRichness(message: ChatMessage | undefined): number {
+    if (!message) {
+        return -1;
+    }
+
+    return [
+        message.content || '',
+        Array.isArray(message.parts) ? JSON.stringify(message.parts) : '',
+        message.toolCallId || '',
+        message.toolName || '',
+        message.toolArguments !== undefined ? JSON.stringify(message.toolArguments) : '',
+        message.toolDetails !== undefined ? JSON.stringify(message.toolDetails) : ''
+    ].join('|').length;
+}
+
+function didChatMessageCollectionChange(left: ChatMessage[], right: ChatMessage[]): boolean {
+    if (left.length !== right.length) {
+        return true;
+    }
+
+    for (let index = 0; index < left.length; index += 1) {
+        if (JSON.stringify(left[index]) !== JSON.stringify(right[index])) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function reconstructSwarmSessionMessagesFromHistory({
+    history,
+    agentId,
+    mode,
+    swarmRunId,
+    includeInputs
+}: {
+    history: ChatMessage[];
+    agentId: string;
+    mode: 'broadcast' | 'collaborate';
+    swarmRunId: string;
+    includeInputs: boolean;
+}): ChatMessage[] {
+    const reconstructed: ChatMessage[] = [];
+    let currentStageKind = mode === 'broadcast' ? 'broadcast' : '';
+
+    for (const message of history) {
+        if (!message) {
+            continue;
+        }
+
+        if (message.role === 'user') {
+            const parsedKind = parseSwarmSessionStageKind(message.content, mode);
+            if (parsedKind) {
+                currentStageKind = parsedKind;
+            }
+
+            if (!includeInputs || !hasRenderableMessageBody(message) || !shouldRenderSwarmSessionStage(currentStageKind, 'input', includeInputs)) {
+                continue;
+            }
+
+            reconstructed.push(buildReconstructedSwarmSessionMessage({
+                message,
+                agentId,
+                swarmRunId,
+                stageKind: currentStageKind,
+                direction: 'input'
+            }));
+            continue;
+        }
+
+        if (!shouldRenderSwarmSessionStage(currentStageKind, 'output', includeInputs)) {
+            continue;
+        }
+
+        if (message.role !== 'assistant' && message.role !== 'tool') {
+            continue;
+        }
+
+        if (!hasRenderableSwarmSessionMessage(message)) {
+            continue;
+        }
+
+        reconstructed.push(buildReconstructedSwarmSessionMessage({
+            message,
+            agentId,
+            swarmRunId,
+            stageKind: currentStageKind,
+            direction: 'output'
+        }));
+    }
+
+    return reconstructed;
+}
+
+function buildReconstructedSwarmSessionMessage({
+    message,
+    agentId,
+    swarmRunId,
+    stageKind,
+    direction
+}: {
+    message: ChatMessage;
+    agentId: string;
+    swarmRunId: string;
+    stageKind: string;
+    direction: 'input' | 'output';
+}): ChatMessage {
+    return {
+        ...message,
+        agentId: message.agentId || agentId,
+        contextLabel: buildSwarmSessionContextLabel(stageKind, direction),
+        metadata: {
+            ...(message.metadata || {}),
+            swarmRunId,
+            swarmSourceAgentId: agentId,
+            swarmSessionReconstructed: true,
+            swarmSessionStageKind: stageKind,
+            swarmSessionDirection: direction
+        }
+    };
+}
+
+function parseSwarmSessionStageKind(
+    prompt: string,
+    mode: 'broadcast' | 'collaborate'
+): string {
+    const content = String(prompt || '');
+    if (!content.trim()) {
+        return mode === 'broadcast' ? 'broadcast' : '';
+    }
+
+    if (mode === 'broadcast') {
+        return 'broadcast';
+    }
+
+    if (/You are coordinating the agent swarm/i.test(content)) {
+        return 'synthesis';
+    }
+
+    if (/Debate stage:\s*opening/i.test(content)) {
+        return 'opening';
+    }
+
+    const critiqueMatch = content.match(/Debate stage:\s*critique round\s+(\d+)/i);
+    if (critiqueMatch) {
+        return `critique-${Number(critiqueMatch[1] || '1')}`;
+    }
+
+    const revisionMatch = content.match(/Debate stage:\s*revision round\s+(\d+)/i);
+    if (revisionMatch) {
+        return `revision-${Number(revisionMatch[1] || '1')}`;
+    }
+
+    const stopConditionMatch = content.match(/Current review round:\s*(\d+)/i);
+    if (stopConditionMatch) {
+        return `stop-check-${Number(stopConditionMatch[1] || '1')}`;
+    }
+
+    return '';
+}
+
+function shouldRenderSwarmSessionStage(
+    stageKind: string,
+    direction: 'input' | 'output',
+    includeAllStages: boolean
+): boolean {
+    if (!stageKind) {
+        return false;
+    }
+
+    if (stageKind.startsWith('stop-check-')) {
+        return includeAllStages;
+    }
+
+    if (stageKind === 'synthesis' && direction === 'input') {
+        return includeAllStages;
+    }
+
+    return true;
+}
+
+function buildSwarmSessionContextLabel(stageKind: string, direction: 'input' | 'output'): string {
+    const stageLabel = buildSwarmSessionStageLabel(stageKind);
+    if (!stageLabel) {
+        return '';
+    }
+
+    return direction === 'input'
+        ? `Input · ${stageLabel}`
+        : stageLabel;
+}
+
+function buildSwarmSessionStageLabel(stageKind: string): string {
+    if (!stageKind) {
+        return '';
+    }
+
+    if (stageKind === 'broadcast') {
+        return t('clusters.broadcast');
+    }
+
+    if (stageKind === 'synthesis') {
+        return 'Final Synthesis';
+    }
+
+    if (stageKind === 'opening' || stageKind.startsWith('critique-') || stageKind.startsWith('revision-')) {
+        const descriptor = buildCollaborationRoundDescriptor(stageKind as ClusterCollaborationRoundKind);
+        const translated = t(descriptor.labelKey, { round: descriptor.reviewRound });
+        return translated && translated !== descriptor.labelKey
+            ? translated
+            : descriptor.fallbackLabel;
+    }
+
+    if (stageKind.startsWith('stop-check-')) {
+        return `Stop Condition Review ${Number(stageKind.slice('stop-check-'.length) || '1')}`;
+    }
+
+    return stageKind;
+}
+
+function compareReconstructedSwarmMessages(left: ChatMessage, right: ChatMessage): number {
+    const leftTime = Date.parse(left.timestamp || '') || 0;
+    const rightTime = Date.parse(right.timestamp || '') || 0;
+    if (leftTime !== rightTime) {
+        return leftTime - rightTime;
+    }
+
+    const leftDirection = String(left.metadata?.swarmSessionDirection || '');
+    const rightDirection = String(right.metadata?.swarmSessionDirection || '');
+    if (leftDirection !== rightDirection) {
+        return leftDirection === 'input' ? -1 : 1;
+    }
+
+    return String(left.id || '').localeCompare(String(right.id || ''));
 }
 
 /**
@@ -2501,10 +3899,10 @@ function cloneChatMessages(messages: ChatMessage[]): ChatMessage[] {
 /**
  * 查找最后一条助手消息
  * @param messages - 消息列表
- * @returns 最后一条助手消息或 null
+ * @returns 最后一条助手消息或 undefined
  */
-function findLastAssistantMessage(messages: ChatMessage[]): ChatMessage | null {
-    let fallbackAssistant: ChatMessage | null = null;
+function findLastAssistantMessage(messages: ChatMessage[]): ChatMessage | undefined {
+    let fallbackAssistant: ChatMessage | undefined = undefined;
     for (let index = messages.length - 1; index >= 0; index -= 1) {
         const message = messages[index];
         if (message?.role !== 'assistant') {
@@ -2552,7 +3950,7 @@ function hasRenderableMessageBody(message: ChatMessage): boolean {
         return true;
     }
 
-    return Array.isArray(message.parts) && message.parts.some(part => {
+    return Array.isArray(message.parts) && message.parts.some((part: any) => {
         if (!part || typeof part !== 'object') {
             return false;
         }
@@ -2565,12 +3963,35 @@ function hasRenderableMessageBody(message: ChatMessage): boolean {
             return Boolean(part.thinking?.trim());
         }
 
+        if (part.type === 'toolCall') {
+            return Boolean(String(part.name || '').trim() || String(part.id || '').trim());
+        }
+
         if (part.type === 'toolResult') {
-            return Boolean(part.result?.trim());
+            return Boolean(String(part.result || '').trim() || String(part.details || '').trim());
         }
 
         return false;
     });
+}
+
+function hasRenderableSwarmSessionMessage(message: ChatMessage): boolean {
+    if (hasRenderableMessageBody(message)) {
+        return true;
+    }
+
+    if (message.role === 'tool') {
+        return Boolean(
+            String(message.toolName || '').trim()
+            || String(message.toolCallId || '').trim()
+            || message.toolArguments !== undefined
+            || message.toolDetails !== undefined
+        );
+    }
+
+    return Array.isArray(message.parts) && message.parts.some((part: any) =>
+        part?.type === 'toolCall' || part?.type === 'toolResult'
+    );
 }
 
 /**
@@ -2579,7 +4000,13 @@ function hasRenderableMessageBody(message: ChatMessage): boolean {
  * @param startedAt - 开始时间ISO字符串
  * @returns 时间信息
  */
-function buildClusterResultTiming(startedAtMs: number, startedAt: string): ClusterBroadcastResult['timing'] {
+function buildClusterResultTiming({
+    startedAtMs,
+    startedAt
+}: {
+    startedAtMs: number;
+    startedAt: string;
+}): ClusterBroadcastResult['timing'] {
     const completedAtMs = Date.now();
     return {
         startedAt,
@@ -2648,14 +4075,19 @@ function uniqueAgentIds(agentIds: string[]): string[] {
  * @param successfulAgentIds - 成功的智能体ID列表
  * @param configuredAgentId - 配置的协调者ID
  * @param preferredAgentId - 优先的协调者ID
- * @returns 协调者智能体ID或 null
+ * @returns 协调者智能体ID或 undefined
  */
-function resolveCoordinatorAgentId(
-    clusterAgentIds: string[],
-    successfulAgentIds: string[],
-    configuredAgentId?: string,
-    preferredAgentId?: string
-): string | null {
+function resolveCoordinatorAgentId({
+    clusterAgentIds,
+    successfulAgentIds,
+    configuredAgentId,
+    preferredAgentId
+}: {
+    clusterAgentIds: string[];
+    successfulAgentIds: string[];
+    configuredAgentId?: string;
+    preferredAgentId?: string;
+}): string | undefined {
     const normalizedConfigured = configuredAgentId?.trim();
     if (normalizedConfigured && clusterAgentIds.includes(normalizedConfigured)) {
         return normalizedConfigured;
@@ -2674,7 +4106,7 @@ function resolveCoordinatorAgentId(
         return normalizedPreferred;
     }
 
-    return clusterAgentIds[0] || null;
+    return clusterAgentIds[0] || undefined;
 }
 
 /**
@@ -2694,13 +4126,18 @@ function workspaceConfigOrDefault(config?: ClusterWorkspaceConfig): ClusterWorks
  * @param userMessage - 用户消息
  * @returns Swarm 激活计划
  */
-function resolveSwarmActivationPlan(
-    agentIds: string[],
-    workspaceConfig: ClusterWorkspaceConfig,
-    mode: 'broadcast' | 'collaborate',
-    userMessage: string
-): SwarmActivationPlan {
-    const parentMap = resolveClusterMemberParentMap(agentIds, workspaceConfig);
+function resolveSwarmActivationPlan({
+    agentIds,
+    workspaceConfig,
+    mode,
+    userMessage
+}: {
+    agentIds: string[];
+    workspaceConfig: ClusterWorkspaceConfig;
+    mode: 'broadcast' | 'collaborate';
+    userMessage: string;
+}): SwarmActivationPlan {
+    const parentMap = resolveClusterMemberParentMap({ agentIds, workspaceConfig });
     const childrenByParent = new Map<string, string[]>();
     const orderedAgentIds: string[] = [];
 
@@ -2709,7 +4146,7 @@ function resolveSwarmActivationPlan(
     }
 
     for (const agentId of agentIds) {
-        const parentAgentId = parentMap.get(agentId) || null;
+        const parentAgentId = parentMap.get(agentId) || undefined;
         if (parentAgentId) {
             childrenByParent.get(parentAgentId)?.push(agentId);
         }
@@ -2717,11 +4154,16 @@ function resolveSwarmActivationPlan(
 
     const buildNode = (
         agentId: string,
-        parentAgentId: string | null,
+        parentAgentId: string | undefined,
         depth: number
-    ): SwarmActivationNode | null => {
-        if (!isClusterAgentEligibleForSwarm(workspaceConfig, agentId, mode, userMessage)) {
-            return null;
+    ): SwarmActivationNode | undefined => {
+        if (!isClusterAgentEligibleForSwarm({
+            workspaceConfig,
+            agentId,
+            mode,
+            userMessage
+        })) {
+            return undefined;
         }
 
         const node: SwarmActivationNode = {
@@ -2734,15 +4176,15 @@ function resolveSwarmActivationPlan(
 
         const childIds = childrenByParent.get(agentId) || [];
         node.children = childIds
-            .map(childAgentId => buildNode(childAgentId, agentId, depth + 1))
-            .filter((childNode): childNode is SwarmActivationNode => Boolean(childNode));
+            .map((childAgentId: any) => buildNode(childAgentId, agentId, depth + 1))
+            .filter((childNode: any): childNode is SwarmActivationNode => Boolean(childNode));
         return node;
     };
 
     const rootNodes = agentIds
-        .filter(agentId => !parentMap.get(agentId))
-        .map(agentId => buildNode(agentId, null, 0))
-        .filter((node): node is SwarmActivationNode => Boolean(node));
+        .filter((agentId: any) => !parentMap.get(agentId))
+        .map((agentId: any) => buildNode(agentId, undefined, 0))
+        .filter((node: any): node is SwarmActivationNode => Boolean(node));
 
     return {
         rootNodes,
@@ -2756,11 +4198,14 @@ function resolveSwarmActivationPlan(
  * @param workspaceConfig - 工作区配置
  * @returns 父级映射
  */
-function resolveClusterMemberParentMap(
-    agentIds: string[],
-    workspaceConfig: ClusterWorkspaceConfig
-): Map<string, string | null> {
-    const rawParentMap = new Map<string, string | null>();
+function resolveClusterMemberParentMap({
+    agentIds,
+    workspaceConfig
+}: {
+    agentIds: string[];
+    workspaceConfig: ClusterWorkspaceConfig;
+}): Map<string, string | undefined> {
+    const rawParentMap = new Map<string, string | undefined>();
     const knownAgentIds = new Set(agentIds);
 
     for (const agentId of agentIds) {
@@ -2769,17 +4214,21 @@ function resolveClusterMemberParentMap(
             agentId,
             configuredParentId && configuredParentId !== agentId && knownAgentIds.has(configuredParentId)
                 ? configuredParentId
-                : null
+                : undefined
         );
     }
 
-    const sanitizedParentMap = new Map<string, string | null>();
+    const sanitizedParentMap = new Map<string, string | undefined>();
     for (const agentId of agentIds) {
-        const candidateParentId = rawParentMap.get(agentId) || null;
+        const candidateParentId = rawParentMap.get(agentId) || undefined;
         const isValid = candidateParentId
-            ? !introducesParentCycle(agentId, candidateParentId, rawParentMap)
+            ? !introducesParentCycle({
+                agentId,
+                candidateParentId,
+                parentMap: rawParentMap
+            })
             : false;
-        sanitizedParentMap.set(agentId, isValid ? candidateParentId : null);
+        sanitizedParentMap.set(agentId, isValid ? candidateParentId : undefined);
     }
 
     return sanitizedParentMap;
@@ -2792,13 +4241,17 @@ function resolveClusterMemberParentMap(
  * @param parentMap - 父级映射
  * @returns 是否引入循环
  */
-function introducesParentCycle(
-    agentId: string,
-    candidateParentId: string,
-    parentMap: Map<string, string | null>
-): boolean {
+function introducesParentCycle({
+    agentId,
+    candidateParentId,
+    parentMap
+}: {
+    agentId: string;
+    candidateParentId: string;
+    parentMap: Map<string, string | undefined>;
+}): boolean {
     const visited = new Set<string>([agentId]);
-    let currentAgentId: string | null = candidateParentId;
+    let currentAgentId: string | undefined = candidateParentId;
 
     while (currentAgentId) {
         if (visited.has(currentAgentId)) {
@@ -2806,7 +4259,7 @@ function introducesParentCycle(
         }
 
         visited.add(currentAgentId);
-        currentAgentId = parentMap.get(currentAgentId) || null;
+        currentAgentId = parentMap.get(currentAgentId) || undefined;
     }
 
     return false;
@@ -2820,12 +4273,17 @@ function introducesParentCycle(
  * @param userMessage - 用户消息
  * @returns 是否有资格
  */
-function isClusterAgentEligibleForSwarm(
-    workspaceConfig: ClusterWorkspaceConfig,
-    agentId: string,
-    mode: 'broadcast' | 'collaborate',
-    userMessage: string
-): boolean {
+function isClusterAgentEligibleForSwarm({
+    workspaceConfig,
+    agentId,
+    mode,
+    userMessage
+}: {
+    workspaceConfig: ClusterWorkspaceConfig;
+    agentId: string;
+    mode: 'broadcast' | 'collaborate';
+    userMessage: string;
+}): boolean {
     const activation = workspaceConfig.memberProfiles?.[agentId]?.activation;
     if (!activation) {
         return true;
@@ -2841,7 +4299,7 @@ function isClusterAgentEligibleForSwarm(
             return false;
         }
 
-        return activation.keywords.some(keyword => normalizedMessage.includes(keyword.trim().toLowerCase()));
+        return activation.keywords.some((keyword: any) => normalizedMessage.includes(keyword.trim().toLowerCase()));
     }
 
     return true;
@@ -2858,7 +4316,7 @@ function buildCollaborationDebateRounds(maxRounds: number): Array<{
     revisionKind: Extract<ClusterCollaborationRoundKind, `revision-${number}`>;
 }> {
     const rounds = Math.max(1, Math.min(MAX_CLUSTER_WORK_MODE_ROUNDS, Math.round(maxRounds || 1)));
-    return Array.from({ length: rounds }, (_, index) => buildCollaborationDebateRound(index + 1));
+    return Array.from({ length: rounds }, (_: any, index: any) => buildCollaborationDebateRound(index + 1));
 }
 
 /**
@@ -2925,18 +4383,24 @@ function buildCollaborationRoundDescriptor(kind: ClusterCollaborationRoundKind):
  * @param delegatedContext - 委托上下文
  * @returns 开场提示词
  */
-function buildOpeningContributionPrompt(
-    clusterName: string,
-    userMessage: string,
-    workspaceConfig: ClusterWorkspaceConfig,
-    agentId: string,
+function buildOpeningContributionPrompt({
+    clusterName,
+    message,
+    workspaceConfig,
+    agentId,
+    delegatedContext
+}: {
+    clusterName: string;
+    message: string;
+    workspaceConfig: ClusterWorkspaceConfig;
+    agentId: string;
     delegatedContext?: {
         delegatedByAgentId: string;
         routeAgentIds: string[];
         parentContext: string;
-    }
-): string {
-    const memberProfileLines = buildMemberProfilePromptLines(workspaceConfig, agentId);
+    };
+}): string {
+    const memberProfileLines = buildMemberProfilePromptLines({ workspaceConfig, agentId });
     const wakeContextLines = delegatedContext
         ? buildDelegatedWakeContextLines(delegatedContext)
         : [];
@@ -2956,7 +4420,7 @@ function buildOpeningContributionPrompt(
         'End with a short line that starts with "Position:".',
         '',
         'User request:',
-        userMessage
+        message
     ].join('\n');
 }
 
@@ -2971,21 +4435,29 @@ function buildOpeningContributionPrompt(
  * @param reviewRound - 评审轮次
  * @returns 同行评审提示词
  */
-function buildPeerReviewPrompt(
-    clusterName: string,
-    userMessage: string,
-    workspaceConfig: ClusterWorkspaceConfig,
-    agentId: string,
-    activeAgentIds: string[],
-    contributions: Record<string, ClusterBroadcastResult>,
-    reviewRound: number
-): string {
-    const peerReviewInstruction = getPeerReviewInstruction(
-        workspaceConfig.collaborationStyle,
-        workspaceConfig.critiqueLevel,
-        activeAgentIds.length
-    );
-    const memberProfileLines = buildMemberProfilePromptLines(workspaceConfig, agentId);
+function buildPeerReviewPrompt({
+    clusterName,
+    message,
+    workspaceConfig,
+    agentId,
+    successfulAgentIds,
+    contributions,
+    reviewRound
+}: {
+    clusterName: string;
+    message: string;
+    workspaceConfig: ClusterWorkspaceConfig;
+    agentId: string;
+    successfulAgentIds: string[];
+    contributions: Record<string, ClusterBroadcastResult>;
+    reviewRound: number;
+}): string {
+    const peerReviewInstruction = getPeerReviewInstruction({
+        collaborationStyle: workspaceConfig.collaborationStyle,
+        critiqueLevel: workspaceConfig.critiqueLevel,
+        reviewerCount: successfulAgentIds.length
+    });
+    const memberProfileLines = buildMemberProfilePromptLines({ workspaceConfig, agentId });
 
     return [
         `You are part of the agent swarm "${clusterName}".`,
@@ -3001,10 +4473,10 @@ function buildPeerReviewPrompt(
         'End with a short line that starts with "Review verdict:".',
         '',
         'User request:',
-        userMessage,
+        message,
         '',
         'Current positions:',
-        formatRoundEntries(activeAgentIds, contributions)
+        formatRoundEntries({ agentIds: successfulAgentIds, entries: contributions })
     ].join('\n');
 }
 
@@ -3020,17 +4492,26 @@ function buildPeerReviewPrompt(
  * @param reviewRound - 评审轮次
  * @returns 修订提示词
  */
-function buildRevisionPrompt(
-    clusterName: string,
-    userMessage: string,
-    workspaceConfig: ClusterWorkspaceConfig,
-    agentId: string,
-    activeAgentIds: string[],
-    contributions: Record<string, ClusterBroadcastResult>,
-    critiques: Record<string, ClusterBroadcastResult>,
-    reviewRound: number
-): string {
-    const memberProfileLines = buildMemberProfilePromptLines(workspaceConfig, agentId);
+function buildRevisionPrompt({
+    clusterName,
+    message,
+    workspaceConfig,
+    agentId,
+    successfulAgentIds,
+    contributions,
+    critiqueEntries,
+    reviewRound
+}: {
+    clusterName: string;
+    message: string;
+    workspaceConfig: ClusterWorkspaceConfig;
+    agentId: string;
+    successfulAgentIds: string[];
+    contributions: Record<string, ClusterBroadcastResult>;
+    critiqueEntries: Record<string, ClusterBroadcastResult>;
+    reviewRound: number;
+}): string {
+    const memberProfileLines = buildMemberProfilePromptLines({ workspaceConfig, agentId });
     return [
         `You are part of the agent swarm "${clusterName}".`,
         `Debate stage: revision round ${reviewRound} using ${workspaceConfig.collaborationStyle}.`,
@@ -3045,13 +4526,13 @@ function buildRevisionPrompt(
         'End with a short line that starts with "Revised position:".',
         '',
         'User request:',
-        userMessage,
+        message,
         '',
         'Current positions:',
-        formatRoundEntries(activeAgentIds, contributions),
+        formatRoundEntries({ agentIds: successfulAgentIds, entries: contributions }),
         '',
         'Peer reviews:',
-        formatRoundEntries(activeAgentIds, critiques)
+        formatRoundEntries({ agentIds: successfulAgentIds, entries: critiqueEntries })
     ].join('\n');
 }
 
@@ -3062,11 +4543,15 @@ function buildRevisionPrompt(
  * @param contribution - 贡献记录
  * @returns 格式化的贡献字符串
  */
-function formatAgentContribution(
-    agentId: string,
-    agent: Agent | null,
-    contribution: ClusterBroadcastResult | undefined
-): string {
+function formatAgentContribution({
+    agentId,
+    agent,
+    contribution
+}: {
+    agentId: string;
+    agent: Agent | undefined;
+    contribution: ClusterBroadcastResult | undefined;
+}): string {
     const label = agent
         ? `${agent.name} (${agent.model}) [${agentId}]`
         : agentId;
@@ -3084,11 +4569,14 @@ function formatAgentContribution(
  * @param entries - 记录条目
  * @returns 成功的智能体ID列表
  */
-function getSuccessfulAgentIds(
-    agentIds: string[],
-    entries: Record<string, ClusterBroadcastResult>
-): string[] {
-    return agentIds.filter(agentId => entries[agentId]?.ok);
+function getSuccessfulAgentIds({
+    agentIds,
+    entries
+}: {
+    agentIds: string[];
+    entries: Record<string, ClusterBroadcastResult>;
+}): string[] {
+    return agentIds.filter((agentId: any) => entries[agentId]?.ok);
 }
 
 /**
@@ -3098,11 +4586,15 @@ function getSuccessfulAgentIds(
  * @param fallbackEntries - 回退条目
  * @returns 合并后的条目
  */
-function mergeLatestSuccessfulEntries(
-    agentIds: string[],
-    nextEntries: Record<string, ClusterBroadcastResult>,
-    fallbackEntries: Record<string, ClusterBroadcastResult>
-): Record<string, ClusterBroadcastResult> {
+function mergeLatestSuccessfulEntries({
+    agentIds,
+    nextEntries,
+    fallbackEntries
+}: {
+    agentIds: string[];
+    nextEntries: Record<string, ClusterBroadcastResult>;
+    fallbackEntries: Record<string, ClusterBroadcastResult>;
+}): Record<string, ClusterBroadcastResult> {
     const merged: Record<string, ClusterBroadcastResult> = {};
 
     for (const agentId of agentIds) {
@@ -3136,13 +4628,19 @@ function mergeLatestSuccessfulEntries(
  * @param agentMap - 智能体映射
  * @returns 格式化的条目字符串
  */
-function formatRoundEntries(
-    agentIds: string[],
-    entries: Record<string, ClusterBroadcastResult>,
-    agentMap?: Map<string, Agent | null>
-): string {
+interface FormatRoundEntriesParams {
+    agentIds: string[];
+    entries: Record<string, ClusterBroadcastResult>;
+    agentMap?: Map<string, Agent | undefined>;
+}
+
+function formatRoundEntries({ agentIds, entries, agentMap }: FormatRoundEntriesParams): string {
     return agentIds
-        .map(agentId => formatAgentContribution(agentId, agentMap?.get(agentId) || null, entries[agentId]))
+        .map((agentId: any) => formatAgentContribution({
+            agentId,
+            agent: agentMap?.get(agentId) || undefined,
+            contribution: entries[agentId]
+        }))
         .join('\n\n');
 }
 
@@ -3192,24 +4690,28 @@ function buildOpeningStyleInstruction(style: ClusterWorkspaceConfig['collaborati
  * @param participantCount - 参与者数量
  * @returns 同行评审指令
  */
-function getPeerReviewInstruction(
-    style: ClusterWorkspaceConfig['collaborationStyle'],
-    critiqueLevel: ClusterWorkspaceConfig['critiqueLevel'],
-    participantCount: number
-): string {
-    const baseline = participantCount > 1
+function getPeerReviewInstruction({
+    collaborationStyle,
+    critiqueLevel,
+    reviewerCount
+}: {
+    collaborationStyle: ClusterWorkspaceConfig['collaborationStyle'];
+    critiqueLevel: ClusterWorkspaceConfig['critiqueLevel'];
+    reviewerCount: number;
+}): string {
+    const baseline = reviewerCount > 1
         ? 'Critique the other agents first, then compare their ideas with your own.'
         : 'You are the only available agent. Perform a hard self-critique instead of peer review.';
 
-    if (style === 'review-board') {
+    if (collaborationStyle === 'review-board') {
         return `${baseline} Act like a review board and reject weak reasoning plainly.`;
     }
 
-    if (style === 'leader-draft') {
+    if (collaborationStyle === 'leader-draft') {
         return `${baseline} Focus on what the coordinator should keep, cut, or verify before drafting the final answer.`;
     }
 
-    if (style === 'round-robin') {
+    if (collaborationStyle === 'round-robin') {
         return `${baseline} Keep the critique compact so the swarm can converge quickly.`;
     }
 
@@ -3299,11 +4801,15 @@ function buildCoordinatorStyleInstruction(style: ClusterWorkspaceConfig['collabo
  * @param reviewRound - 评审轮次
  * @returns 停止条件评估
  */
-function parseStopConditionEvaluation(
-    evaluation: ClusterBroadcastResult,
-    judgeAgentId: string,
-    reviewRound: number
-): ClusterStopConditionEvaluation {
+function parseStopConditionEvaluation({
+    evaluation,
+    judgeAgentId,
+    reviewRound
+}: {
+    evaluation: ClusterBroadcastResult;
+    judgeAgentId: string;
+    reviewRound: number;
+}): ClusterStopConditionEvaluation {
     const rawContent = extractStopConditionText(evaluation) || evaluation.error || '';
     const decisionMatch = rawContent.match(/Decision:\s*(STOP|CONTINUE)/i);
     const reasonMatch = rawContent.match(/Reason:\s*([\s\S]+)/i);
@@ -3340,7 +4846,7 @@ function extractStopConditionText(evaluation: ClusterBroadcastResult): string {
     return '';
 }
 
-function extractChatMessageText(message?: ChatMessage | null): string {
+function extractChatMessageText(message?: ChatMessage): string {
     if (!message) {
         return '';
     }
@@ -3355,7 +4861,7 @@ function extractChatMessageText(message?: ChatMessage | null): string {
     }
 
     const partsText = message.parts
-        .map(part => {
+        .map((part: any) => {
             if (!part || typeof part !== 'object') {
                 return '';
             }
@@ -3387,27 +4893,30 @@ function extractChatMessageText(message?: ChatMessage | null): string {
  * @param evaluation - 停止条件评估
  * @returns 停止条件摘要
  */
-function buildStopConditionSummary(
-    workspaceConfig: ClusterWorkspaceConfig,
-    evaluation: ClusterStopConditionEvaluation | null
-): string {
+function buildStopConditionSummary({
+    workspaceConfig,
+    lastStopConditionEvaluation
+}: {
+    workspaceConfig: ClusterWorkspaceConfig;
+    lastStopConditionEvaluation: ClusterStopConditionEvaluation | undefined;
+}): string {
     if (!workspaceConfig.runUntilConditionMet || !workspaceConfig.stopCondition?.trim()) {
         return '';
     }
 
-    if (!evaluation) {
+    if (!lastStopConditionEvaluation) {
         return `Stop condition was enabled: ${workspaceConfig.stopCondition.trim()}`;
     }
 
-    if (evaluation.safetyCapReached) {
-        return `Stop condition was enabled: ${workspaceConfig.stopCondition.trim()}\nThe debate hit an internal safety cap after round ${evaluation.reviewRound}. Latest judge note: ${evaluation.reason}`;
+    if (lastStopConditionEvaluation.safetyCapReached) {
+        return `Stop condition was enabled: ${workspaceConfig.stopCondition.trim()}\nThe debate hit an internal safety cap after round ${lastStopConditionEvaluation.reviewRound}. Latest judge note: ${lastStopConditionEvaluation.reason}`;
     }
 
-    if (evaluation.shouldStop) {
-        return `Stop condition was enabled: ${workspaceConfig.stopCondition.trim()}\nThe debate stopped after round ${evaluation.reviewRound} because the judge concluded: ${evaluation.reason}`;
+    if (lastStopConditionEvaluation.shouldStop) {
+        return `Stop condition was enabled: ${workspaceConfig.stopCondition.trim()}\nThe debate stopped after round ${lastStopConditionEvaluation.reviewRound} because the judge concluded: ${lastStopConditionEvaluation.reason}`;
     }
 
-    return `Stop condition was enabled: ${workspaceConfig.stopCondition.trim()}\nLatest judge note after round ${evaluation.reviewRound}: ${evaluation.reason}`;
+    return `Stop condition was enabled: ${workspaceConfig.stopCondition.trim()}\nLatest judge note after round ${lastStopConditionEvaluation.reviewRound}: ${lastStopConditionEvaluation.reason}`;
 }
 
 /**
@@ -3427,15 +4936,19 @@ function clusterBriefingLine(workspaceConfig: ClusterWorkspaceConfig): string {
  * @param delegatedContext - 委托上下文
  * @returns 委托广播提示词
  */
-function buildDelegatedBroadcastPrompt(
-    clusterName: string,
-    userMessage: string,
+function buildDelegatedBroadcastPrompt({
+    clusterName,
+    message,
+    delegatedContext
+}: {
+    clusterName: string;
+    message: string;
     delegatedContext: {
         delegatedByAgentId: string;
         routeAgentIds: string[];
         parentContext: string;
-    }
-): string {
+    };
+}): string {
     return [
         `You are part of the agent swarm "${clusterName}".`,
         ...buildDelegatedWakeContextLines(delegatedContext),
@@ -3444,7 +4957,7 @@ function buildDelegatedBroadcastPrompt(
         'Do not mention the internal wake chain unless the user explicitly asks.',
         '',
         'User request:',
-        userMessage
+        message
     ].join('\n');
 }
 
@@ -3473,7 +4986,11 @@ function buildDelegatedWakeContextLines(delegatedContext: {
  * @param result - Swarm 结果
  * @returns 上下文内容
  */
-function extractSwarmResultContext(result: ClusterBroadcastResult | null): string {
+function extractSwarmResultContext({
+    result
+}: {
+    result: ClusterBroadcastResult | undefined;
+}): string {
     if (!result) {
         return '';
     }
@@ -3489,14 +5006,17 @@ function extractSwarmResultContext(result: ClusterBroadcastResult | null): strin
     return '';
 }
 
-function buildSwarmDeliveryContext(
+function buildSwarmDeliveryContext({
+    options,
+    agentId
+}: {
     options: {
         clusterId: string;
         mode: 'broadcast' | 'collaborate';
         swarm?: SwarmSendContext;
-    },
-    agentId: string
-): SwarmDeliveryContext | undefined {
+    };
+    agentId: string;
+}): SwarmDeliveryContext | undefined {
     if (!options.swarm) {
         return undefined;
     }
@@ -3522,38 +5042,44 @@ function buildSwarmDeliveryContext(
     };
 }
 
-function buildClusterAgentSwarmLogMessages(
-    agentId: string,
-    prompt: string,
+function buildClusterAgentSwarmLogMessages({
+    agentId,
+    message,
+    traceResult,
+    delivery,
+    startedAt
+}: {
+    agentId: string;
+    message: string;
     traceResult: {
-        message: ChatMessage | null;
+        message: ChatMessage | undefined;
         trace: ChatMessage[];
         timedOut: boolean;
         errorMessage?: string;
         deliveryStatus?: OutboundDeliveryStatus;
         failureClass?: FailureClass;
         deliveryId?: string;
-    },
-    swarmDelivery: SwarmDeliveryContext | undefined,
-    startedAt: string
-): ChatMessage[] {
+    };
+    delivery: SwarmDeliveryContext | undefined;
+    startedAt: string;
+}): ChatMessage[] {
     const messages: ChatMessage[] = [
         {
             id: `swarm-log-user:${buildUniqueTimestampSuffix()}`,
             role: 'user',
-            content: prompt,
+            content: message,
             timestamp: startedAt,
             agentId,
-            metadata: buildSwarmLogMetadata(swarmDelivery, 'outbound-prompt')
+            metadata: buildSwarmLogMetadata({ delivery, kind: 'outbound-prompt' })
         }
     ];
 
-    const normalizedTrace = normalizePersistedChatMessages(traceResult.trace).map(message => ({
+    const normalizedTrace = normalizePersistedChatMessages(traceResult.trace).map((message: any) => ({
         ...message,
         agentId: message.agentId || agentId,
         metadata: {
             ...(isRecord(message.metadata) ? message.metadata : {}),
-            ...buildSwarmLogMetadata(swarmDelivery, 'inbound-trace')
+            ...buildSwarmLogMetadata({ delivery, kind: 'inbound-trace' })
         }
     }));
     messages.push(...normalizedTrace);
@@ -3564,11 +5090,11 @@ function buildClusterAgentSwarmLogMessages(
             agentId: traceResult.message.agentId || agentId,
             metadata: {
                 ...(isRecord(traceResult.message.metadata) ? traceResult.message.metadata : {}),
-                ...buildSwarmLogMetadata(swarmDelivery, 'inbound-final')
+                ...buildSwarmLogMetadata({ delivery, kind: 'inbound-final' })
             }
         }
-        : null;
-    if (finalMessage && !normalizedTrace.some(message => message.id === finalMessage.id)) {
+        : undefined;
+    if (finalMessage && !normalizedTrace.some((message: any) => message.id === finalMessage.id)) {
         messages.push(finalMessage);
     }
 
@@ -3579,17 +5105,20 @@ function buildClusterAgentSwarmLogMessages(
             content: traceResult.errorMessage,
             timestamp: new Date().toISOString(),
             agentId,
-            metadata: buildSwarmLogMetadata(swarmDelivery, 'delivery-error')
+            metadata: buildSwarmLogMetadata({ delivery, kind: 'delivery-error' })
         });
     }
 
     return messages;
 }
 
-function buildSwarmLogMetadata(
-    delivery: SwarmDeliveryContext | undefined,
-    kind: 'outbound-prompt' | 'inbound-trace' | 'inbound-final' | 'delivery-error'
-): Record<string, unknown> {
+function buildSwarmLogMetadata({
+    delivery,
+    kind
+}: {
+    delivery: SwarmDeliveryContext | undefined;
+    kind: 'outbound-prompt' | 'inbound-trace' | 'inbound-final' | 'delivery-error';
+}): Record<string, unknown> {
     return {
         swarmLogKind: kind,
         swarmRunId: delivery?.swarmRunId,
@@ -3601,13 +5130,25 @@ function buildSwarmLogMetadata(
     };
 }
 
-function buildSwarmRunId(clusterId: string, mode: 'broadcast' | 'collaborate'): string {
+function buildSwarmRunId({
+    clusterId,
+    mode
+}: {
+    clusterId: string;
+    mode: 'broadcast' | 'collaborate';
+}): string {
     const base = sanitizeSegment(clusterId) || 'cluster';
     const suffix = Math.random().toString(36).slice(2, 8);
     return `${base}-${mode}-${Date.now().toString(36)}-${suffix}`;
 }
 
-function buildSwarmTransactionGroupId(swarmRunId: string, phase: string): string {
+function buildSwarmTransactionGroupId({
+    swarmRunId,
+    phase
+}: {
+    swarmRunId: string;
+    phase: string;
+}): string {
     const phaseKey = sanitizeSegment(phase) || 'phase';
     return `${swarmRunId}:${phaseKey}`;
 }
@@ -3625,10 +5166,13 @@ function sanitizeSegment(value: string): string {
  * @param agentId - 智能体ID
  * @returns 提示词行列表
  */
-function buildMemberProfilePromptLines(
-    workspaceConfig: ClusterWorkspaceConfig,
-    agentId: string
-): string[] {
+function buildMemberProfilePromptLines({
+    workspaceConfig,
+    agentId
+}: {
+    workspaceConfig: ClusterWorkspaceConfig;
+    agentId: string;
+}): string[] {
     const profile = workspaceConfig.memberProfiles?.[agentId];
     const lines: string[] = [];
 
@@ -3650,11 +5194,14 @@ function buildMemberProfilePromptLines(
  * @param agentId - 智能体ID
  * @returns 提示词行列表
  */
-function buildCoordinatorProfilePromptLines(
-    workspaceConfig: ClusterWorkspaceConfig,
-    agentId: string
-): string[] {
-    const profileLines = buildMemberProfilePromptLines(workspaceConfig, agentId);
+function buildCoordinatorProfilePromptLines({
+    workspaceConfig,
+    agentId
+}: {
+    workspaceConfig: ClusterWorkspaceConfig;
+    agentId: string;
+}): string[] {
+    const profileLines = buildMemberProfilePromptLines({ workspaceConfig, agentId });
     if (profileLines.length === 0) {
         return [];
     }

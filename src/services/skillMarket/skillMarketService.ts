@@ -13,6 +13,7 @@ import {
     SkillCategory,
     SkillSourceKind
 } from './types';
+import type { SkillInstallOptions } from '../../types/serviceParams';
 import { LocalSkillRegistry } from './localSkillRegistry';
 
 const REQUEST_TIMEOUT = 10000;
@@ -57,18 +58,18 @@ class RemoteSkillHubProvider {
         const rawSkills = this.extractRawSkills(response.data);
 
         return rawSkills
-            .map(skill => this.normalizeRemoteSkill(skill))
-            .filter((skill): skill is SkillDefinition => Boolean(skill));
+            .map((skill: any) => this.normalizeRemoteSkill(skill))
+            .filter((skill: any): skill is SkillDefinition => Boolean(skill));
     }
 
-    public async fetchSkillDetails(skillId: string): Promise<SkillDefinition | null> {
+    public async fetchSkillDetails(skillId: string): Promise<SkillDefinition | undefined> {
         if (!skillId) {
-            return null;
+            return undefined;
         }
 
         if (this.providerKind === 'skillsllm' || this.providerKind === 'tencent-skillhub') {
             const fallback = await this.fetchSkills({ query: skillId });
-            return fallback.find(skill => skill.id === skillId) || null;
+            return fallback.find((skill: any) => skill.id === skillId) || undefined;
         }
 
         const requestUrl = `${this.hub.apiUrl}/skills/${skillId}`;
@@ -76,7 +77,7 @@ class RemoteSkillHubProvider {
         return this.normalizeRemoteSkill(response.data);
     }
 
-    public normalizeRemoteSkill(raw: any): SkillDefinition | null {
+    public normalizeRemoteSkill(raw: any): SkillDefinition | undefined {
         if (!this.providerKind) {
             this.providerKind = resolveProviderKind(this.hub);
         }
@@ -90,12 +91,12 @@ class RemoteSkillHubProvider {
         }
 
         if (!raw) {
-            return null;
+            return undefined;
         }
 
         const id = String(raw.id || raw.slug || '').trim();
         if (!id) {
-            return null;
+            return undefined;
         }
 
         const label = String(raw.label || raw.name || raw.title || id).trim();
@@ -233,7 +234,7 @@ export class SkillMarketService extends EventEmitter {
     constructor(private context: vscode.ExtensionContext) {
         super();
         this.registry = new LocalSkillRegistry(context);
-        this.hubProviders = this.loadHubDefinitions().map(def => new RemoteSkillHubProvider(def));
+        this.hubProviders = this.loadHubDefinitions().map((def: any) => new RemoteSkillHubProvider(def));
     }
 
     public async searchSkills(filters: SkillSearchFilters): Promise<SkillMarketOverview> {
@@ -247,11 +248,11 @@ export class SkillMarketService extends EventEmitter {
         const errors: string[] = [];
 
         const hubResults = await Promise.allSettled(
-            hubProviders.map(provider => provider.fetchSkills(filters || {}))
+            hubProviders.map((provider: any) => provider.fetchSkills(filters || {}))
         );
 
         let marketSkills: SkillDefinition[] = [];
-        hubResults.forEach((result, index) => {
+        hubResults.forEach((result: any, index: any) => {
             const provider = hubProviders[index];
             const hub = provider.getHub();
             if (result.status === 'fulfilled') {
@@ -278,10 +279,10 @@ export class SkillMarketService extends EventEmitter {
         });
 
         const installedSkills = await this.getInstalledSkillInventory();
-        const installedIndex = new Map(installedSkills.map(skill => [this.getSkillKey(skill), skill]));
-        const installedById = new Map(installedSkills.map(skill => [skill.id, skill]));
+        const installedIndex = new Map(installedSkills.map((skill: any) => [this.getSkillKey(skill), skill]));
+        const installedById = new Map(installedSkills.map((skill: any) => [skill.id, skill]));
 
-        marketSkills = marketSkills.map(skill => {
+        marketSkills = marketSkills.map((skill: any) => {
             const match = installedIndex.get(this.getSkillKey(skill)) || installedById.get(skill.id);
             const updateAvailable = match ? isVersionNewer(skill.version, match.version) : false;
             return {
@@ -295,7 +296,7 @@ export class SkillMarketService extends EventEmitter {
 
         // Deduplicate by hub+id to avoid duplicates per hub
         const seen = new Set<string>();
-        const dedupedMarket = marketSkills.filter(skill => {
+        const dedupedMarket = marketSkills.filter((skill: any) => {
             const key = `${skill.hubId || 'hub'}:${skill.id}`;
             if (seen.has(key)) {
                 return false;
@@ -304,7 +305,7 @@ export class SkillMarketService extends EventEmitter {
             return true;
         });
 
-        dedupedMarket.forEach(skill => {
+        dedupedMarket.forEach((skill: any) => {
             this.marketIndex.set(this.getSkillKey(skill), skill);
         });
 
@@ -325,9 +326,9 @@ export class SkillMarketService extends EventEmitter {
         return overview;
     }
 
-    public async getSkillDetails(skillId: string, hubId?: string | null): Promise<SkillDefinition | null> {
+    public async getSkillDetails(skillId: string, hubId?: string): Promise<SkillDefinition | undefined> {
         if (!skillId) {
-            return null;
+            return undefined;
         }
 
         const cached = this.marketIndex.get(this.getSkillKeyForLookup(skillId, hubId || undefined));
@@ -336,7 +337,7 @@ export class SkillMarketService extends EventEmitter {
         }
 
         const installed = await this.getInstalledSkillInventory();
-        const localMatch = installed.find(skill => skill.id === skillId);
+        const localMatch = installed.find((skill: any) => skill.id === skillId);
         if (localMatch && !hubId) {
             return localMatch;
         }
@@ -352,19 +353,16 @@ export class SkillMarketService extends EventEmitter {
                 // ignore and continue
             }
         }
-        return localMatch || null;
+        return localMatch || undefined;
     }
 
-    public async installSkill(
-        skill: SkillDefinition,
-        options?: { onProgress?: (progress: SkillInstallProgress) => void }
-    ): Promise<SkillInstallResult> {
+    public async installSkill(skill: SkillDefinition, options?: SkillInstallOptions): Promise<SkillInstallResult> {
         if (!skill) {
             return { success: false, skill, error: 'Skill not provided' };
         }
 
         const installed = await this.getInstalledSkillInventory();
-        const existing = installed.find(item => item.id === skill.id);
+        const existing = installed.find((item: any) => item.id === skill.id);
         if (existing) {
             return { success: true, skill: existing };
         }
@@ -417,7 +415,7 @@ export class SkillMarketService extends EventEmitter {
                 }
 
                 try {
-                    await new Promise<void>((resolve, reject) => {
+                    await new Promise<void>((resolve: any, reject: any) => {
                         stream.on('data', (chunk: Buffer | string) => {
                             const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
                             chunks.push(buffer);
@@ -444,7 +442,7 @@ export class SkillMarketService extends EventEmitter {
                 if (contentType.includes('json') || looksLikeJson(bodyText)) {
                     const rawPayload = JSON.parse(bodyText);
                     if (rawPayload && typeof rawPayload === 'object') {
-                        const hubProvider = this.hubProviders.find(p => p.getHub().id === skill.hubId);
+                        const hubProvider = this.hubProviders.find((p: any) => p.getHub().id === skill.hubId);
                         if (hubProvider) {
                             const normalized = hubProvider.normalizeRemoteSkill(rawPayload);
                             if (normalized) {
@@ -480,7 +478,7 @@ export class SkillMarketService extends EventEmitter {
     public async uninstallSkill(skillId: string): Promise<boolean> {
         try {
             const installed = await this.getInstalledSkillInventory();
-            const target = installed.find(skill => skill.id === skillId);
+            const target = installed.find((skill: any) => skill.id === skillId);
             if (!target) {
                 return false;
             }
@@ -504,24 +502,24 @@ export class SkillMarketService extends EventEmitter {
     }
 
     private async getInstalledSkillInventory(): Promise<SkillDefinition[]> {
-        const builtIn = this.registry.getBuiltInSkills().map(skill => ({
+        const builtIn = this.registry.getBuiltInSkills().map((skill: any) => ({
             ...skill,
             sourceKind: 'built-in' as SkillSourceKind,
             isInstalled: true
         }));
-        const custom = this.registry.getCustomSkills().map(skill => ({
+        const custom = this.registry.getCustomSkills().map((skill: any) => ({
             ...skill,
             sourceKind: 'custom' as SkillSourceKind,
             isInstalled: true
         }));
-        const installed = (await this.registry.listInstalledSkills()).map(skill => ({
+        const installed = (await this.registry.listInstalledSkills()).map((skill: any) => ({
             ...skill,
             sourceKind: (skill.source === 'custom' ? 'custom' : 'installed') as SkillSourceKind,
             isInstalled: true
         }));
 
-        const hubIndex = new Map(this.hubProviders.map(provider => [provider.getHub().id, provider.getHub()]));
-        const all = [...installed, ...custom, ...builtIn].map(skill => {
+        const hubIndex = new Map(this.hubProviders.map((provider: any) => [provider.getHub().id, provider.getHub()]));
+        const all = [...installed, ...custom, ...builtIn].map((skill: any) => {
             if (skill.hubId && hubIndex.has(skill.hubId)) {
                 const hub = hubIndex.get(skill.hubId)!;
                 return { ...skill, hubName: skill.hubName || hub.name, hubUrl: skill.hubUrl || hub.url };
@@ -530,7 +528,7 @@ export class SkillMarketService extends EventEmitter {
         });
 
         const seen = new Set<string>();
-        return all.filter(skill => {
+        return all.filter((skill: any) => {
             const key = this.getSkillKey(skill);
             if (seen.has(key)) {
                 return false;
@@ -552,7 +550,7 @@ export class SkillMarketService extends EventEmitter {
         if (!hubId || hubId === 'all') {
             return [...this.hubProviders];
         }
-        return this.hubProviders.filter(provider => provider.getHub().id === hubId);
+        return this.hubProviders.filter((provider: any) => provider.getHub().id === hubId);
     }
 
     private isCacheValid(key: string): boolean {
@@ -571,15 +569,15 @@ export class SkillMarketService extends EventEmitter {
         const fromEnv = parseHubEnv(process.env.OPENCLAW_SKILL_HUBS);
         const combined = [...fromConfig, ...fromEnv].filter(Boolean);
         const normalized = combined
-            .filter(hub => hub && hub.id && hub.apiUrl)
-            .map(hub => ({
+            .filter((hub: any) => hub && hub.id && hub.apiUrl)
+            .map((hub: any) => ({
                 id: String(hub.id).trim(),
                 name: String(hub.name || hub.id).trim(),
                 url: String(hub.url || '').trim() || String(hub.apiUrl || '').replace(/\/api\/.*/, ''),
                 apiUrl: String(hub.apiUrl || '').trim(),
                 enabled: hub.enabled !== false
             }))
-            .filter(hub => hub.id && hub.apiUrl && hub.enabled !== false);
+            .filter((hub: any) => hub.id && hub.apiUrl && hub.enabled !== false);
 
         if (normalized.length === 0) {
             return DEFAULT_HUBS;
@@ -588,10 +586,10 @@ export class SkillMarketService extends EventEmitter {
     }
 }
 
-function parseContentLengthHeader(value: unknown): number | null {
+function parseContentLengthHeader(value: unknown): number | undefined {
     const normalized = Array.isArray(value) ? value[0] : value;
     const parsed = Number(normalized);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function looksLikeJson(value: string): boolean {
@@ -628,14 +626,14 @@ function resolveProviderKind(hub: SkillHubDefinition): HubProviderKind {
     return 'generic';
 }
 
-function normalizeSkillsLLMSkill(raw: any, hub: SkillHubDefinition): SkillDefinition | null {
+function normalizeSkillsLLMSkill(raw: any, hub: SkillHubDefinition): SkillDefinition | undefined {
     if (!raw) {
-        return null;
+        return undefined;
     }
 
     const id = String(raw.slug || raw.id || '').trim();
     if (!id) {
-        return null;
+        return undefined;
     }
 
     const label = String(raw.name || raw.title || id).trim();
@@ -682,14 +680,14 @@ function normalizeSkillsLLMSkill(raw: any, hub: SkillHubDefinition): SkillDefini
     };
 }
 
-function normalizeTencentSkill(raw: any, hub: SkillHubDefinition): SkillDefinition | null {
+function normalizeTencentSkill(raw: any, hub: SkillHubDefinition): SkillDefinition | undefined {
     if (!raw) {
-        return null;
+        return undefined;
     }
 
     const id = String(raw.slug || raw.id || '').trim();
     if (!id) {
-        return null;
+        return undefined;
     }
 
     const label = String(raw.name || raw.title || id).trim();
@@ -771,7 +769,7 @@ function mapTencentCategory(value: string): SkillCategory {
     }
 }
 
-function mapTencentSort(sortBy?: SkillSearchFilters['sortBy']): { field: string; order: 'asc' | 'desc' } | null {
+function mapTencentSort(sortBy?: SkillSearchFilters['sortBy']): { field: string; order: 'asc' | 'desc' } | undefined {
     switch (sortBy) {
         case 'updated':
             return { field: 'updated_at', order: 'desc' };
@@ -833,13 +831,13 @@ function withProxyConfig(config: AxiosRequestConfig, _requestUrl: string): Axios
 function normalizeTags(tags: unknown): string[] {
     if (Array.isArray(tags)) {
         return tags
-            .map(tag => String(tag || '').trim())
+            .map((tag: any) => String(tag || '').trim())
             .filter(Boolean);
     }
     if (typeof tags === 'string') {
         return tags
             .split(/[,|]/)
-            .map(tag => String(tag || '').trim())
+            .map((tag: any) => String(tag || '').trim())
             .filter(Boolean);
     }
     return [];
@@ -862,25 +860,25 @@ function ensureIsoDate(value: any): string {
 
 function buildCategoryCounts(skills: SkillDefinition[]): { id: SkillCategory; count: number }[] {
     const counts = new Map<SkillCategory, number>();
-    skills.forEach(skill => {
+    skills.forEach((skill: any) => {
         const category = skill.category || 'other';
         counts.set(category, (counts.get(category) || 0) + 1);
     });
     return Array.from(counts.entries())
-        .map(([id, count]) => ({ id, count }))
-        .sort((a, b) => b.count - a.count);
+        .map(([id, count]: any) => ({ id, count }))
+        .sort((a: any, b: any) => b.count - a.count);
 }
 
 function buildTagCounts(skills: SkillDefinition[]): { name: string; count: number }[] {
     const counts = new Map<string, number>();
-    skills.forEach(skill => {
-        (skill.tags || []).forEach(tag => {
+    skills.forEach((skill: any) => {
+        (skill.tags || []).forEach((tag: any) => {
             counts.set(tag, (counts.get(tag) || 0) + 1);
         });
     });
     return Array.from(counts.entries())
-        .map(([name, count]) => ({ name, count }))
-        .sort((a, b) => b.count - a.count);
+        .map(([name, count]: any) => ({ name, count }))
+        .sort((a: any, b: any) => b.count - a.count);
 }
 
 function parseHubEnv(raw?: string): SkillHubDefinition[] {
@@ -902,7 +900,7 @@ function isVersionNewer(remote?: string, installed?: string): boolean {
     if (!remote || !installed) {
         return false;
     }
-    const parse = (value: string) => value.split(/[^0-9]+/).map(num => parseInt(num || '0', 10));
+    const parse = (value: string) => value.split(/[^0-9]+/).map((num: any) => parseInt(num || '0', 10));
     const remoteParts = parse(remote);
     const installedParts = parse(installed);
     const maxLen = Math.max(remoteParts.length, installedParts.length);

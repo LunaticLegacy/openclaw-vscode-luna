@@ -124,12 +124,15 @@ interface NormalizedTaskMutation {
  * ```
  */
 export class ScheduledTaskManager extends EventEmitter {
+    private readonly service: OpenClawService; // OpenClaw 服务实例
+
     /**
      * 创建 ScheduledTaskManager 实例
      * @param service - OpenClaw 服务实例
      */
-    constructor(private readonly service: OpenClawService) {
+    constructor(service: OpenClawService) {
         super();
+        this.service = service;
     }
 
     /**
@@ -167,11 +170,11 @@ export class ScheduledTaskManager extends EventEmitter {
      * 获取指定任务
      * 
      * @param taskId - 任务ID
-     * @returns 任务对象或 null
+     * @returns 任务对象或 undefined
      */
-    public async getTask(taskId: string): Promise<ScheduledTask | null> {
+    public async getTask(taskId: string): Promise<ScheduledTask | undefined> {
         const tasks = await this.getTasks();
-        return tasks.find(task => task.id === taskId) || null;
+        return tasks.find((task: any) => task.id === taskId) || undefined;
     }
 
     /**
@@ -197,16 +200,16 @@ export class ScheduledTaskManager extends EventEmitter {
         });
 
         const createdId = extractString(created, ['jobId', 'id']);
-        const tasks = await this.waitForTasks(items => {
+        const tasks = await this.waitForTasks((items: any) => {
             if (createdId) {
-                return items.some(task => task.id === createdId);
+                return items.some((task: any) => task.id === createdId);
             }
 
-            return items.some(task => task.name === mutation.name);
+            return items.some((task: any) => task.name === mutation.name);
         });
         const task = createdId
-            ? tasks.find(item => item.id === createdId)
-            : tasks.find(item => item.name === mutation.name);
+            ? tasks.find((item: any) => item.id === createdId)
+            : tasks.find((item: any) => item.name === mutation.name);
 
         if (!task) {
             throw new Error(t('tasks.notFound', { taskId: createdId || mutation.name }));
@@ -246,7 +249,7 @@ export class ScheduledTaskManager extends EventEmitter {
         };
 
         await runner.editCronJob(taskId, patch);
-        const task = await this.waitForTask(taskId, item => {
+        const task = await this.waitForTask(taskId, (item: any) => {
             return item.updatedAt !== existing.updatedAt
                 || item.name !== existing.name
                 || item.enabled !== existing.enabled;
@@ -279,7 +282,7 @@ export class ScheduledTaskManager extends EventEmitter {
             await runner.disableCronJob(taskId);
         }
 
-        const task = await this.waitForTask(taskId, item => item.enabled === nextEnabled);
+        const task = await this.waitForTask(taskId, (item: any) => item.enabled === nextEnabled);
         this.emit('taskUpdated', task);
         return task;
     }
@@ -298,7 +301,7 @@ export class ScheduledTaskManager extends EventEmitter {
         }
 
         await this.getRunner().removeCronJob(taskId);
-        await this.waitForTasks(tasks => tasks.every(task => task.id !== taskId));
+        await this.waitForTasks((tasks: any) => tasks.every((task: any) => task.id !== taskId));
         this.emit('taskDeleted', taskId);
     }
 
@@ -324,7 +327,7 @@ export class ScheduledTaskManager extends EventEmitter {
         this.emit('taskUpdated', runningTask);
 
         await this.getRunner().runCronJob(taskId);
-        const task = await this.waitForTask(taskId, item => {
+        const task = await this.waitForTask(taskId, (item: any) => {
             return item.lastRunAt !== existing.lastRunAt
                 || item.nextRunAt !== existing.nextRunAt
                 || item.lastRunSummary !== existing.lastRunSummary
@@ -354,12 +357,12 @@ export class ScheduledTaskManager extends EventEmitter {
 
     /**
      * 获取源文件路径
-     * @returns 源文件路径或 null
+     * @returns 源文件路径或 undefined
      */
-    private getSourcePath(): string | null {
+    private getSourcePath(): string | undefined {
         const config = this.service.getOpenClawConfig();
         if (!config) {
-            return null;
+            return undefined;
         }
 
         return path.join(config.stateDir, 'cron', 'jobs.json');
@@ -394,15 +397,15 @@ export class ScheduledTaskManager extends EventEmitter {
         attempts: number = 8,
         delayMs: number = 200
     ): Promise<ScheduledTask> {
-        let lastTask: ScheduledTask | null = null;
+        let lastTask: ScheduledTask | undefined = undefined;
 
-        const tasks = await this.waitForTasks(items => {
-            const task = items.find(item => item.id === taskId) || null;
+        const tasks = await this.waitForTasks((items: any) => {
+            const task = items.find((item: any) => item.id === taskId) || undefined;
             lastTask = task;
             return Boolean(task && (!predicate || predicate(task)));
         }, attempts, delayMs);
 
-        const task = tasks.find(item => item.id === taskId) || lastTask;
+        const task = tasks.find((item: any) => item.id === taskId) || lastTask;
         if (!task) {
             throw new Error(t('tasks.notFound', { taskId }));
         }
@@ -452,9 +455,9 @@ export class ScheduledTaskManager extends EventEmitter {
         const jobsFile = await readJsonFile<CronJobsFile>(sourcePath);
         const jobs = jobsFile?.jobs || [];
         const runsDir = path.join(path.dirname(sourcePath), 'runs');
-        const latestRuns = await readLatestRunRecords(runsDir, jobs.map(job => job.id));
+        const latestRuns = await readLatestRunRecords(runsDir, jobs.map((job: any) => job.id));
 
-        return sortTasks(jobs.map(job => normalizeTask(job, latestRuns.get(job.id))));
+        return sortTasks(jobs.map((job: any) => normalizeTask(job, latestRuns.get(job.id))));
     }
 }
 
@@ -750,9 +753,9 @@ async function readLatestRunRecords(
     runsDir: string,
     jobIds: string[]
 ): Promise<Map<string, OpenClawCronRunRecord>> {
-    const entries = await Promise.all(jobIds.map(async jobId => {
+    const entries = await Promise.all(jobIds.map(async (jobId: any) => {
         const record = await readLatestRunRecord(path.join(runsDir, `${jobId}.jsonl`));
-        return record ? [jobId, record] as const : null;
+        return record ? [jobId, record] as const : undefined;
     }));
 
     const records = new Map<string, OpenClawCronRunRecord>();
@@ -770,9 +773,9 @@ async function readLatestRunRecords(
 /**
  * 读取单个任务的最新运行记录
  * @param filePath - 文件路径
- * @returns 最新运行记录或 null
+ * @returns 最新运行记录或 undefined
  */
-async function readLatestRunRecord(filePath: string): Promise<OpenClawCronRunRecord | null> {
+async function readLatestRunRecord(filePath: string): Promise<OpenClawCronRunRecord | undefined> {
     try {
         const content = await fs.readFile(filePath, 'utf8');
         const lines = content.split(/\r?\n/);
@@ -790,11 +793,11 @@ async function readLatestRunRecord(filePath: string): Promise<OpenClawCronRunRec
             }
         }
 
-        return null;
+        return undefined;
     } catch (error) {
         const maybeNodeError = error as NodeJS.ErrnoException;
         if (maybeNodeError.code === 'ENOENT') {
-            return null;
+            return undefined;
         }
 
         throw error;
@@ -804,16 +807,16 @@ async function readLatestRunRecord(filePath: string): Promise<OpenClawCronRunRec
 /**
  * 读取 JSON 文件
  * @param targetPath - 文件路径
- * @returns 解析后的对象或 null
+ * @returns 解析后的对象或 undefined
  */
-async function readJsonFile<T>(targetPath: string): Promise<T | null> {
+async function readJsonFile<T>(targetPath: string): Promise<T | undefined> {
     try {
         const content = await fs.readFile(targetPath, 'utf8');
         return JSON.parse(content) as T;
     } catch (error) {
         const maybeNodeError = error as NodeJS.ErrnoException;
         if (maybeNodeError.code === 'ENOENT') {
-            return null;
+            return undefined;
         }
 
         throw error;
@@ -826,7 +829,7 @@ async function readJsonFile<T>(targetPath: string): Promise<T | null> {
  * @returns 排序后的任务列表
  */
 function sortTasks(tasks: ScheduledTask[]): ScheduledTask[] {
-    return [...tasks].sort((left, right) => {
+    return [...tasks].sort((left: any, right: any) => {
         if (left.enabled !== right.enabled) {
             return left.enabled ? -1 : 1;
         }
@@ -862,7 +865,7 @@ function normalizeRequiredText(value: string | undefined, errorKey: string): str
  * @param value - 输入值
  * @returns 规范化后的文本或 undefined
  */
-function normalizeOptionalText(value: string | undefined | null): string | undefined {
+function normalizeOptionalText(value: string | undefined): string | undefined {
     const normalized = value?.trim();
     return normalized ? normalized : undefined;
 }
@@ -874,7 +877,7 @@ function normalizeOptionalText(value: string | undefined | null): string | undef
  * @throws Error - 当值无效时抛出
  */
 function normalizeOptionalPositiveInteger(value: string | number | undefined): number | undefined {
-    if (value === undefined || value === null || value === '') {
+    if (value === undefined || value === undefined || value === '') {
         return undefined;
     }
 
@@ -958,15 +961,15 @@ function toOptionalIsoTimestamp(value: number | undefined): string | undefined {
 /**
  * 解析时间戳
  * @param value - 日期字符串
- * @returns 毫秒时间戳或 null
+ * @returns 毫秒时间戳或 undefined
  */
-function parseTimestamp(value: string | undefined): number | null {
+function parseTimestamp(value: string | undefined): number | undefined {
     if (!value) {
-        return null;
+        return undefined;
     }
 
     const parsed = Date.parse(value);
-    return Number.isFinite(parsed) ? parsed : null;
+    return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 /**
@@ -997,5 +1000,5 @@ function extractString(payload: unknown, keys: string[]): string | undefined {
  * @returns Promise
  */
 function delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve: any) => setTimeout(resolve, ms));
 }

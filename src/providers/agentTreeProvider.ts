@@ -41,8 +41,8 @@ export class AgentTreeItem extends vscode.TreeItem {
  * 实现 VSCode TreeDataProvider 接口，管理 Agent 列表的显示和更新
  */
 export class AgentTreeProvider implements vscode.TreeDataProvider<AgentTreeItem> {
-    private _onDidChangeTreeData: vscode.EventEmitter<AgentTreeItem | undefined | null | void> = new vscode.EventEmitter<AgentTreeItem | undefined | null | void>();
-    readonly onDidChangeTreeData: vscode.Event<AgentTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
+    private _onDidChangeTreeData: vscode.EventEmitter<AgentTreeItem | undefined | void> = new vscode.EventEmitter<AgentTreeItem | undefined | void>();
+    readonly onDidChangeTreeData: vscode.Event<AgentTreeItem | undefined | void> = this._onDidChangeTreeData.event;
 
     private agentManager: AgentManager;
 
@@ -91,12 +91,12 @@ export class AgentTreeProvider implements vscode.TreeDataProvider<AgentTreeItem>
             return [];
         }
 
-        const sortedAgents = agents.sort((a, b) => {
-            const statusOrder = { active: 0, idle: 1, offline: 2 };
+        const sortedAgents = agents.sort((a: Agent, b: Agent) => {
+            const statusOrder: Record<Agent['status'], number> = { active: 0, idle: 1, offline: 2 };
             return statusOrder[a.status] - statusOrder[b.status];
         });
 
-        return sortedAgents.map(agent =>
+        return sortedAgents.map((agent: Agent) =>
             new AgentTreeItem(agent, vscode.TreeItemCollapsibleState.None)
         );
     }
@@ -104,9 +104,9 @@ export class AgentTreeProvider implements vscode.TreeDataProvider<AgentTreeItem>
     /**
      * 获取父节点
      * @param _element - 当前节点元素
-     * @returns 父节点（根节点返回 null）
+     * @returns 父节点（根节点返回 undefined）
      */
     getParent(_element: AgentTreeItem): vscode.ProviderResult<AgentTreeItem> {
-        return null;
+        return undefined;
     }
 }

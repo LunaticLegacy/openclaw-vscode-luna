@@ -54,8 +54,8 @@ class TasksInfoTreeItem extends vscode.TreeItem {
  * 实现 VSCode TreeDataProvider 接口，管理定时任务列表的显示和更新
  */
 export class TaskTreeProvider implements vscode.TreeDataProvider<ScheduledTaskTreeItem | TasksInfoTreeItem> {
-    private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<ScheduledTaskTreeItem | TasksInfoTreeItem | undefined | null | void>();
-    readonly onDidChangeTreeData: vscode.Event<ScheduledTaskTreeItem | TasksInfoTreeItem | undefined | null | void> = this.onDidChangeTreeDataEmitter.event;
+    private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<ScheduledTaskTreeItem | TasksInfoTreeItem | undefined | void>();
+    readonly onDidChangeTreeData: vscode.Event<ScheduledTaskTreeItem | TasksInfoTreeItem | undefined | void> = this.onDidChangeTreeDataEmitter.event;
 
     /**
      * 创建 TaskTreeProvider 实例
@@ -105,16 +105,16 @@ export class TaskTreeProvider implements vscode.TreeDataProvider<ScheduledTaskTr
             return [new TasksInfoTreeItem(t('tasks.empty'))];
         }
 
-        return viewState.tasks.map(task => new ScheduledTaskTreeItem(task, vscode.TreeItemCollapsibleState.None));
+        return viewState.tasks.map((task: any) => new ScheduledTaskTreeItem(task, vscode.TreeItemCollapsibleState.None));
     }
 
     /**
      * 获取父节点
      * @param _element - 当前节点元素
-     * @returns 父节点（根节点返回 null）
+     * @returns 父节点（根节点返回 undefined）
      */
     public getParent(_element: ScheduledTaskTreeItem | TasksInfoTreeItem): vscode.ProviderResult<ScheduledTaskTreeItem | TasksInfoTreeItem> {
-        return null;
+        return undefined;
     }
 }
 

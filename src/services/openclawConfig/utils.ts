@@ -2,6 +2,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 
 import type { JsonRecord } from './types';
+import type { SetOptionalStringOptions } from '../../types/serviceParams';
 
 export const DEFAULT_OPENCLAW_GATEWAY_PORT = 18789;
 
@@ -13,7 +14,7 @@ export function normalizeGatewayPort(value: number | undefined): number {
     return DEFAULT_OPENCLAW_GATEWAY_PORT;
 }
 
-export function cloneJsonRecord(value: JsonRecord | null): JsonRecord {
+export function cloneJsonRecord(value: JsonRecord | undefined): JsonRecord {
     return JSON.parse(JSON.stringify(value || {})) as JsonRecord;
 }
 
@@ -32,7 +33,7 @@ export function setOptionalString(
     parent: JsonRecord,
     key: string,
     value: string | undefined,
-    options: { trimAsPath?: boolean } = {}
+    options: SetOptionalStringOptions = {}
 ): void {
     const normalized = options.trimAsPath
         ? trimConfigPath(value)
@@ -85,7 +86,7 @@ export function toHttpGatewayUrl(value: string | undefined): string | undefined 
 }
 
 export function joinSourceDescriptions(...values: Array<string | undefined>): string {
-    return Array.from(new Set(values.map(value => value?.trim()).filter((value): value is string => Boolean(value))))
+    return Array.from(new Set(values.map((value: any) => value?.trim()).filter((value: any): value is string => Boolean(value))))
         .join(', ');
 }
 
@@ -114,14 +115,14 @@ export function addBaseAndParents(target: Set<string>, initialPath: string, maxD
  * @param candidates 路径候选列表，按照优先级排序。
  * @returns 
  */
-export async function findFirstExistingPath(candidates: string[]): Promise<string | null> {
+export async function findFirstExistingPath(candidates: string[]): Promise<string | undefined> {
     for (const candidate of candidates) {
         if (await pathExists(candidate)) {
             return candidate;
         }
     }
 
-    return null;
+    return undefined;
 }
 
 export async function pathExists(targetPath: string): Promise<boolean> {
@@ -133,11 +134,11 @@ export async function pathExists(targetPath: string): Promise<boolean> {
     }
 }
 
-export async function readJsonFile<T>(targetPath: string): Promise<T | null> {
+export async function readJsonFile<T>(targetPath: string): Promise<T | undefined> {
     try {
         const content = await fs.readFile(targetPath, 'utf8');
         return JSON.parse(content) as T;
     } catch {
-        return null;
+        return undefined;
     }
 }

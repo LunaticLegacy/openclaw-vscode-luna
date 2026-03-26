@@ -105,18 +105,18 @@ export class GatewayTransport {
      */
     private setupInterceptors(): void {
         this.client.interceptors.request.use(
-            requestConfig => {
+            (requestConfig: any) => {
                 this.emitEvent('request', requestConfig);
                 return requestConfig;
             },
-            error => {
+            (error: any) => {
                 this.emitEvent('error', error);
                 return Promise.reject(error);
             }
         );
 
         this.client.interceptors.response.use(
-            response => {
+            (response: any) => {
                 this.emitEvent('response', response);
                 return response;
             },

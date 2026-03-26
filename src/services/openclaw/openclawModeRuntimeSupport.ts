@@ -4,6 +4,7 @@ import * as path from 'path';
 
 import type { OpenClawChannelsListResult } from '../openclawCli';
 import type { DiscoveredChannel } from './types';
+import type { OpenClawIdentityValues } from '../../types/serviceParams';
 
 const OPENCLAW_AGENT_SETTINGS_FILE = '.openclaw-vscode-agent.json';
 const OPENCLAW_SYSTEM_PROMPT_FILE = 'SYSTEM.md';
@@ -26,7 +27,7 @@ export interface OpenClawAgentSettingsRecord {
  * @param result - The channels list result from OpenClaw
  * @returns Array of discovered channels
  */
-export function mapDiscoveredChannels(result: OpenClawChannelsListResult | null): DiscoveredChannel[] {
+export function mapDiscoveredChannels(result: OpenClawChannelsListResult | undefined): DiscoveredChannel[] {
     if (!result?.chat || typeof result.chat !== 'object') {
         return [];
     }
@@ -54,7 +55,7 @@ export function mapDiscoveredChannels(result: OpenClawChannelsListResult | null)
         }
     }
 
-    return channels.sort((left, right) => left.name.localeCompare(right.name));
+    return channels.sort((left: any, right: any) => left.name.localeCompare(right.name));
 }
 
 /**
@@ -111,7 +112,7 @@ export async function writeOpenClawAgentSettings(
 
     await fs.writeFile(
         path.join(workspacePath, OPENCLAW_AGENT_SETTINGS_FILE),
-        JSON.stringify(payload, null, 2),
+        JSON.stringify(payload, undefined, 2),
         'utf8'
     );
 }
@@ -155,7 +156,7 @@ export function composeAgentSystemPrompt(systemPrompt: string | undefined, enabl
  */
 export async function updateOpenClawIdentityFile(
     workspacePath: string,
-    values: { agentId: string; name: string; model: string }
+    values: OpenClawIdentityValues
 ): Promise<void> {
     const targetPath = path.join(workspacePath, OPENCLAW_IDENTITY_FILE);
     let content: string;
@@ -248,7 +249,7 @@ function formatDiscoveredChannelName(providerId: string, accountId: string): str
     const providerLabel = normalizedProvider
         .split(/[-_]+/)
         .filter(Boolean)
-        .map(token => token.charAt(0).toUpperCase() + token.slice(1))
+        .map((token: any) => token.charAt(0).toUpperCase() + token.slice(1))
         .join(' ');
 
     return `${providerLabel || 'Channel'} ${normalizedAccount}`;

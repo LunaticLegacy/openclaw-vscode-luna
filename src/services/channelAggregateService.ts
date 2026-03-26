@@ -5,6 +5,7 @@ import type {
   AggregatedItem,
   ChannelTreeNode,
 } from '../types/channel';
+import type { AggregateChannelOptions, AggregateSubtreeOptions } from '../types/serviceParams';
 import type { ChatMessage } from './openclaw/types';
 import type { OpenClawService } from './openclawService';
 
@@ -51,7 +52,7 @@ export class ChannelAggregateService extends EventEmitter {
   public async aggregateChannel(
     channel: ChannelConfig,
     sourceChannels: ChannelConfig[],
-    options?: { force?: boolean }
+    options?: AggregateChannelOptions
   ): Promise<AggregateResult> {
     if (channel.type !== 'aggregate' || !channel.aggregateConfig) {
       return {
@@ -67,7 +68,7 @@ export class ChannelAggregateService extends EventEmitter {
     const allItems: AggregatedItem[] = [];
     
     for (const sourceId of config.sourceIds) {
-      const source = sourceChannels.find(c => c.id === sourceId);
+      const source = sourceChannels.find((c: any) => c.id === sourceId);
       if (!source || source.archivedAt) continue;
 
       // Get source messages
@@ -82,7 +83,7 @@ export class ChannelAggregateService extends EventEmitter {
     const filtered = this.applyFilters(allItems, config.filter);
 
     // Sort by date
-    filtered.sort((a, b) => 
+    filtered.sort((a: any, b: any) => 
       new Date(b.original.publishedAt).getTime() - new Date(a.original.publishedAt).getTime()
     );
 
@@ -118,7 +119,7 @@ export class ChannelAggregateService extends EventEmitter {
   public async aggregateSubtree(
     rootNode: ChannelTreeNode,
     allChannels: Map<string, ChannelTreeNode>,
-    options?: { recursive?: boolean }
+    options?: AggregateSubtreeOptions
   ): Promise<AggregateResult[]> {
     const results: AggregateResult[] = [];
 
@@ -127,8 +128,8 @@ export class ChannelAggregateService extends EventEmitter {
       // Collect all descendant channels as potential sources
       const descendants = this.collectDescendants(rootNode);
       const sourceChannels = descendants
-        .map(id => allChannels.get(id))
-        .filter((c): c is ChannelTreeNode => c !== undefined);
+        .map((id: any) => allChannels.get(id))
+        .filter((c: any): c is ChannelTreeNode => c !== undefined);
 
       const result = await this.aggregateChannel(rootNode, sourceChannels);
       results.push(result);
@@ -225,7 +226,7 @@ export class ChannelAggregateService extends EventEmitter {
     const allItems: AggregatedItem[] = [];
 
     for (const sourceId of config.sourceIds) {
-      const source = sourceChannels.find(c => c.id === sourceId);
+      const source = sourceChannels.find((c: any) => c.id === sourceId);
       if (!source || source.archivedAt || !source.sessionId) continue;
 
       const messages = await this.fetchSourceMessages(source, config);
@@ -275,8 +276,8 @@ export class ChannelAggregateService extends EventEmitter {
    */
   private messagesToAggregatedItems(messages: ChatMessage[], sourceChannelId: string): AggregatedItem[] {
     return messages
-      .filter(msg => msg.role === 'user' || msg.role === 'assistant')
-      .map(msg => ({
+      .filter((msg: any) => msg.role === 'user' || msg.role === 'assistant')
+      .map((msg: any) => ({
         id: `msg:${msg.id}`,
         channelId: sourceChannelId,
         sourceType: 'internal',
@@ -304,11 +305,11 @@ export class ChannelAggregateService extends EventEmitter {
   private applyFilters(items: AggregatedItem[], filter?: ChannelAggregateConfig['filter']): AggregatedItem[] {
     if (!filter) return items;
 
-    return items.filter(item => {
+    return items.filter((item: any) => {
       // Filter by keywords
       if (filter.keywords && filter.keywords.length > 0) {
         const content = `${item.original.title || ''} ${item.original.content}`.toLowerCase();
-        const hasKeyword = filter.keywords.some(kw => 
+        const hasKeyword = filter.keywords.some((kw: any) => 
           content.includes(kw.toLowerCase())
         );
         if (!hasKeyword) return false;
@@ -317,7 +318,7 @@ export class ChannelAggregateService extends EventEmitter {
       // Filter by authors
       if (filter.authors && filter.authors.length > 0) {
         if (!item.original.author) return false;
-        const authorMatch = filter.authors.some(a => 
+        const authorMatch = filter.authors.some((a: any) => 
           item.original.author?.toLowerCase() === a.toLowerCase()
         );
         if (!authorMatch) return false;
@@ -357,7 +358,7 @@ export class ChannelAggregateService extends EventEmitter {
 
       case 'summary':
         // Simple text truncation summary
-        return items.map(item => ({
+        return items.map((item: any) => ({
           ...item,
           processed: {
             summary: this.createSimpleSummary(item.original.content),
@@ -405,7 +406,7 @@ export class ChannelAggregateService extends EventEmitter {
     // This would integrate with the AI service to generate summaries
     // For now, return items with placeholder processing
     
-    const batchContent = items.map((item, i) => 
+    const batchContent = items.map((item: any, i: any) => 
       `[${i + 1}] ${item.original.title || 'Item'}: ${item.original.content.slice(0, 500)}`
     ).join('\n\n');
 
@@ -419,9 +420,9 @@ export class ChannelAggregateService extends EventEmitter {
       
       // Parse summaries from response
       // This is simplified - real implementation would need better parsing
-      const summaries = response.content.split('\n').filter(s => s.trim());
+      const summaries = response.content.split('\n').filter((s: any) => s.trim());
 
-      return items.map((item, i) => ({
+      return items.map((item: any, i: any) => ({
         ...item,
         processed: {
           summary: summaries[i] || this.createSimpleSummary(item.original.content),
@@ -431,7 +432,7 @@ export class ChannelAggregateService extends EventEmitter {
     } catch (error) {
       console.error('AI summarization failed:', error);
       // Fallback to simple summary
-      return items.map(item => ({
+      return items.map((item: any) => ({
         ...item,
         processed: {
           summary: this.createSimpleSummary(item.original.content),

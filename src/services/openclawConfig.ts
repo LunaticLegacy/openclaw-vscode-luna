@@ -71,7 +71,7 @@ export interface OpenClawRuntimeLogExport {
     runtime: {
         service: Record<string, unknown>;
         diagnostics: OpenClawRuntimeDiagnostics;
-        openClawConfig: Record<string, unknown> | null;
+        openClawConfig: Record<string, unknown> | undefined;
     };
     filesystem: RuntimeLogCollection;
 }
@@ -184,10 +184,10 @@ export async function saveOpenClawConfigEditorState(
     const hasAuthProfiles = hasOpenClawAuthProfilesContent(nextAuthProfiles);
 
     await fs.mkdir(stateDir, { recursive: true });
-    await fs.writeFile(configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, 'utf8');
+    await fs.writeFile(configPath, `${JSON.stringify(nextConfig, undefined, 2)}\n`, 'utf8');
     await fs.mkdir(path.dirname(authProfilesPath), { recursive: true });
     if (hasAuthProfiles) {
-        await fs.writeFile(authProfilesPath, `${JSON.stringify(nextAuthProfiles, null, 2)}\n`, 'utf8');
+        await fs.writeFile(authProfilesPath, `${JSON.stringify(nextAuthProfiles, undefined, 2)}\n`, 'utf8');
     } else if (await pathExists(authProfilesPath)) {
         await fs.rm(authProfilesPath, { force: true });
     }
@@ -197,7 +197,7 @@ export async function saveOpenClawConfigEditorState(
         configPath,
         authProfilesPath,
         nextConfig as OpenClawConfigFile,
-        hasAuthProfiles ? nextAuthProfiles : null,
+        hasAuthProfiles ? nextAuthProfiles : undefined,
         mainAgentModels,
         true,
         hasAuthProfiles
@@ -251,7 +251,7 @@ export async function buildOpenClawRuntimeLogExport(extensionPath: string): Prom
     const [serviceConfig, diagnostics, openClawConfigState] = await Promise.all([
         resolveOpenClawServiceConfigInternal(extensionPath),
         inspectOpenClawEnvironment(extensionPath),
-        loadOpenClawConfigEditorState(extensionPath).catch(() => null)
+        loadOpenClawConfigEditorState(extensionPath).catch(() => undefined)
     ]);
 
     const stateDir = openClawConfigState?.stateDir
@@ -266,12 +266,12 @@ export async function buildOpenClawRuntimeLogExport(extensionPath: string): Prom
             diagnostics: redactRuntimeExportSecrets(diagnostics),
             openClawConfig: openClawConfigState
                 ? redactRuntimeExportSecrets(openClawConfigState as unknown as Record<string, unknown>)
-                : null
+                : undefined
         },
         filesystem: stateDir
             ? await collectRuntimeLogFiles(stateDir)
             : {
-                scannedRoot: null,
+                scannedRoot: undefined,
                 rootEntries: [],
                 fileCount: 0,
                 scanTruncated: false,
@@ -311,7 +311,7 @@ function summarizeServiceConfigForExport(serviceConfig: ResolvedServiceConfig): 
             return {
                 mode: serviceConfig.mode,
                 providerCount: serviceConfig.providers.length,
-                providers: serviceConfig.providers.map(provider => ({
+                providers: serviceConfig.providers.map((provider: any) => ({
                     id: provider.id,
                     baseUrl: provider.baseUrl,
                     api: provider.api,

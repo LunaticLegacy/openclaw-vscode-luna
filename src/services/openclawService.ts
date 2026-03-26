@@ -92,9 +92,9 @@ export type {
  * ```
  */
 export class OpenClawService extends EventEmitter {
-    private transport: GatewayTransport | null = null;
-    private localRuntime: LocalModeRuntime | null = null;
-    private openClawRuntime: OpenClawModeRuntime | null = null;
+    private transport: GatewayTransport | undefined = undefined;
+    private localRuntime: LocalModeRuntime | undefined = undefined;
+    private openClawRuntime: OpenClawModeRuntime | undefined = undefined;
     private activeGatewayRequests: Map<string, Set<AbortController>> = new Map();
     private mode: ResolvedServiceConfig['mode'] = 'gateway';
     private sourceDescription = '';
@@ -187,9 +187,9 @@ export class OpenClawService extends EventEmitter {
 
     /**
      * 获取首选智能体 ID
-     * @returns 首选智能体 ID，如果没有则返回 null
+     * @returns 首选智能体 ID，如果没有则返回 undefined
      */
-    public async getPreferredAgentId(): Promise<string | null> {
+    public async getPreferredAgentId(): Promise<string | undefined> {
         if (this.localRuntime) {
             return this.localRuntime.getPreferredAgentId();
         }
@@ -199,7 +199,7 @@ export class OpenClawService extends EventEmitter {
         }
 
         const agents = await this.getAgents();
-        return agents[0]?.id ?? null;
+        return agents[0]?.id ?? undefined;
     }
 
     /**
@@ -234,15 +234,15 @@ export class OpenClawService extends EventEmitter {
         }
 
         const sourceAgents = agents || await this.getAgents();
-        return uniqueModelNames(sourceAgents.map(agent => agent.model));
+        return uniqueModelNames(sourceAgents.map((agent: any) => agent.model));
     }
 
     /**
      * 获取指定智能体信息
      * @param agentId - 智能体 ID
-     * @returns 智能体对象，如果不存在则返回 null
+     * @returns 智能体对象，如果不存在则返回 undefined
      */
-    public async getAgent(agentId: string): Promise<Agent | null> {
+    public async getAgent(agentId: string): Promise<Agent | undefined> {
         if (this.localRuntime) {
             return this.localRuntime.getAgent(agentId);
         }
@@ -255,7 +255,7 @@ export class OpenClawService extends EventEmitter {
             return await this.requireTransport().get<Agent>(`/api/agents/${agentId}`);
         } catch (error) {
             if ((error as { status?: number }).status === 404) {
-                return null;
+                return undefined;
             }
             throw error;
         }
@@ -400,7 +400,7 @@ export class OpenClawService extends EventEmitter {
             transactionGroupId: delivery?.transactionGroupId,
             expectedGroupSize: delivery?.expectedGroupSize,
             groupCompletionPolicy: delivery?.groupCompletionPolicy,
-            dispatch: async ({ idempotencyKey: resolvedKey, abortController }) => {
+            dispatch: async ({ idempotencyKey: resolvedKey, abortController }: any) => {
                 if (this.localRuntime) {
                     const response = await this.localRuntime.sendMessage(normalizedSessionId, normalizedMessage, transportOptions);
                     this.emit('usageChanged');
@@ -541,7 +541,7 @@ export class OpenClawService extends EventEmitter {
         return this.outboundManager.cancelBySwarmRun(swarmRunId, reason);
     }
 
-    public hasActiveSessionRun(sessionId: string | null | undefined): boolean {
+    public hasActiveSessionRun(sessionId: string | undefined): boolean {
         const normalizedSessionId = typeof sessionId === 'string' ? sessionId.trim() : '';
         if (!normalizedSessionId) {
             return false;
@@ -618,10 +618,10 @@ export class OpenClawService extends EventEmitter {
 
     /**
      * 获取 OpenClaw 配置
-     * @returns OpenClaw CLI 服务配置，如果不适用则返回 null
+     * @returns OpenClaw CLI 服务配置，如果不适用则返回 undefined
      */
-    public getOpenClawConfig(): OpenClawCliServiceConfig | null {
-        return this.openClawRuntime?.getConfig() || null;
+    public getOpenClawConfig(): OpenClawCliServiceConfig | undefined {
+        return this.openClawRuntime?.getConfig() || undefined;
     }
 
     /**
@@ -674,19 +674,19 @@ export class OpenClawService extends EventEmitter {
     /**
      * 获取指定集群信息
      * @param clusterId - 集群 ID
-     * @returns 集群对象，如果不存在则返回 null
+     * @returns 集群对象，如果不存在则返回 undefined
      * @throws Error - 集群功能不可用时抛出
      */
-    public async getCluster(clusterId: string): Promise<AgentCluster | null> {
+    public async getCluster(clusterId: string): Promise<AgentCluster | undefined> {
         if (!this.supportsRemoteClusters()) {
-            return null;
+            return undefined;
         }
 
         try {
             return await this.requireRemoteClusterTransport().get<AgentCluster>(`/api/clusters/${clusterId}`);
         } catch (error) {
             if ((error as { status?: number }).status === 404) {
-                return null;
+                return undefined;
             }
             throw error;
         }
@@ -761,7 +761,7 @@ export class OpenClawService extends EventEmitter {
             transactionGroupId: options.delivery?.transactionGroupId,
             expectedGroupSize: options.delivery?.expectedGroupSize,
             groupCompletionPolicy: options.delivery?.groupCompletionPolicy,
-            dispatch: async ({ idempotencyKey, abortController }) => {
+            dispatch: async ({ idempotencyKey, abortController }: any) => {
                 return this.requireRemoteClusterTransport('service.clusterBroadcastUnavailable').post<{ responses?: Record<string, ChatMessage> }>(
                     `/api/clusters/${normalizedClusterId}/broadcast`,
                     { content: normalizedMessage },
@@ -878,11 +878,11 @@ export class OpenClawService extends EventEmitter {
      * 重置服务状态
      */
     private resetState(): void {
-        this.transport = null;
+        this.transport = undefined;
         this.localRuntime?.dispose();
         this.openClawRuntime?.dispose();
-        this.localRuntime = null;
-        this.openClawRuntime = null;
+        this.localRuntime = undefined;
+        this.openClawRuntime = undefined;
         this.sourceDescription = '';
     }
 

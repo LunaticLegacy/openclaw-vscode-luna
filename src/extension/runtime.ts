@@ -47,8 +47,8 @@ export class OpenClawExtensionRuntime {
     private sidebarView: vscode.TreeView<vscode.TreeItem> | undefined;
     private sidebarWasVisible = false;
     private statusBarRefreshToken = 0;
-    private activeRuntimeNotice: (RuntimeNotice & { expiresAt: number }) | null = null;
-    private runtimeNoticeTimer: NodeJS.Timeout | null = null;
+    private activeRuntimeNotice: (RuntimeNotice & { expiresAt: number }) | undefined = undefined;
+    private runtimeNoticeTimer: NodeJS.Timeout | undefined = undefined;
 
     private constructor(
         public readonly context: vscode.ExtensionContext,
@@ -113,22 +113,29 @@ export class OpenClawExtensionRuntime {
     /**
      * 初始化插件实例用的内容。
      * 根据配置解析结果创建OpenClawService实例，并基于此创建AgentManager、ChannelManager等核心组件。
+     * 注意：本函数将直接拉起所有管理用实例。
      * @param context vscode上下文
      * @returns 返回本类实例
      */
     public static async create(context: vscode.ExtensionContext): Promise<OpenClawExtensionRuntime> {
+        // 解析配置内容，从配置文件中加载配置
         const serviceConfig = await resolveOpenClawServiceConfig(context.extensionPath);    // 等待openclaw服务处理完毕 ResolvedServiceConfig
+        // openclaw服务管理器的
         const service = new OpenClawService(serviceConfig);
+        // 智能体管理器
         const agentManager = new AgentManager(
             service,
             new AgentPresetScaffolder(context.extensionPath, service)
         );
+        // 频道管理器
         const channelManager = new ChannelManager(
             path.join(context.globalStorageUri.fsPath, 'channels.json')
         );
+        // 智能体文件夹管理器。
         const agentFolderManager = new AgentFolderManager(
             path.join(context.globalStorageUri.fsPath, 'agent-folders.json')
         );
+        // 创建集群管理器。
         const clusterManager = new ClusterManager(
             service,
             path.join(context.globalStorageUri.fsPath, 'clusters.json')
@@ -166,7 +173,7 @@ export class OpenClawExtensionRuntime {
         );
 
         this.context.subscriptions.push(
-            this.sidebarView.onDidChangeVisibility(event => {
+            this.sidebarView.onDidChangeVisibility((event: any) => {
                 const becameVisible = event.visible && !this.sidebarWasVisible;
                 this.sidebarWasVisible = event.visible;
 
@@ -179,17 +186,17 @@ export class OpenClawExtensionRuntime {
         );
 
         this.context.subscriptions.push(
-            this.sidebarView.onDidCollapseElement(async event => {
+            this.sidebarView.onDidCollapseElement(async (event: any) => {
                 if (event.element && 'folderId' in event.element) {
-                    const folderId = event.element.folderId as string | null;
+                    const folderId = event.element.folderId as string | undefined;
                     if (folderId) {
                         await this.agentFolderManager.setFolderCollapsed(folderId, true).catch(() => undefined);
                     }
                 }
             }),
-            this.sidebarView.onDidExpandElement(async event => {
+            this.sidebarView.onDidExpandElement(async (event: any) => {
                 if (event.element && 'folderId' in event.element) {
-                    const folderId = event.element.folderId as string | null;
+                    const folderId = event.element.folderId as string | undefined;
                     if (folderId) {
                         await this.agentFolderManager.setFolderCollapsed(folderId, false).catch(() => undefined);
                     }
@@ -203,7 +210,7 @@ export class OpenClawExtensionRuntime {
      */
     public registerLifecycle(): void {
         this.context.subscriptions.push(
-            vscode.workspace.onDidChangeConfiguration(event => {
+            vscode.workspace.onDidChangeConfiguration((event: any) => {
                 if (event.affectsConfiguration('openclaw')) {
                     void this.handleConfigurationChange();
                 }
@@ -217,7 +224,7 @@ export class OpenClawExtensionRuntime {
         await vscode.commands.executeCommand('setContext', 'openclaw.enabled', true);
         this.refreshAllViews();
         await this.refreshStatusBarIndicator();
-        void this.taskManager.refresh().catch(error => {
+        void this.taskManager.refresh().catch((error: any) => {
             console.error('Failed to initialize scheduled tasks.', error);
         });
     }
@@ -281,7 +288,7 @@ export class OpenClawExtensionRuntime {
         this.service.dispose();
         if (this.runtimeNoticeTimer) {
             clearTimeout(this.runtimeNoticeTimer);
-            this.runtimeNoticeTimer = null;
+            this.runtimeNoticeTimer = undefined;
         }
         this.statusBarItem.dispose();
     }
@@ -308,7 +315,7 @@ export class OpenClawExtensionRuntime {
             }
 
             // 筛选内容
-            const hasActiveAgent = agents.some(agent => agent.status === 'active');
+            const hasActiveAgent = agents.some((agent: any) => agent.status === 'active');
             this.applyStatusBarIndicatorState(hasActiveAgent ? 'active' : 'idle');
         } catch {
             if (refreshToken === this.statusBarRefreshToken) {
@@ -372,17 +379,17 @@ export class OpenClawExtensionRuntime {
     }
 
     /**
-     * 获取当前有效的运行时通知，如果通知已过期则返回null。
-     * @returns 当前有效的运行时通知对象，如果没有有效通知则返回null
+     * 获取当前有效的运行时通知，如果通知已过期则返回undefined。
+     * @returns 当前有效的运行时通知对象，如果没有有效通知则返回undefined
      */
-    private getActiveRuntimeNotice(): (RuntimeNotice & { expiresAt: number }) | null {
+    private getActiveRuntimeNotice(): (RuntimeNotice & { expiresAt: number }) | undefined {
         if (!this.activeRuntimeNotice) {
-            return null;
+            return undefined;
         }
 
         if (this.activeRuntimeNotice.expiresAt <= Date.now()) {
-            this.activeRuntimeNotice = null;
-            return null;
+            this.activeRuntimeNotice = undefined;
+            return undefined;
         }
 
         return this.activeRuntimeNotice;
@@ -394,7 +401,7 @@ export class OpenClawExtensionRuntime {
     private scheduleRuntimeNoticeExpiry(): void {
         if (this.runtimeNoticeTimer) {
             clearTimeout(this.runtimeNoticeTimer);
-            this.runtimeNoticeTimer = null;
+            this.runtimeNoticeTimer = undefined;
         }
 
         const notice = this.getActiveRuntimeNotice();
@@ -403,7 +410,7 @@ export class OpenClawExtensionRuntime {
         }
 
         this.runtimeNoticeTimer = setTimeout(() => {
-            this.runtimeNoticeTimer = null;
+            this.runtimeNoticeTimer = undefined;
             if (!this.getActiveRuntimeNotice()) {
                 void this.refreshStatusBarIndicator();
             }

@@ -32,7 +32,7 @@ export interface UpdateChannelParams {
     name?: string;
     agentId?: string;
     description?: string;
-    sessionId?: string | null;
+    sessionId?: string;
 }
 
 /**
@@ -60,7 +60,7 @@ export class ChannelManager extends EventEmitter {
     private readonly storageFilePath: string;
     private readonly channels: Map<string, ChannelConfig> = new Map();
     private loaded = false;
-    private loadPromise: Promise<void> | null = null;
+    private loadPromise: Promise<void> | undefined = undefined;
 
     /**
      * 创建 ChannelManager 实例
@@ -79,7 +79,7 @@ export class ChannelManager extends EventEmitter {
      */
     public async getChannels(refresh: boolean = false): Promise<ChannelConfig[]> {
         await this.ensureLoaded(refresh);
-        return Array.from(this.channels.values()).sort((left, right) =>
+        return Array.from(this.channels.values()).sort((left: any, right: any) =>
             right.updatedAt.localeCompare(left.updatedAt)
         );
     }
@@ -88,11 +88,11 @@ export class ChannelManager extends EventEmitter {
      * 获取指定频道
      * 
      * @param channelId - 频道ID
-     * @returns 频道对象或 null
+     * @returns 频道对象或 undefined
      */
-    public async getChannel(channelId: string): Promise<ChannelConfig | null> {
+    public async getChannel(channelId: string): Promise<ChannelConfig | undefined> {
         await this.ensureLoaded();
-        return this.channels.get(channelId) || null;
+        return this.channels.get(channelId) || undefined;
     }
 
     /**
@@ -180,7 +180,7 @@ export class ChannelManager extends EventEmitter {
      * @returns 更新后的频道
      */
     public async clearChannelSessionId(channelId: string): Promise<ChannelConfig> {
-        return this.updateChannel(channelId, { sessionId: null });
+        return this.updateChannel(channelId, { sessionId: undefined });
     }
 
     /**
@@ -212,7 +212,7 @@ export class ChannelManager extends EventEmitter {
         this.removeAllListeners();
         this.channels.clear();
         this.loaded = false;
-        this.loadPromise = null;
+        this.loadPromise = undefined;
     }
 
     /**
@@ -268,7 +268,7 @@ export class ChannelManager extends EventEmitter {
         try {
             await this.loadPromise;
         } finally {
-            this.loadPromise = null;
+            this.loadPromise = undefined;
         }
     }
 
@@ -282,7 +282,7 @@ export class ChannelManager extends EventEmitter {
         };
 
         await fs.mkdir(path.dirname(this.storageFilePath), { recursive: true });
-        await fs.writeFile(this.storageFilePath, JSON.stringify(payload, null, 2), 'utf8');
+        await fs.writeFile(this.storageFilePath, JSON.stringify(payload, undefined, 2), 'utf8');
     }
 }
 
@@ -302,7 +302,7 @@ function buildChannelId(name: string): string {
  * @param value - 输入值
  * @returns 规范化后的字符串或 undefined
  */
-function normalizeOptionalText(value: string | null | undefined): string | undefined {
+function normalizeOptionalText(value: string | undefined): string | undefined {
     const normalized = String(value || '').trim();
     return normalized ? normalized : undefined;
 }

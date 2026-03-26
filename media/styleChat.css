@@ -1120,6 +1120,19 @@
     margin-top: 2px;
 }
 
+.trace-segment-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.trace-segment-source {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
 .tool-call-list {
     display: flex;
     flex-direction: column;

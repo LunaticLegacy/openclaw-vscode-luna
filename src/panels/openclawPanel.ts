@@ -18,6 +18,16 @@ import {
     startOpenClawGateway
 } from '../services/openclawConfig';
 import type { DiscoveredChannel, OpenClawBooleanCapabilityId } from '../services/openclawService';
+import type {
+    ChannelDraftPayload,
+    ClusterContextExportOptions,
+    ClusterCreateFromMemberPresetParams,
+    ClusterSaveData,
+    ClusterSwarmExportOptions,
+    ConnectionSettings,
+    OpenClawConfigSettings,
+    SkillDownloadProgress
+} from '../types/panel';
 import { runWithNotificationProgress, showSuccessStatus, showWarningNotification, showWarningStatus } from '../utils/statusFeedback';
 import { getCapabilityUnavailableMessage } from '../utils/capabilitySupport';
 import { AgentManager, isDuplicateAgentNameError } from '../managers/agentManager';
@@ -65,6 +75,7 @@ import {
     handleClusterAgentSessionCommand as clusterAgentSessionCommandAction,
     handleCollaborate as collaborateClusterAction,
     handleCreateClusterFromMemberPreset as createClusterFromMemberPresetAction,
+    hardRefreshClusterWorkspace as hardRefreshClusterWorkspaceAction,
     handleRemoveAgentsFromCluster as removeAgentsFromClusterAction,
     handleSaveCluster as saveClusterAction,
     loadClusterAgentMessages as loadClusterAgentMessagesAction,
@@ -133,7 +144,7 @@ function buildTimestampFileSegment(date: Date = new Date()): string {
  * agent interactions, cluster operations, channel management, and task scheduling.
  */
 export class OpenClawPanel {
-    public static currentPanel: OpenClawPanel | undefined;
+    public static currentPanel?: OpenClawPanel;
     public static readonly viewType = 'openclawPanel';
 
     private readonly _panel: vscode.WebviewPanel;
@@ -147,14 +158,14 @@ export class OpenClawPanel {
     private _taskManager: ScheduledTaskManager;
     private _sessionManager: ChatSessionManager;
     private _clusterSessionManager: ChatSessionManager;
-    private _currentSessionId: string | null = null;
-    private _currentAgentId: string | null = null;
-    private _currentChannelId: string | null = null;
-    private _currentChannelSessionId: string | null = null;
+    private _currentSessionId?: string = undefined;
+    private _currentAgentId?: string = undefined;
+    private _currentChannelId?: string = undefined;
+    private _currentChannelSessionId?: string = undefined;
     private _viewMode: 'chat' | 'clusters' | 'usage' | 'channel' | 'tasks' = 'chat';
     private _contextLoadToken: number = 0;
     private _chatRunToken: number = 0;
-    private _activeChatStream: AsyncGenerator<{ content: string; done: boolean; message?: ChatMessage }, void, unknown> | null = null;
+    private _activeChatStream?: AsyncGenerator<{ content: string; done: boolean; message?: ChatMessage }, void, unknown> = undefined;
     private _channelRunToken: number = 0;
     private _clusterSwarmRunToken: number = 0;
     private _clusterAgentRunToken: number = 0;
@@ -165,12 +176,12 @@ export class OpenClawPanel {
     private _isWebviewReady = false;
     private _initialDataLoaded = false;
     private _pendingMessages: Array<Record<string, unknown>> = [];
-    private _runtimeDiagnostics: OpenClawRuntimeDiagnostics | null = null;
-    private _openClawConfigState: OpenClawConfigEditorState | null = null;
+    private _runtimeDiagnostics?: OpenClawRuntimeDiagnostics = undefined;
+    private _openClawConfigState?: OpenClawConfigEditorState = undefined;
     private _seenRuntimeNoticeKeys: Set<string> = new Set();
     private _skillMarketService: SkillMarketService;
     private _memoryService: MemoryService;
-    private _memoryStatus: MemoryStatus | null = null;
+    private _memoryStatus?: MemoryStatus = undefined;
 
     /**
      * Creates or shows the OpenClaw panel
@@ -307,16 +318,16 @@ export class OpenClawPanel {
             }
         }));
 
-        this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
+        this._panel.onDidDispose(() => this.dispose(), undefined, this._disposables);
         this._panel.onDidChangeViewState(
-            event => this._handlePanelVisibilityChange(event.webviewPanel.visible),
-            null,
+            (event: any) => this._handlePanelVisibilityChange(event.webviewPanel.visible),
+            undefined,
             this._disposables
         );
 
         this._panel.webview.onDidReceiveMessage(
-            message => this._handleMessage(message),
-            null,
+            (message: any) => this._handleMessage(message),
+            undefined,
             this._disposables
         );
     }
@@ -379,13 +390,13 @@ export class OpenClawPanel {
     private async _loadAgents() {
         try {
             const agents = await this._agentManager.getAgents();
-            await this._agentFolderManager.pruneMissingAgents(agents.map(agent => agent.id));
+            await this._agentFolderManager.pruneMissingAgents(agents.map((agent: any) => agent.id));
             const folders = await this._agentFolderManager.getFolders();
             const models = await this._service.getAvailableModels(agents);
             const subagents = await this._loadChatSubagentInventory(agents);
             this._postMessage({
                 type: 'agentsLoaded',
-                agents: agents.map(a => ({
+                agents: agents.map((a: any) => ({
                     id: a.id,
                     name: a.name,
                     model: a.model,
@@ -403,22 +414,22 @@ export class OpenClawPanel {
             });
 
             const currentAgentStillExists = this._currentAgentId
-                ? agents.some(agent => agent.id === this._currentAgentId)
+                ? agents.some((agent: any) => agent.id === this._currentAgentId)
                 : false;
 
             if (this._currentAgentId && !currentAgentStillExists) {
                 this._stopActiveSessionSync();
-                this._currentAgentId = null;
-                this._currentSessionId = null;
+                this._currentAgentId = undefined;
+                this._currentSessionId = undefined;
                 this._postMessage({ type: 'clearChat' });
-                this._postMessage({ type: 'setActiveAgent', agentId: null });
+                this._postMessage({ type: 'setActiveAgent', agentId: undefined });
             }
 
             const preferredAgentId = this._currentAgentId
                 || this._agentManager.getActiveAgentId()
-                || agents.find(agent => agent.isDefault || agent.status === 'active')?.id
+                || agents.find((agent: any) => agent.isDefault || agent.status === 'active')?.id
                 || agents[0]?.id
-                || null;
+                || undefined;
 
             if (preferredAgentId && (!this._currentAgentId || this._currentAgentId !== preferredAgentId || !this._currentSessionId)) {
                 await this._activateAgent(preferredAgentId);
@@ -449,15 +460,15 @@ export class OpenClawPanel {
 
             const content = await fs.promises.readFile(runsPath, 'utf8');
             const parsed = JSON.parse(content) as { runs?: Record<string, any> };
-            const agentIds = new Set(agents.map(agent => agent.id));
-            const records = Object.entries(parsed.runs || {}).map(([runId, raw]) => {
+            const agentIds = new Set(agents.map((agent: any) => agent.id));
+            const records = Object.entries(parsed.runs || {}).map(([runId, raw]: [string, any]) => {
                 const payload = raw && typeof raw === 'object' ? raw : {};
                 const parentAgentId = [
                     payload.parentAgentId,
                     payload.ownerAgentId,
                     payload.rootAgentId,
                     payload.agentId
-                ].map(value => String(value || '').trim()).find(Boolean);
+                ].map((value: any) => String(value || '').trim()).find(Boolean);
                 return {
                     id: String(payload.id || runId || '').trim(),
                     label: String(payload.name || payload.title || payload.id || runId || '').trim(),
@@ -465,9 +476,9 @@ export class OpenClawPanel {
                     status: String(payload.status || payload.state || '').trim() || undefined,
                     model: String(payload.model || payload.modelId || '').trim() || undefined
                 };
-            }).filter(item => item.id && (!item.parentAgentId || agentIds.has(item.parentAgentId)));
+            }).filter((item: any) => item.id && (!item.parentAgentId || agentIds.has(item.parentAgentId)));
 
-            return records.sort((left, right) => left.label.localeCompare(right.label));
+            return records.sort((left: any, right: any) => left.label.localeCompare(right.label));
         } catch {
             return [];
         }
@@ -624,14 +635,14 @@ export class OpenClawPanel {
      */
     private async _refreshSkillMarket() {
         this._skillMarketService.clearCache();
-        await this._loadSkillMarket(null);
+        await this._loadSkillMarket(undefined);
     }
 
     /**
      * Installs a skill from the skill market
      * @param skillId - The ID of the skill to install
      */
-    private async _installSkill(skillId: string, hubId?: string | null) {
+    private async _installSkill(skillId: string, hubId?: string) {
         try {
             const skill = await this._skillMarketService.getSkillDetails(skillId, hubId);
             if (!skill) {
@@ -644,13 +655,13 @@ export class OpenClawPanel {
                     title: `Installing skill: ${skill.label || skill.id}`,
                     cancellable: false
                 },
-                async progress => {
+                async (progress: any) => {
                     let reportedPercent = 0;
                     let lastReportedSecond = -1;
                     progress.report({ message: 'Preparing download...' });
 
                     return await this._skillMarketService.installSkill(skill, {
-                        onProgress: update => {
+                        onProgress: (update: any) => {
                             if (update.phase === 'importing') {
                                 const increment = Math.max(0, 100 - reportedPercent);
                                 reportedPercent = 100;
@@ -737,7 +748,7 @@ export class OpenClawPanel {
     private async _toggleSkillForAgent(agentId: string, skillId: string, enable: boolean) {
         try {
             const agents = await this._agentManager.getAgents();
-            const agent = agents.find(a => a.id === agentId);
+            const agent = agents.find((a: any) => a.id === agentId);
             
             if (!agent) {
                 throw new Error('Agent not found');
@@ -749,7 +760,7 @@ export class OpenClawPanel {
             if (enable) {
                 newEnabledSkills = [...new Set([...currentEnabledSkills, skillId])];
             } else {
-                newEnabledSkills = currentEnabledSkills.filter(id => id !== skillId);
+                newEnabledSkills = currentEnabledSkills.filter((id: any) => id !== skillId);
             }
             
             await this._agentManager.updateAgent(agentId, {
@@ -878,7 +889,7 @@ export class OpenClawPanel {
                     }
                 } finally {
                     if (this._activeChatStream === stream) {
-                        this._activeChatStream = null;
+                        this._activeChatStream = undefined;
                     }
                 }
             } else {
@@ -911,10 +922,10 @@ export class OpenClawPanel {
 
     /**
      * Creates a new chat session for the current agent
-     * @returns The created session or null
+     * @returns The created session or undefined
      */
-    private async _createSession(): Promise<ChatSession | null> {
-        if (!this._currentAgentId) return null;
+    private async _createSession(): Promise<ChatSession | undefined> {
+        if (!this._currentAgentId) return undefined;
 
         try {
             const session = await this._sessionManager.getOrCreateSession(this._currentAgentId, {
@@ -927,7 +938,7 @@ export class OpenClawPanel {
                 type: 'error',
                 message: t('panel.failedCreateSession', { error: String(error) })
             });
-            return null;
+            return undefined;
         }
     }
 
@@ -939,7 +950,7 @@ export class OpenClawPanel {
         const loadToken = ++this._contextLoadToken;
         this._stopActiveChatRun();
         this._currentAgentId = agentId;
-        this._currentSessionId = null;
+        this._currentSessionId = undefined;
         this._agentManager.setActiveAgent(agentId);
         const cachedSession = this._sessionManager.findSessionByAgent(agentId);
         if (cachedSession) {
@@ -993,7 +1004,7 @@ export class OpenClawPanel {
      * @param session - The session to load history for
      * @param loadToken - The load token for validation
      */
-    private async _loadSessionHistory(session?: ChatSession | null, loadToken?: number) {
+    private async _loadSessionHistory(session?: ChatSession, loadToken?: number) {
         if (!this._currentSessionId || (session && session.id !== this._currentSessionId) || (loadToken !== undefined && loadToken !== this._contextLoadToken)) {
             return;
         }
@@ -1026,7 +1037,7 @@ export class OpenClawPanel {
     private _clearChat() {
         this._stopActiveSessionSync();
         this._stopActiveChatRun();
-        this._currentSessionId = null;
+        this._currentSessionId = undefined;
         this._postMessage({ type: 'clearChat' });
         this._postRunState('chat', false);
     }
@@ -1040,7 +1051,7 @@ export class OpenClawPanel {
         }
         this._chatRunToken += 1;
         const activeStream = this._activeChatStream;
-        this._activeChatStream = null;
+        this._activeChatStream = undefined;
         if (activeStream) {
             void activeStream.return(undefined).catch(() => undefined);
         }
@@ -1050,7 +1061,7 @@ export class OpenClawPanel {
      * Aborts a session run
      * @param sessionId - The session ID to abort
      */
-    private _abortSessionRun(sessionId: string | null | undefined) {
+    private _abortSessionRun(sessionId: string | undefined) {
         const normalizedSessionId = typeof sessionId === 'string' ? sessionId.trim() : '';
         if (!normalizedSessionId) {
             return;
@@ -1137,7 +1148,7 @@ export class OpenClawPanel {
      * @param sessionId - The session ID
      * @returns True if this is the current chat run
      */
-    private _isCurrentChatRun(chatRunToken: number, agentId: string, sessionId: string | null): boolean {
+    private _isCurrentChatRun(chatRunToken: number, agentId: string, sessionId: string | undefined): boolean {
         return this._chatRunToken === chatRunToken
             && this._currentAgentId === agentId
             && this._currentSessionId === sessionId;
@@ -1181,7 +1192,7 @@ export class OpenClawPanel {
      * Activates a channel
      * @param channelId - The channel ID to activate
      */
-    private async _activateChannel(channelId: string | null | undefined) {
+    private async _activateChannel(channelId: string | undefined) {
         await activateChannelAction(this._createChannelActionContext(), channelId);
     }
 
@@ -1211,7 +1222,7 @@ export class OpenClawPanel {
      * Handles creating a channel
      * @param data - The channel data
      */
-    private async _handleCreateChannel(data: { name?: string; agentId?: string; description?: string }) {
+    private async _handleCreateChannel(data: ChannelDraftPayload) {
         await createChannelAction(this._createChannelActionContext(), data);
     }
 
@@ -1220,10 +1231,7 @@ export class OpenClawPanel {
      * @param channelId - The channel ID
      * @param data - The updated channel data
      */
-    private async _handleUpdateChannel(
-        channelId: string,
-        data: { name?: string; agentId?: string; description?: string }
-    ) {
+    private async _handleUpdateChannel(channelId: string, data: ChannelDraftPayload) {
         await updateChannelAction(this._createChannelActionContext(), channelId, data);
     }
 
@@ -1292,7 +1300,7 @@ export class OpenClawPanel {
             prompt: t('sidebar.newFolderPrompt'),
             placeHolder: t('sidebar.newFolderPrompt'),
             ignoreFocusOut: true,
-            validateInput: value => value.trim() ? undefined : t('sidebar.folderNameRequired')
+            validateInput: (value: any) => value.trim() ? undefined : t('sidebar.folderNameRequired')
         });
 
         if (!name) {
@@ -1307,7 +1315,7 @@ export class OpenClawPanel {
      * @param folderId - The folder ID to rename
      */
     private async _promptRenameAgentFolder(folderId: string) {
-        const folder = (await this._agentFolderManager.getFolders()).find(item => item.id === folderId);
+        const folder = (await this._agentFolderManager.getFolders()).find((item: any) => item.id === folderId);
         if (!folder) {
             return;
         }
@@ -1316,7 +1324,7 @@ export class OpenClawPanel {
             prompt: t('sidebar.renameFolderPrompt'),
             value: folder.name,
             ignoreFocusOut: true,
-            validateInput: value => value.trim() ? undefined : t('sidebar.folderNameRequired')
+            validateInput: (value: any) => value.trim() ? undefined : t('sidebar.folderNameRequired')
         });
 
         if (!nextName) {
@@ -1336,7 +1344,7 @@ export class OpenClawPanel {
      * @param folderId - The folder ID to delete
      */
     private async _promptDeleteAgentFolder(folderId: string) {
-        const folder = (await this._agentFolderManager.getFolders()).find(item => item.id === folderId);
+        const folder = (await this._agentFolderManager.getFolders()).find((item: any) => item.id === folderId);
         if (!folder) {
             return;
         }
@@ -1386,9 +1394,9 @@ export class OpenClawPanel {
     /**
      * Handles moving an agent to a folder
      * @param agentId - The agent ID
-     * @param folderId - The target folder ID or null
+     * @param folderId - The target folder ID or undefined
      */
-    private async _handleMoveAgentToFolder(agentId: string, folderId: string | null) {
+    private async _handleMoveAgentToFolder(agentId: string, folderId: string | undefined) {
         await this._agentFolderManager.moveAgentToFolder(agentId, folderId);
         await this._loadAgents();
     }
@@ -1466,9 +1474,10 @@ export class OpenClawPanel {
     private async _loadClusterAgentSwarmMessages(
         clusterId: string,
         agentId: string,
-        mode: 'broadcast' | 'collaborate'
+        mode: 'broadcast' | 'collaborate',
+        swarmRunId?: string
     ) {
-        await loadClusterAgentSwarmMessagesAction(this._createClusterActionContext(), clusterId, agentId, mode);
+        await loadClusterAgentSwarmMessagesAction(this._createClusterActionContext(), clusterId, agentId, mode, swarmRunId);
     }
 
     /**
@@ -1483,6 +1492,18 @@ export class OpenClawPanel {
         swarmRunId?: string
     ) {
         await loadClusterSwarmMessagesAction(this._createClusterActionContext(), clusterId, mode, outputMode, swarmRunId);
+    }
+
+    private async _hardRefreshClusterWorkspace(options: {
+        clusterId: string;
+        targetKind?: 'swarm' | 'agent';
+        mode?: 'broadcast' | 'collaborate';
+        outputMode?: 'frontend' | 'raw';
+        agentId?: string;
+        agentViewMode?: 'chat' | 'broadcast' | 'collaborate';
+        swarmRunId?: string;
+    }) {
+        await hardRefreshClusterWorkspaceAction(this._createClusterActionContext(), options);
     }
 
     /**
@@ -1522,6 +1543,7 @@ export class OpenClawPanel {
         targetKind: 'swarm' | 'agent';
         exportKind: ClusterContextExportKind;
         mode?: 'broadcast' | 'collaborate';
+        swarmRunId?: string;
         agentId?: string;
         agentViewMode?: 'chat' | 'broadcast' | 'collaborate';
     }) {
@@ -1552,7 +1574,7 @@ export class OpenClawPanel {
 
             const resolvedPath = resolveContextExportPath(targetUri.fsPath, options.exportKind);
             if (options.exportKind === 'raw') {
-                const rawContent = JSON.stringify(exportPayload.body, null, 2);
+                const rawContent = JSON.stringify(exportPayload.body, undefined, 2);
                 await vscode.workspace.fs.writeFile(
                     vscode.Uri.file(resolvedPath),
                     Buffer.from(rawContent, 'utf8')
@@ -1589,7 +1611,7 @@ export class OpenClawPanel {
      * Exports the current swarm structure as JSON
      * @param options - The export options
      */
-    private async _exportClusterSwarm(options: { clusterId: string }) {
+    private async _exportClusterSwarm(options: ClusterSwarmExportOptions) {
         const clusterId = String(options.clusterId || '').trim();
         if (!clusterId) {
             return;
@@ -1603,10 +1625,10 @@ export class OpenClawPanel {
             }
 
             const agents = await this._agentManager.getAgents();
-            const agentMap = new Map(agents.map(agent => [agent.id, agent]));
+            const agentMap = new Map(agents.map((agent: any) => [agent.id, agent]));
             const workspaceConfig = normalizeClusterWorkspaceConfig(cluster.workspaceConfig);
 
-            const members = cluster.agentIds.map(agentId => {
+            const members = cluster.agentIds.map((agentId: any) => {
                 const agent = agentMap.get(agentId);
                 if (!agent) {
                     return { id: agentId };
@@ -1650,7 +1672,7 @@ export class OpenClawPanel {
                 return;
             }
 
-            const rawContent = JSON.stringify(exportBody, null, 2);
+            const rawContent = JSON.stringify(exportBody, undefined, 2);
             await vscode.workspace.fs.writeFile(
                 targetUri,
                 Buffer.from(rawContent, 'utf8')
@@ -1734,12 +1756,12 @@ export class OpenClawPanel {
             const workspaceConfig = normalizeClusterWorkspaceConfig(swarm.workspaceConfig);
 
             const existingAgents = await this._agentManager.getAgents();
-            const agentMap = new Map(existingAgents.map(agent => [agent.id, agent]));
+            const agentMap = new Map(existingAgents.map((agent: any) => [agent.id, agent]));
             const memberIdMap = new Map<string, string>();
             const createdAgentIds: string[] = [];
 
             const members = swarm.members;
-            const missingMembers = members.filter(member => !agentMap.has(member.id));
+            const missingMembers = members.filter((member: any) => !agentMap.has(member.id));
             const totalSteps = missingMembers.length + 1;
 
             await vscode.window.withProgress(
@@ -1748,7 +1770,7 @@ export class OpenClawPanel {
                     title: t('progress.importingSwarm'),
                     cancellable: false
                 },
-                async progress => {
+                async (progress: any) => {
                     const reporter = createStepProgressReporter(progress, totalSteps);
                     try {
                         for (const [index, member] of missingMembers.entries()) {
@@ -1786,7 +1808,7 @@ export class OpenClawPanel {
                         }
 
                         const mappedAgentIds = members
-                            .map(member => memberIdMap.get(member.id))
+                            .map((member: any) => memberIdMap.get(member.id))
                             .filter(Boolean) as string[];
                         if (mappedAgentIds.length === 0) {
                             throw new Error(t('clusters.importSwarmNoAgents'));
@@ -1813,7 +1835,7 @@ export class OpenClawPanel {
                         showSuccessStatus(t('clusters.importSwarmSuccess', { name: path.basename(targetUri.fsPath) }));
                     } catch (error) {
                         if (createdAgentIds.length > 0) {
-                            await Promise.allSettled(createdAgentIds.map(agentId => this._agentManager.deleteAgent(agentId)));
+                            await Promise.allSettled(createdAgentIds.map((agentId: any) => this._agentManager.deleteAgent(agentId)));
                             await this._loadAgents();
                         }
                         throw error;
@@ -1830,13 +1852,7 @@ export class OpenClawPanel {
      * @param options - The export options
      * @returns The export bundle
      */
-    private async _buildClusterContextExportBundle(options: {
-        clusterId: string;
-        targetKind: 'swarm' | 'agent';
-        mode?: 'broadcast' | 'collaborate';
-        agentId?: string;
-        agentViewMode?: 'chat' | 'broadcast' | 'collaborate';
-    }): Promise<ClusterContextExportBundle> {
+    private async _buildClusterContextExportBundle(options: ClusterContextExportOptions): Promise<ClusterContextExportBundle> {
         const clusterId = String(options.clusterId || '').trim();
         if (!clusterId) {
             throw new Error(t('clusterManager.notFound', { clusterId }));
@@ -1849,7 +1865,14 @@ export class OpenClawPanel {
 
         return options.targetKind === 'agent'
             ? this._buildClusterAgentContextExport(clusterId, cluster, String(options.agentId || '').trim(), options.agentViewMode)
-            : this._buildClusterSwarmContextExport(clusterId, cluster, options.mode === 'collaborate' ? 'collaborate' : 'broadcast');
+            : this._buildClusterSwarmContextExport(
+                clusterId,
+                cluster,
+                options.mode === 'collaborate' ? 'collaborate' : 'broadcast',
+                typeof options.swarmRunId === 'string' && options.swarmRunId.trim()
+                    ? options.swarmRunId.trim()
+                    : undefined
+            );
     }
 
     /**
@@ -1862,9 +1885,10 @@ export class OpenClawPanel {
     private async _buildClusterSwarmContextExport(
         clusterId: string,
         cluster: AgentCluster,
-        mode: 'broadcast' | 'collaborate'
+        mode: 'broadcast' | 'collaborate',
+        swarmRunId?: string
     ): Promise<ClusterContextExportBundle> {
-        const messages = await this._clusterManager.getClusterSwarmMessages(clusterId, mode);
+        const messages = await this._clusterManager.getClusterSwarmMessages({ clusterId, mode, swarmRunId });
         return buildClusterContextExportBundle(
             `${sanitizeFileSegment(cluster.name)}-swarm-${mode}-context`,
             {
@@ -1876,6 +1900,7 @@ export class OpenClawPanel {
                     agentIds: [...cluster.agentIds]
                 },
                 mode,
+                swarmRunId,
                 messageCount: messages.length,
                 messages
             }
@@ -1902,7 +1927,7 @@ export class OpenClawPanel {
 
         const [agent, snapshot] = await Promise.all([
             this._agentManager.getAgent(agentId),
-            this._clusterManager.getClusterAgentContextSnapshot(clusterId, agentId)
+            this._clusterManager.getClusterAgentContextSnapshot({ clusterId, agentId })
         ]);
 
         return buildClusterContextExportBundle(
@@ -1918,7 +1943,7 @@ export class OpenClawPanel {
                 agent: {
                     id: agentId,
                     name: agent?.name || agentId,
-                    model: agent?.model || null
+                    model: agent?.model || undefined
                 },
                 currentView,
                 messageCounts: {
@@ -1939,13 +1964,7 @@ export class OpenClawPanel {
      * Auto-saves a cluster conversation as markdown
      * @param options - The auto-save options
      */
-    private async _autoSaveClusterConversationMarkdown(options: {
-        clusterId: string;
-        targetKind: 'swarm' | 'agent';
-        mode?: 'broadcast' | 'collaborate';
-        agentId?: string;
-        agentViewMode?: 'chat' | 'broadcast' | 'collaborate';
-    }) {
+    private async _autoSaveClusterConversationMarkdown(options: ClusterContextExportOptions) {
         try {
             const exportPayload = await this._buildClusterContextExportBundle(options);
             const exportDirectory = this._buildAutoExportDirectoryPath();
@@ -2080,7 +2099,7 @@ export class OpenClawPanel {
 
             await vscode.workspace.fs.writeFile(
                 targetUri,
-                Buffer.from(JSON.stringify(exportPayload, null, 2), 'utf8')
+                Buffer.from(JSON.stringify(exportPayload, undefined, 2), 'utf8')
             );
             showSuccessStatus(t('setup.runtimeLogs.exported', { name: path.basename(targetUri.fsPath) }));
         } catch (error) {
@@ -2143,14 +2162,14 @@ export class OpenClawPanel {
     }
 
     private async _stopClusterSwarmRuns(clusterId: string, mode: 'broadcast' | 'collaborate'): Promise<void> {
-        const cluster = await this._clusterManager.getCluster(clusterId).catch(() => null);
+        const cluster = await this._clusterManager.getCluster(clusterId).catch(() => undefined);
         if (cluster) {
             for (const agentId of cluster.agentIds) {
                 this._agentManager.endAgentRun(agentId);
             }
         }
 
-        await this._clusterManager.abortClusterSwarmRun(clusterId, mode).catch(() => undefined);
+        await this._clusterManager.abortClusterSwarmRun({ clusterId, mode }).catch(() => undefined);
     }
 
     private async _stopClusterSwarmRunsForAllModes(clusterId: string): Promise<void> {
@@ -2180,11 +2199,7 @@ export class OpenClawPanel {
      * Handles saving connection settings
      * @param settings - The connection settings
      */
-    private async _handleSaveConnectionSettings(settings: {
-        configMode?: 'auto' | 'gateway' | 'local' | 'openclaw';
-        gatewayUrl?: string;
-        gatewayToken?: string;
-    }) {
+    private async _handleSaveConnectionSettings(settings: ConnectionSettings) {
         await saveConnectionSettingsAction(this._createRuntimeActionContext(), settings);
     }
 
@@ -2192,14 +2207,7 @@ export class OpenClawPanel {
      * Handles saving OpenClaw configuration
      * @param settings - The configuration settings
      */
-    private async _handleSaveOpenClawConfig(settings: {
-        gatewayPort?: number | string;
-        gatewayToken?: string;
-        defaultWorkspace?: string;
-        defaultModel?: string;
-        authProviderId?: string;
-        authApiKey?: string;
-    }) {
+    private async _handleSaveOpenClawConfig(settings: OpenClawConfigSettings) {
         await saveOpenClawConfigAction(this._createRuntimeActionContext(), settings);
     }
 
@@ -2215,21 +2223,7 @@ export class OpenClawPanel {
      * @param clusterId - The cluster ID or undefined for new cluster
      * @param data - The cluster data
      */
-    private async _handleSaveCluster(
-        clusterId: string | undefined,
-        data: {
-            name?: string;
-            agentIds?: string[];
-            createAgents?: Array<{
-                name?: string;
-                model?: string;
-                systemPrompt?: string;
-                presetId?: string;
-                enabledSkills?: string[];
-            }>;
-            workspaceConfig?: Record<string, unknown>;
-        }
-    ) {
+    private async _handleSaveCluster(clusterId: string | undefined, data: ClusterSaveData) {
         await saveClusterAction(this._createClusterActionContext(), clusterId, data);
     }
 
@@ -2237,11 +2231,7 @@ export class OpenClawPanel {
      * Handles creating a cluster from a member preset
      * @param params - The creation parameters
      */
-    private async _handleCreateClusterFromMemberPreset(params: {
-        memberPresetId: string;
-        customName?: string;
-        model?: string;
-    }) {
+    private async _handleCreateClusterFromMemberPreset(params: ClusterCreateFromMemberPresetParams) {
         await createClusterFromMemberPresetAction(this._createClusterActionContext(), params);
     }
 
@@ -2329,11 +2319,11 @@ export class OpenClawPanel {
             extensionPath: this._extensionUri.fsPath,
             postMessage: this._postMessage.bind(this),
             getRuntimeDiagnostics: () => this._runtimeDiagnostics,
-            setRuntimeDiagnostics: (value: OpenClawRuntimeDiagnostics | null) => {
+            setRuntimeDiagnostics: (value: OpenClawRuntimeDiagnostics | undefined) => {
                 this._runtimeDiagnostics = value;
             },
             getOpenClawConfigState: () => this._openClawConfigState,
-            setOpenClawConfigState: (value: OpenClawConfigEditorState | null) => {
+            setOpenClawConfigState: (value: OpenClawConfigEditorState | undefined) => {
                 this._openClawConfigState = value;
             },
             getMemoryStatus: () => this._memoryStatus,
@@ -2397,10 +2387,10 @@ export class OpenClawPanel {
             ensureCapability: this._ensureCapability.bind(this),
             loadAgents: this._loadAgents.bind(this),
             getCurrentAgentId: () => this._currentAgentId,
-            setCurrentAgentId: (agentId: string | null) => {
+            setCurrentAgentId: (agentId: string | undefined) => {
                 this._currentAgentId = agentId;
             },
-            setCurrentSessionId: (sessionId: string | null) => {
+            setCurrentSessionId: (sessionId: string | undefined) => {
                 this._currentSessionId = sessionId;
             }
         };
@@ -2420,11 +2410,11 @@ export class OpenClawPanel {
             postRunState: this._postRunState.bind(this),
             resolveDiscoveredChannel: this._resolveDiscoveredChannel.bind(this),
             getCurrentChannelId: () => this._currentChannelId,
-            setCurrentChannelId: (channelId: string | null) => {
+            setCurrentChannelId: (channelId: string | undefined) => {
                 this._currentChannelId = channelId;
             },
             getCurrentChannelSessionId: () => this._currentChannelSessionId,
-            setCurrentChannelSessionId: (sessionId: string | null) => {
+            setCurrentChannelSessionId: (sessionId: string | undefined) => {
                 this._currentChannelSessionId = sessionId;
             },
             nextChannelLoadToken: () => ++this._channelLoadToken,
@@ -2465,6 +2455,7 @@ export class OpenClawPanel {
             loadClusterSwarmMessages: this._loadClusterSwarmMessages.bind(this),
             loadClusterAgentMessages: this._loadClusterAgentMessages.bind(this),
             loadClusterAgentSwarmMessages: this._loadClusterAgentSwarmMessages.bind(this),
+            hardRefreshClusterWorkspace: this._hardRefreshClusterWorkspace.bind(this),
             exportClusterConversation: this._exportClusterConversation.bind(this),
             exportClusterSwarm: this._exportClusterSwarm.bind(this),
             importClusterSwarm: this._importClusterSwarm.bind(this),
@@ -2650,7 +2641,7 @@ export class OpenClawPanel {
 
         this.showTaskView();
 
-        let task: ScheduledTask | null = null;
+        let task: ScheduledTask | undefined = undefined;
         if (taskId) {
             task = await this._taskManager.getTask(taskId);
         }
@@ -2731,15 +2722,15 @@ export class OpenClawPanel {
     /**
      * Resolves a discovered channel by ID
      * @param channelId - The channel ID
-     * @returns The discovered channel or null
+     * @returns The discovered channel or undefined
      */
-    private async _resolveDiscoveredChannel(channelId: string): Promise<DiscoveredChannel | null> {
+    private async _resolveDiscoveredChannel(channelId: string): Promise<DiscoveredChannel | undefined> {
         if (!channelId) {
-            return null;
+            return undefined;
         }
 
         const channels = await this._service.getDiscoveredChannels();
-        return channels.find(channel => channel.id === channelId) || null;
+        return channels.find((channel: any) => channel.id === channelId) || undefined;
     }
 }
 
@@ -2778,7 +2769,7 @@ function remapWorkspaceConfig(
         : {};
 
     const remappedProfiles: Record<string, unknown> = {};
-    Object.entries(profiles).forEach(([agentId, profile]) => {
+    Object.entries(profiles).forEach(([agentId, profile]: [string, any]) => {
         const mappedId = memberIdMap.get(agentId) || agentId;
         if (!mappedId || !profile || typeof profile !== 'object' || Array.isArray(profile)) {
             return;
@@ -2802,12 +2793,7 @@ function remapWorkspaceConfig(
     };
 }
 
-function buildSkillDownloadProgressMessage(progress: {
-    downloadedBytes: number;
-    totalBytes?: number;
-    bytesPerSecond?: number;
-    percent?: number;
-}): string {
+function buildSkillDownloadProgressMessage(progress: SkillDownloadProgress): string {
     const downloaded = formatByteSize(progress.downloadedBytes);
     const total = typeof progress.totalBytes === 'number' && progress.totalBytes > 0
         ? formatByteSize(progress.totalBytes)

@@ -185,7 +185,7 @@ export function getModeCapabilities(mode: OpenClawMode): OpenClawModeCapabilitie
  * @returns Array of capability matrix rows
  */
 export function getModeCapabilityMatrix(): OpenClawCapabilityMatrixRow[] {
-    return CAPABILITY_MATRIX.map(row => ({
+    return CAPABILITY_MATRIX.map((row: any) => ({
         ...row,
         modes: {
             gateway: { ...row.modes.gateway },

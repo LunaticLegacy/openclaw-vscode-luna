@@ -39,12 +39,12 @@ export interface UsageTrend {
  * ```
  */
 export class UsageManager extends EventEmitter {
-    private service: OpenClawService;
-    private cachedUsage: APIUsage | null = null;
-    private lastFetch: number = 0;
-    private cacheDuration: number = 60000; // 1 minute cache
-    private readonly handleUsageChanged = () => this.invalidate();
-    private readonly handleConnectionChange = () => this.invalidate();
+    private service: OpenClawService; // OpenClaw 服务实例
+    private cachedUsage: APIUsage | undefined = undefined; // 缓存的使用量数据
+    private lastFetch: number = 0; // 最近一次拉取时间戳
+    private cacheDuration: number = 60000; // 缓存有效期（毫秒）
+    private readonly handleUsageChanged = () => this.invalidate(); // 使用量变更事件处理器
+    private readonly handleConnectionChange = () => this.invalidate(); // 连接状态变更处理器
 
     /**
      * 创建 UsageManager 实例
@@ -191,13 +191,13 @@ export class UsageManager extends EventEmitter {
         const totalTokens = this.cachedUsage.totalTokens;
         const entries = Object.entries(this.cachedUsage.byModel);
 
-        return entries.map(([model, stats]) => ({
+        return entries.map(([model, stats]: any) => ({
             model,
             requests: stats.requests,
             tokens: stats.tokens,
             cost: stats.cost,
             percentage: totalTokens > 0 ? (stats.tokens / totalTokens) * 100 : 0
-        })).sort((a, b) => b.tokens - a.tokens);
+        })).sort((a: any, b: any) => b.tokens - a.tokens);
     }
 
     /**
@@ -265,7 +265,7 @@ export class UsageManager extends EventEmitter {
      * 使缓存失效
      */
     public invalidate(): void {
-        this.cachedUsage = null;
+        this.cachedUsage = undefined;
         this.lastFetch = 0;
         this.emit('usageInvalidated');
     }
@@ -277,6 +277,6 @@ export class UsageManager extends EventEmitter {
         this.service.off('usageChanged', this.handleUsageChanged);
         this.service.off('connectionChange', this.handleConnectionChange);
         this.removeAllListeners();
-        this.cachedUsage = null;
+        this.cachedUsage = undefined;
     }
 }

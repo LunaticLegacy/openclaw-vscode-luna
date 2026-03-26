@@ -22,9 +22,9 @@ export function buildOpenClawConfigEditorState(
     stateDir: string,
     configPath: string,
     authProfilesPath: string,
-    openClawConfig: OpenClawConfigFile | null,
-    authProfiles: AuthProfilesFile | null,
-    mainAgentModels: ModelsFile | null,
+    openClawConfig: OpenClawConfigFile | undefined,
+    authProfiles: AuthProfilesFile | undefined,
+    mainAgentModels: ModelsFile | undefined,
     exists: boolean,
     authProfilesExists: boolean
 ): OpenClawConfigEditorState {
@@ -52,7 +52,7 @@ export function buildOpenClawConfigEditorState(
 }
 
 export function mergeOpenClawConfigForSave(
-    existing: JsonRecord | null,
+    existing: JsonRecord | undefined,
     update: OpenClawConfigEditorUpdate
 ): JsonRecord {
     const nextConfig = cloneJsonRecord(existing);
@@ -77,7 +77,7 @@ export function mergeOpenClawConfigForSave(
 }
 
 export function mergeOpenClawAuthProfilesForSave(
-    existing: AuthProfilesFile | null,
+    existing: AuthProfilesFile | undefined,
     update: OpenClawConfigEditorUpdate
 ): AuthProfilesFile {
     const nextAuthProfiles = cloneAuthProfilesFile(existing);
@@ -107,7 +107,7 @@ export function mergeOpenClawAuthProfilesForSave(
     delete profiles[profileId];
     if (lastGood[providerId] === profileId) {
         const fallbackProfileId = Object.entries(profiles)
-            .find(([, profile]) => profile?.provider?.trim() === providerId)?.[0];
+            .find(([, profile]: any) => profile?.provider?.trim() === providerId)?.[0];
         if (fallbackProfileId) {
             lastGood[providerId] = fallbackProfileId;
         } else {
@@ -126,7 +126,7 @@ export function mergeOpenClawAuthProfilesForSave(
     return nextAuthProfiles;
 }
 
-export function hasOpenClawAuthProfilesContent(authProfiles: AuthProfilesFile | null): boolean {
+export function hasOpenClawAuthProfilesContent(authProfiles: AuthProfilesFile | undefined): boolean {
     return Boolean(
         authProfiles
         && (
@@ -145,7 +145,7 @@ export function getOpenClawMainModelsPath(stateDir: string): string {
     return path.join(getOpenClawMainAgentDir(stateDir), 'models.json');
 }
 
-function cloneAuthProfilesFile(value: AuthProfilesFile | null): AuthProfilesFile {
+function cloneAuthProfilesFile(value: AuthProfilesFile | undefined): AuthProfilesFile {
     return JSON.parse(JSON.stringify(value || {})) as AuthProfilesFile;
 }
 
@@ -181,8 +181,8 @@ function applyOpenClawAuthProfileMetadata(
 }
 
 function collectOpenClawAuthProviders(
-    authProfiles: AuthProfilesFile | null,
-    mainAgentModels: ModelsFile | null,
+    authProfiles: AuthProfilesFile | undefined,
+    mainAgentModels: ModelsFile | undefined,
     defaultModel: string
 ): string[] {
     const providers = new Set<string>(getBuiltInOpenClawAuthProviderIds());
@@ -206,11 +206,11 @@ function collectOpenClawAuthProviders(
         providers.add(defaultProviderId);
     }
 
-    return Array.from(providers).sort((left, right) => left.localeCompare(right));
+    return Array.from(providers).sort((left: any, right: any) => left.localeCompare(right));
 }
 
 function collectOpenClawDefaultModelSuggestionsByProvider(
-    mainAgentModels: ModelsFile | null,
+    mainAgentModels: ModelsFile | undefined,
     defaultModel: string
 ): Record<string, string[]> {
     const suggestionsByProvider = getBuiltInOpenClawDefaultModelsByProvider();
@@ -222,8 +222,8 @@ function collectOpenClawDefaultModelSuggestionsByProvider(
         }
 
         const dynamicModelRefs = (providerConfig.models || [])
-            .map(modelConfig => buildQualifiedModelRef(normalizedProviderId, modelConfig?.id))
-            .filter((modelRef): modelRef is string => Boolean(modelRef));
+            .map((modelConfig: any) => buildQualifiedModelRef(normalizedProviderId, modelConfig?.id))
+            .filter((modelRef: any): modelRef is string => Boolean(modelRef));
 
         suggestionsByProvider[normalizedProviderId] = dedupeStringList([
             ...(suggestionsByProvider[normalizedProviderId] || []),
@@ -275,8 +275,8 @@ function dedupeStringList(values: string[]): string[] {
 }
 
 function resolveInitialOpenClawAuthProviderId(
-    authProfiles: AuthProfilesFile | null,
-    mainAgentModels: ModelsFile | null,
+    authProfiles: AuthProfilesFile | undefined,
+    mainAgentModels: ModelsFile | undefined,
     defaultModel: string
 ): string {
     const defaultProviderId = inferProviderIdFromModel(defaultModel);
@@ -285,22 +285,22 @@ function resolveInitialOpenClawAuthProviderId(
     }
 
     const lastGoodProviderId = Object.keys(authProfiles?.lastGood || {})
-        .map(providerId => normalizeProviderId(providerId))
-        .find((providerId): providerId is string => Boolean(providerId));
+        .map((providerId: any) => normalizeProviderId(providerId))
+        .find((providerId: any): providerId is string => Boolean(providerId));
     if (lastGoodProviderId) {
         return lastGoodProviderId;
     }
 
     const authProfileProviderId = Object.values(authProfiles?.profiles || {})
-        .map(profile => normalizeProviderId(profile?.provider))
-        .find((providerId): providerId is string => Boolean(providerId));
+        .map((profile: any) => normalizeProviderId(profile?.provider))
+        .find((providerId: any): providerId is string => Boolean(providerId));
     if (authProfileProviderId) {
         return authProfileProviderId;
     }
 
     const modelProviderId = Object.keys(mainAgentModels?.providers || {})
-        .map(providerId => normalizeProviderId(providerId))
-        .find((providerId): providerId is string => Boolean(providerId));
+        .map((providerId: any) => normalizeProviderId(providerId))
+        .find((providerId: any): providerId is string => Boolean(providerId));
     if (modelProviderId) {
         return modelProviderId;
     }
@@ -309,8 +309,8 @@ function resolveInitialOpenClawAuthProviderId(
 }
 
 function resolveOpenClawAuthApiKey(
-    authProfiles: AuthProfilesFile | null,
-    mainAgentModels: ModelsFile | null,
+    authProfiles: AuthProfilesFile | undefined,
+    mainAgentModels: ModelsFile | undefined,
     providerId: string
 ): string {
     const normalizedProviderId = normalizeProviderId(providerId);
@@ -328,7 +328,7 @@ function resolveOpenClawAuthApiKey(
 }
 
 function resolveAuthProfileId(
-    authProfiles: AuthProfilesFile | null,
+    authProfiles: AuthProfilesFile | undefined,
     providerId: string
 ): string {
     const normalizedProviderId = normalizeProviderId(providerId) || providerId.trim();
@@ -338,7 +338,7 @@ function resolveAuthProfileId(
     }
 
     const matchingProfileId = Object.entries(authProfiles?.profiles || {})
-        .find(([, profile]) => profile?.provider?.trim() === normalizedProviderId)?.[0];
+        .find(([, profile]: any) => profile?.provider?.trim() === normalizedProviderId)?.[0];
     if (matchingProfileId) {
         return matchingProfileId;
     }

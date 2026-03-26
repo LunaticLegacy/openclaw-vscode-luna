@@ -134,14 +134,14 @@ export class LocalSkillRegistry extends EventEmitter {
         
         // Combine all skills
         const allSkills = [
-            ...BUILT_IN_SKILLS.map(s => this.enrichWithState(s)),
-            ...installed.map(s => this.enrichWithState(s)),
-            ...custom.map(s => this.enrichWithState(s))
+            ...BUILT_IN_SKILLS.map((s: any) => this.enrichWithState(s)),
+            ...installed.map((s: any) => this.enrichWithState(s)),
+            ...custom.map((s: any) => this.enrichWithState(s))
         ];
 
         // Remove duplicates (by id), preferring installed/custom over built-in
         const seen = new Set<string>();
-        return allSkills.filter(s => {
+        return allSkills.filter((s: any) => {
             if (seen.has(s.id)) return false;
             seen.add(s.id);
             return true;
@@ -152,14 +152,14 @@ export class LocalSkillRegistry extends EventEmitter {
      * Get built-in skills
      */
     public getBuiltInSkills(): SkillDefinition[] {
-        return BUILT_IN_SKILLS.map(skill => ({ ...skill }));
+        return BUILT_IN_SKILLS.map((skill: any) => ({ ...skill }));
     }
 
     /**
      * Get custom skills
      */
     public getCustomSkills(): SkillDefinition[] {
-        return Array.from(this.customSkills.values()).map(skill => ({ ...skill }));
+        return Array.from(this.customSkills.values()).map((skill: any) => ({ ...skill }));
     }
 
     /**
@@ -176,11 +176,11 @@ export class LocalSkillRegistry extends EventEmitter {
         const installedSkills = Array.from(this.customSkills.values());
         const allSkills = [...BUILT_IN_SKILLS, ...installedSkills];
         return allSkills
-            .filter(s => {
+            .filter((s: any) => {
                 const state = this.skillStates.get(s.id);
                 return state?.isEnabled || state?.enabledForAgents?.includes(agentId);
             })
-            .map(s => ({ ...s, isEnabled: true }));
+            .map((s: any) => ({ ...s, isEnabled: true }));
     }
 
     /**
@@ -196,7 +196,7 @@ export class LocalSkillRegistry extends EventEmitter {
                     state.enabledForAgents.push(agentId);
                 }
             } else {
-                state.enabledForAgents = state.enabledForAgents.filter(id => id !== agentId);
+                state.enabledForAgents = state.enabledForAgents.filter((id: any) => id !== agentId);
             }
         } else {
             // Global toggle
@@ -288,7 +288,7 @@ export class LocalSkillRegistry extends EventEmitter {
                 downloads: skillData.downloads,
                 installedAt: skillData.installedAt,
                 homepage: skillData.homepage
-            } as StoredSkillMetadata, null, 2),
+            } as StoredSkillMetadata, undefined, 2),
             'utf8'
         );
 
@@ -301,7 +301,7 @@ export class LocalSkillRegistry extends EventEmitter {
     public async removeInstalledSkill(skillId: string): Promise<boolean> {
         try {
             const installedSkills = await this.getInstalledSkills();
-            const target = installedSkills.find(skill => skill.id === skillId);
+            const target = installedSkills.find((skill: any) => skill.id === skillId);
             if (!target?.localPath) {
                 return false;
             }
@@ -359,7 +359,7 @@ export class LocalSkillRegistry extends EventEmitter {
         }
 
         const skillPrompts = enabledSkills
-            .map(skill => `- ${skill.label}: ${skill.prompt}`);
+            .map((skill: any) => `- ${skill.label}: ${skill.prompt}`);
 
         return [
             '',
@@ -375,13 +375,13 @@ export class LocalSkillRegistry extends EventEmitter {
         const skills = await this.getAllSkills();
         const counts = new Map<SkillCategory, number>();
         
-        skills.forEach(s => {
+        skills.forEach((s: any) => {
             counts.set(s.category, (counts.get(s.category) || 0) + 1);
         });
 
         return Array.from(counts.entries())
-            .map(([id, count]) => ({ id, count }))
-            .sort((a, b) => b.count - a.count);
+            .map(([id, count]: any) => ({ id, count }))
+            .sort((a: any, b: any) => b.count - a.count);
     }
 
     /**
@@ -391,15 +391,15 @@ export class LocalSkillRegistry extends EventEmitter {
         const skills = await this.getAllSkills();
         const counts = new Map<string, number>();
         
-        skills.forEach(s => {
-            s.tags.forEach(t => {
+        skills.forEach((s: any) => {
+            s.tags.forEach((t: any) => {
                 counts.set(t, (counts.get(t) || 0) + 1);
             });
         });
 
         return Array.from(counts.entries())
-            .map(([name, count]) => ({ name, count }))
-            .sort((a, b) => b.count - a.count);
+            .map(([name, count]: any) => ({ name, count }))
+            .sort((a: any, b: any) => b.count - a.count);
     }
 
     private enrichWithState(skill: SkillDefinition): SkillDefinition {
@@ -434,7 +434,7 @@ export class LocalSkillRegistry extends EventEmitter {
         try {
             const data = this.context.globalState.get<SkillDefinition[]>(this.customSkillsKey);
             if (data) {
-                this.customSkills = new Map(data.map(s => [s.id, s]));
+                this.customSkills = new Map(data.map((s: any) => [s.id, s]));
             }
         } catch {
             // Ignore load errors
@@ -487,7 +487,7 @@ export class LocalSkillRegistry extends EventEmitter {
         return [...frontmatter, body, ''].join('\n');
     }
 
-    private async readInstalledSkillFromDirectory(skillDir: string, folderName: string): Promise<SkillDefinition | null> {
+    private async readInstalledSkillFromDirectory(skillDir: string, folderName: string): Promise<SkillDefinition | undefined> {
         try {
             const skillMarkdownPath = path.join(skillDir, 'SKILL.md');
             const markdown = await fs.readFile(skillMarkdownPath, 'utf8');
@@ -495,7 +495,7 @@ export class LocalSkillRegistry extends EventEmitter {
             const parsed = this.parseSkillMarkdown(markdown);
             const skillId = String(metadata.id || parsed.name || folderName.split('__').slice(1).join('__') || folderName).trim();
             if (!skillId) {
-                return null;
+                return undefined;
             }
 
             return {
@@ -504,7 +504,7 @@ export class LocalSkillRegistry extends EventEmitter {
                 description: String(metadata.description || parsed.description || '').trim(),
                 prompt: String(metadata.prompt || parsed.body || '').trim(),
                 category: metadata.category || 'other',
-                tags: Array.isArray(metadata.tags) ? metadata.tags.map(tag => String(tag || '').trim()).filter(Boolean) : [],
+                tags: Array.isArray(metadata.tags) ? metadata.tags.map((tag: any) => String(tag || '').trim()).filter(Boolean) : [],
                 source: metadata.source === 'custom' ? 'custom' : 'marketplace',
                 sourceKind: 'installed',
                 hubId: metadata.hubId,
@@ -522,7 +522,7 @@ export class LocalSkillRegistry extends EventEmitter {
                 localPath: skillDir
             };
         } catch {
-            return null;
+            return undefined;
         }
     }
 

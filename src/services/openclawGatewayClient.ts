@@ -60,9 +60,9 @@ const PROTOCOL_VERSION = 3;
  * ```
  */
 export class OpenClawGatewayClient extends EventEmitter {
-    private ws: WebSocket | null = null;
+    private ws: WebSocket | undefined = undefined;
     private connected = false;
-    private connectPromise: Promise<void> | null = null;
+    private connectPromise: Promise<void> | undefined = undefined;
     private pending = new Map<string, PendingRequest>();
     private intentionalClose = false;
 
@@ -94,7 +94,7 @@ export class OpenClawGatewayClient extends EventEmitter {
             await this.connectPromise;
         } finally {
             if (!this.connected) {
-                this.connectPromise = null;
+                this.connectPromise = undefined;
             }
         }
     }
@@ -126,7 +126,7 @@ export class OpenClawGatewayClient extends EventEmitter {
         const id = crypto.randomUUID();
         const timeoutMs = options.timeoutMs ?? this.options.timeoutMs ?? 30000;
 
-        const promise = new Promise<T>((resolve, reject) => {
+        const promise = new Promise<T>((resolve: any, reject: any) => {
             const timer = setTimeout(() => {
                 this.pending.delete(id);
                 reject(new Error(`Gateway request timed out: ${method}`));
@@ -134,7 +134,7 @@ export class OpenClawGatewayClient extends EventEmitter {
 
             this.pending.set(id, {
                 expectFinal: options.expectFinal === true,
-                resolve: value => resolve(value as T),
+                resolve: (value: any) => resolve(value as T),
                 reject,
                 timer
             });
@@ -169,7 +169,7 @@ export class OpenClawGatewayClient extends EventEmitter {
     public dispose(): void {
         this.intentionalClose = true;
         this.connected = false;
-        this.connectPromise = null;
+        this.connectPromise = undefined;
 
         for (const [id, pending] of this.pending) {
             clearTimeout(pending.timer);
@@ -187,7 +187,7 @@ export class OpenClawGatewayClient extends EventEmitter {
             this.ws.terminate();
         }
 
-        this.ws = null;
+        this.ws = undefined;
         this.removeAllListeners();
     }
 
@@ -196,13 +196,13 @@ export class OpenClawGatewayClient extends EventEmitter {
      * @returns 连接完成的 Promise
      */
     private createConnection(): Promise<void> {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve: any, reject: any) => {
             const url = toWebSocketUrl(this.options.url);
             const ws = new WebSocket(url);
             this.ws = ws;
 
             let settled = false;
-            let timeout: NodeJS.Timeout | null = null;
+            let timeout: NodeJS.Timeout | undefined = undefined;
             const settle = (error?: Error) => {
                 if (settled) {
                     return;
@@ -211,7 +211,7 @@ export class OpenClawGatewayClient extends EventEmitter {
                 settled = true;
                 if (timeout) {
                     clearTimeout(timeout);
-                    timeout = null;
+                    timeout = undefined;
                 }
                 if (error) {
                     reject(error);
@@ -241,10 +241,10 @@ export class OpenClawGatewayClient extends EventEmitter {
             ws.on('close', (code: number, reason: Buffer) => {
                 if (timeout) {
                     clearTimeout(timeout);
-                    timeout = null;
+                    timeout = undefined;
                 }
                 this.connected = false;
-                this.connectPromise = null;
+                this.connectPromise = undefined;
 
                 const normalizedReason = typeof reason === 'string'
                     ? reason
@@ -294,7 +294,7 @@ export class OpenClawGatewayClient extends EventEmitter {
 
         if (parsed.type === 'event') {
             if (parsed.event === 'connect.challenge') {
-                const payload = parsed.payload as { nonce?: unknown } | undefined;
+                const payload = parsed.payload as { nonce?: unknown };
                 const nonce = typeof payload?.nonce === 'string' ? payload.nonce.trim() : '';
                 if (!nonce) {
                     settleConnect(new Error('Gateway connect challenge missing nonce'));
@@ -303,15 +303,15 @@ export class OpenClawGatewayClient extends EventEmitter {
 
                 this.request<GatewayHelloOk>('connect', this.buildConnectParams(nonce), {
                     timeoutMs: this.options.timeoutMs ?? 15000
-                }).then(payloadValue => {
+                }).then((payloadValue: any) => {
                     if (payloadValue?.type && payloadValue.type !== 'hello-ok') {
                         throw new Error(`Unexpected gateway hello payload: ${payloadValue.type}`);
                     }
 
                     this.connected = true;
-                    this.connectPromise = null;
+                    this.connectPromise = undefined;
                     settleConnect();
-                }).catch(error => {
+                }).catch((error: any) => {
                     settleConnect(normalizeError(error));
                 });
                 return;

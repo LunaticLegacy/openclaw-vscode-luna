@@ -1,119 +1,26 @@
 import * as path from 'path';
 import type { ChatMessage } from '../../services/openclawService';
+import type {
+    ClusterAgentContextExportBody,
+    ClusterContextExportBody,
+    ClusterContextExportBundle,
+    ClusterContextExportKind,
+    ClusterSwarmContextExportBody,
+    ClusterSwarmReplayImport,
+    ClusterSwarmStructureExportBody,
+    ClusterSwarmStructureImport
+} from '../../types/contextExport';
 
-/**
- * Information about a cluster for export
- */
-interface ExportClusterInfo {
-    id: string;
-    name: string;
-    agentIds: string[];
-}
-
-/**
- * Information about an agent for export
- */
-interface ExportAgentInfo {
-    id: string;
-    name: string;
-    model: string | null;
-}
-
-/**
- * Body of a cluster swarm context export
- */
-export interface ClusterSwarmContextExportBody {
-    exportedAt: string;
-    kind: 'cluster-swarm-context';
-    cluster: ExportClusterInfo;
-    mode: 'broadcast' | 'collaborate';
-    messageCount: number;
-    messages: ChatMessage[];
-}
-
-/**
- * Body of a cluster agent context export
- */
-export interface ClusterAgentContextExportBody {
-    exportedAt: string;
-    kind: 'cluster-agent-context';
-    cluster: ExportClusterInfo;
-    agent: ExportAgentInfo;
-    currentView: 'chat' | 'broadcast' | 'collaborate';
-    messageCounts: {
-        direct: number;
-        broadcast: number;
-        collaborate: number;
-    };
-    conversations: {
-        direct: ChatMessage[];
-        broadcast: ChatMessage[];
-        collaborate: ChatMessage[];
-    };
-}
-
-/**
- * Union type for cluster context export bodies
- */
-export type ClusterContextExportBody =
-    | ClusterSwarmContextExportBody
-    | ClusterAgentContextExportBody;
-
-/**
- * Bundle containing all export data and metadata
- */
-export interface ClusterContextExportBundle {
-    baseName: string;
-    readableFileName: string;
-    rawFileName: string;
-    body: ClusterContextExportBody;
-    readableMarkdown: string;
-}
-
-/**
- * Type for export kind (readable markdown or raw JSON)
- */
-export type ClusterContextExportKind = 'readable' | 'raw';
-
-/**
- * Import data for cluster swarm replay
- */
-export interface ClusterSwarmReplayImport {
-    sourcePath: string;
-    importedAt: string;
-    body: ClusterSwarmContextExportBody;
-}
-
-/**
- * Body of a swarm structure export
- */
-export interface ClusterSwarmStructureExportBody {
-    kind: 'swarm-structure';
-    exportedAt: string;
-    swarm: {
-        id: string;
-        name: string;
-        createdAt?: string;
-        workspaceConfig?: Record<string, unknown>;
-        members: Array<{
-            id: string;
-            name?: string;
-            model?: string;
-            systemPrompt?: string;
-            presetId?: string;
-            enabledSkills?: string[];
-        }>;
-    };
-}
-
-/**
- * Import data for swarm structure
- */
-export interface ClusterSwarmStructureImport {
-    sourcePath: string;
-    importedAt: string;
-    body: ClusterSwarmStructureExportBody;
-}
+export type {
+    ClusterAgentContextExportBody,
+    ClusterContextExportBody,
+    ClusterContextExportBundle,
+    ClusterContextExportKind,
+    ClusterSwarmContextExportBody,
+    ClusterSwarmReplayImport,
+    ClusterSwarmStructureExportBody,
+    ClusterSwarmStructureImport
+} from '../../types/contextExport';
 
 /**
  * Builds a cluster context export bundle
@@ -199,6 +106,9 @@ export function parseClusterSwarmReplayImport(
                 agentIds: [...body.cluster.agentIds]
             },
             mode: body.mode,
+            swarmRunId: typeof body.swarmRunId === 'string' && body.swarmRunId.trim()
+                ? body.swarmRunId.trim()
+                : undefined,
             messageCount: normalizedMessages.length,
             messages: normalizedMessages
         }
@@ -242,18 +152,18 @@ export function parseClusterSwarmStructureImport(
     }
 
     const normalizedMembers = swarm.members
-        .filter(member => member && typeof member === 'object')
-        .map(member => ({
+        .filter((member: any) => member && typeof member === 'object')
+        .map((member: any) => ({
             id: String(member.id || '').trim(),
             name: typeof member.name === 'string' ? member.name.trim() : '',
             model: typeof member.model === 'string' ? member.model.trim() : '',
             systemPrompt: typeof member.systemPrompt === 'string' ? member.systemPrompt : undefined,
             presetId: typeof member.presetId === 'string' ? member.presetId.trim() : undefined,
             enabledSkills: Array.isArray(member.enabledSkills)
-                ? member.enabledSkills.map(skill => String(skill || '').trim()).filter(Boolean)
+                ? member.enabledSkills.map((skill: any) => String(skill || '').trim()).filter(Boolean)
                 : undefined
         }))
-        .filter(member => member.id);
+        .filter((member: any) => member.id);
 
     if (normalizedMembers.length === 0) {
         throw new Error('Swarm JSON contains no valid members.');
@@ -300,6 +210,9 @@ function renderReadableClusterContextMarkdown(body: ClusterContextExportBody): s
         lines.push(`- Message Counts: direct=${body.messageCounts.direct}, broadcast=${body.messageCounts.broadcast}, collaborate=${body.messageCounts.collaborate}`);
     } else {
         lines.push(`- Mode: ${body.mode}`);
+        if (body.swarmRunId) {
+            lines.push(`- Run ID: ${body.swarmRunId}`);
+        }
         lines.push(`- Message Count: ${body.messageCount}`);
     }
     lines.push('');
@@ -343,8 +256,8 @@ function renderMessageSection(title: string, messages: ChatMessage[]): string[] 
 
     const renderedMessages = Array.isArray(messages)
         ? messages
-            .map((message, index) => renderMessageBlock(message, index + 1))
-            .filter(block => block.length > 0)
+            .map((message: any, index: any) => renderMessageBlock(message, index + 1))
+            .filter((block: any) => block.length > 0)
         : [];
 
     if (renderedMessages.length === 0) {
@@ -352,7 +265,7 @@ function renderMessageSection(title: string, messages: ChatMessage[]): string[] 
         return lines;
     }
 
-    renderedMessages.forEach((block, index) => {
+    renderedMessages.forEach((block: any, index: any) => {
         if (index > 0) {
             lines.push('');
         }

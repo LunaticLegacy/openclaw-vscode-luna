@@ -43,7 +43,7 @@ suite('OpenClaw Main Path', () => {
         assert.ok(manifest.activationEvents?.includes('onStartupFinished'));
         assert.ok(manifest.activationEvents?.includes('onCommand:openclaw.openPanel'));
 
-        const commands = new Set((manifest.contributes?.commands || []).map(item => item.command));
+        const commands = new Set((manifest.contributes?.commands || []).map((item: any) => item.command));
         for (const command of [
             'openclaw.openPanel',
             'openclaw.newAgent',
@@ -55,8 +55,8 @@ suite('OpenClaw Main Path', () => {
         }
 
         const openClawViews = manifest.contributes?.views?.openclaw || [];
-        assert.ok(openClawViews.some(view => view.id === 'openclawSidebar' && view.when === 'openclaw.enabled'));
-        assert.ok(openClawViews.some(view => view.id === 'openclawTasks' && view.when === 'openclaw.enabled'));
+        assert.ok(openClawViews.some((view: any) => view.id === 'openclawSidebar' && view.when === 'openclaw.enabled'));
+        assert.ok(openClawViews.some((view: any) => view.id === 'openclawTasks' && view.when === 'openclaw.enabled'));
     });
 
     test('maps OpenClaw usage back to the real model when session usage omits it', () => {
@@ -111,7 +111,7 @@ suite('OpenClaw Main Path', () => {
             model: 'kimi-k2.5'
         } satisfies OpenClawSessionsListEntry]);
 
-        const usage = mapOpenClawUsage(sessionsUsage, null, undefined, {
+        const usage = mapOpenClawUsage(sessionsUsage, undefined, undefined, {
             sessionModels: sessionHints,
             agentModels: new Map([['default', 'kimi-k2.5']]),
             defaultModel: 'kimi-k2.5'
@@ -125,7 +125,7 @@ suite('OpenClaw Main Path', () => {
 
     test('ships the documented OpenClaw auth provider catalog for the setup UI', () => {
         const providers = getBuiltInOpenClawAuthProviderIds();
-        const sortedProviders = [...providers].sort((left, right) => left.localeCompare(right));
+        const sortedProviders = [...providers].sort((left: any, right: any) => left.localeCompare(right));
 
         assert.deepEqual(providers, sortedProviders);
         assert.equal(new Set(providers).size, providers.length);
@@ -362,7 +362,7 @@ suite('OpenClaw Main Path', () => {
             assert.match(systemFile, /No findings\./i);
             assert.match(soulFile, /Evidence Standard/i);
         } finally {
-            setOpenClawCliCommandExecutorForTests(null);
+            setOpenClawCliCommandExecutorForTests(undefined);
             agentManager.dispose();
             service.dispose();
             await fs.rm(stateDir, { recursive: true, force: true });
@@ -381,7 +381,7 @@ suite('OpenClaw Main Path', () => {
             assert.ok(agent, 'Expected an OpenClaw agent');
 
             const observedStatuses: string[] = [];
-            agentManager.on('agentUpdated', updatedAgent => {
+            agentManager.on('agentUpdated', (updatedAgent: any) => {
                 if (updatedAgent.id === agent.id) {
                     observedStatuses.push(updatedAgent.status);
                 }
@@ -397,7 +397,7 @@ suite('OpenClaw Main Path', () => {
         } finally {
             agentManager.dispose();
             service.dispose();
-            setOpenClawCliCommandExecutorForTests(null);
+            setOpenClawCliCommandExecutorForTests(undefined);
             await fs.rm(stateDir, { recursive: true, force: true });
         }
     });
@@ -414,7 +414,7 @@ suite('OpenClaw Main Path', () => {
             assert.ok(agent, 'Expected an OpenClaw agent');
 
             const observedStatuses: string[] = [];
-            agentManager.on('agentUpdated', updatedAgent => {
+            agentManager.on('agentUpdated', (updatedAgent: any) => {
                 if (updatedAgent.id === agent.id) {
                     observedStatuses.push(updatedAgent.status);
                 }
@@ -435,7 +435,7 @@ suite('OpenClaw Main Path', () => {
         } finally {
             agentManager.dispose();
             service.dispose();
-            setOpenClawCliCommandExecutorForTests(null);
+            setOpenClawCliCommandExecutorForTests(undefined);
             await fs.rm(stateDir, { recursive: true, force: true });
         }
     });
@@ -738,7 +738,7 @@ suite('OpenClaw Main Path', () => {
                 abortedRuns?: Array<{ sessionKey?: string }>;
             };
             assert.ok(
-                fakeState.abortedRuns?.some(item => item.sessionKey === openClawSession.id),
+                fakeState.abortedRuns?.some((item: any) => item.sessionKey === openClawSession.id),
                 'Expected abortSessionRun to forward a stop request to OpenClaw'
             );
 
@@ -780,12 +780,12 @@ suite('OpenClaw Main Path', () => {
 
             const viewState = await taskManager.getTaskViewState();
             assert.equal(viewState.available, true);
-            assert.ok(viewState.tasks.some(item => item.id === task.id));
+            assert.ok(viewState.tasks.some((item: any) => item.id === task.id));
 
             await taskManager.deleteTask(task.id);
-            assert.equal(await taskManager.getTask(task.id), null);
+            assert.equal(await taskManager.getTask(task.id), undefined);
         } finally {
-            setOpenClawCliCommandExecutorForTests(null);
+            setOpenClawCliCommandExecutorForTests(undefined);
             taskManager.dispose();
             usageManager.dispose();
             agentManager.dispose();
@@ -801,7 +801,7 @@ async function startFakeLocalProvider(): Promise<{
     baseUrl: string;
     dispose(): Promise<void>;
 }> {
-    const server = http.createServer(async (request, response) => {
+    const server = http.createServer(async (request: any, response: any) => {
         if (request.method !== 'POST' || request.url !== '/chat/completions') {
             response.writeHead(404);
             response.end();
@@ -816,7 +816,7 @@ async function startFakeLocalProvider(): Promise<{
         };
         const userMessage = [...(payload.messages || [])]
             .reverse()
-            .find(message => message.role === 'user')?.content || '';
+            .find((message: any) => message.role === 'user')?.content || '';
         const assistantText = `Fake response for: ${userMessage}`;
 
         if (payload.stream) {
@@ -859,7 +859,7 @@ async function startFakeLocalProvider(): Promise<{
         }));
     });
 
-    await new Promise<void>((resolve, reject) => {
+    await new Promise<void>((resolve: any, reject: any) => {
         server.once('error', reject);
         server.listen(0, '127.0.0.1', () => {
             server.off('error', reject);
@@ -875,8 +875,8 @@ async function startFakeLocalProvider(): Promise<{
     return {
         baseUrl: `http://127.0.0.1:${address.port}`,
         dispose: async () => {
-            await new Promise<void>((resolve, reject) => {
-                server.close(error => error ? reject(error) : resolve());
+            await new Promise<void>((resolve: any, reject: any) => {
+                server.close((error: any) => error ? reject(error) : resolve());
             });
         }
     };
@@ -892,11 +892,11 @@ async function createFakeOpenClawConfig(stateDir: string): Promise<OpenClawCliSe
                 token: ''
             }
         }
-    }, null, 2), 'utf8');
+    }, undefined, 2), 'utf8');
     await fs.writeFile(path.join(stateDir, 'cron', 'jobs.json'), JSON.stringify({
         version: 1,
         jobs: []
-    }, null, 2), 'utf8');
+    }, undefined, 2), 'utf8');
 
     return {
         mode: 'openclaw',
@@ -911,10 +911,10 @@ async function createFakeOpenClawConfig(stateDir: string): Promise<OpenClawCliSe
 }
 
 function readRequestBody(request: http.IncomingMessage): Promise<string> {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve: any, reject: any) => {
         let buffer = '';
         request.setEncoding('utf8');
-        request.on('data', chunk => {
+        request.on('data', (chunk: any) => {
             buffer += chunk;
         });
         request.on('end', () => resolve(buffer));
@@ -923,5 +923,5 @@ function readRequestBody(request: http.IncomingMessage): Promise<string> {
 }
 
 function wait(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve: any) => setTimeout(resolve, ms));
 }

@@ -62,7 +62,7 @@ export function buildOpenClawPanelHtml(extensionUri: vscode.Uri, webview: vscode
  */
 function buildPanelScriptTags(extensionUri: vscode.Uri, webview: vscode.Webview): string {
     return PANEL_SCRIPT_FILES
-        .map(fileName => {
+        .map((fileName: any) => {
             const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', fileName));
             return `    <script src="${scriptUri.toString()}" defer></script>`;
         })

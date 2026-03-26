@@ -41,8 +41,8 @@ export class ClusterTreeItem extends vscode.TreeItem {
  * 实现 VSCode TreeDataProvider 接口，管理集群列表的显示和更新
  */
 export class ClusterTreeProvider implements vscode.TreeDataProvider<ClusterTreeItem> {
-    private _onDidChangeTreeData: vscode.EventEmitter<ClusterTreeItem | undefined | null | void> = new vscode.EventEmitter<ClusterTreeItem | undefined | null | void>();
-    readonly onDidChangeTreeData: vscode.Event<ClusterTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
+    private _onDidChangeTreeData: vscode.EventEmitter<ClusterTreeItem | undefined | void> = new vscode.EventEmitter<ClusterTreeItem | undefined | void>();
+    readonly onDidChangeTreeData: vscode.Event<ClusterTreeItem | undefined | void> = this._onDidChangeTreeData.event;
 
     private clusterManager: ClusterManager;
 
@@ -91,7 +91,7 @@ export class ClusterTreeProvider implements vscode.TreeDataProvider<ClusterTreeI
             return [];
         }
 
-        const sortedClusters = clusters.sort((a, b) => {
+        const sortedClusters = clusters.sort((a: any, b: any) => {
             if (a.status === b.status) {
                 return 0;
             }
@@ -99,7 +99,7 @@ export class ClusterTreeProvider implements vscode.TreeDataProvider<ClusterTreeI
             return a.status === 'active' ? -1 : 1;
         });
 
-        return sortedClusters.map(cluster =>
+        return sortedClusters.map((cluster: any) =>
             new ClusterTreeItem(cluster, vscode.TreeItemCollapsibleState.None)
         );
     }
@@ -107,9 +107,9 @@ export class ClusterTreeProvider implements vscode.TreeDataProvider<ClusterTreeI
     /**
      * 获取父节点
      * @param _element - 当前节点元素
-     * @returns 父节点（根节点返回 null）
+     * @returns 父节点（根节点返回 undefined）
      */
     getParent(_element: ClusterTreeItem): vscode.ProviderResult<ClusterTreeItem> {
-        return null;
+        return undefined;
     }
 }

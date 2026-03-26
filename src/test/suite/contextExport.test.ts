@@ -103,6 +103,7 @@ suite('contextExport', () => {
                 agentIds: ['alpha', 'beta']
             },
             mode: 'collaborate',
+            swarmRunId: 'run-42',
             messageCount: 2,
             messages: [
                 createMessage('msg-1', 'user', 'Plan the release', {
@@ -118,6 +119,7 @@ suite('contextExport', () => {
         const bundle = buildClusterContextExportBundle('swarm-collaborate-context', body);
 
         assert.match(bundle.readableMarkdown, /### Collaboration Timeline/);
+        assert.match(bundle.readableMarkdown, /Run ID: run-42/);
         assert.match(bundle.readableMarkdown, /Final merged answer/);
         assert.match(bundle.readableMarkdown, /Coordinator: Alpha/);
     });
@@ -132,6 +134,7 @@ suite('contextExport', () => {
                 agentIds: ['alpha', 'beta']
             },
             mode: 'broadcast',
+            swarmRunId: 'run-7',
             messageCount: 3,
             messages: [
                 createMessage('msg-1', 'user', 'Run the swarm'),
@@ -149,6 +152,7 @@ suite('contextExport', () => {
 
         assert.equal(replay.sourcePath, 'C:\\temp\\swarm.json');
         assert.equal(replay.body.mode, 'broadcast');
+        assert.equal(replay.body.swarmRunId, 'run-7');
         assert.equal(replay.body.messageCount, 2);
         assert.equal(replay.body.messages[1]?.agentId, 'alpha');
         assert.equal(replay.body.messages[1]?.metadata?.swarmLatencyMs, 2300);

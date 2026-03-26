@@ -131,6 +131,7 @@
   "clusters.finalAnswer": "最终答案",
   "clusters.coordinator": "协调者",
   "clusters.contributions": "成员贡献",
+  "clusters.collaborateNoAgentOutput": "本次协作中没有采集到该智能体的输出。",
   "clusters.noSuccessfulAgents": "没有智能体产出可用的贡献结果。",
   "clusters.noneFound": "当前没有智能体群，要创建一个吗？",
   "clusters.resultsTitle": "智能体群结果",
