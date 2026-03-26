@@ -17,6 +17,7 @@ import type {
     ClusterCollaborationRoundDescriptor,
     ClusterCollaborationProgressEvent,
     ClusterCollaborationResult,
+    ClusterSwarmRunSummary,
     ClusterManager
 } from '../../managers/clusterManager';
 import type { Agent, ChatMessage } from '../../services/openclawService';
@@ -51,6 +52,7 @@ interface ClusterActionContext {
  */
 type SwarmMode = 'broadcast' | 'collaborate';
 type SwarmConversationOutputMode = 'frontend' | 'raw';
+const COLLABORATE_AGENT_SWARM_LIVE_SYNC_INTERVAL_MS = 900;
 
 /**
  * Type alias for presented chat messages
@@ -181,12 +183,20 @@ export async function handleCollaborate(context: ClusterActionContext, clusterId
     const swarmRunToken = context.nextClusterSwarmRunToken();
     const swarmRunId = buildPanelSwarmRunId(clusterId, 'collaborate');
     const runningAgentIds = await beginClusterAgentRuns(context, clusterId);
+    let stopLiveAgentSwarmSync: (() => Promise<void>) | undefined;
     try {
         const [agents, cluster] = await Promise.all([
             context.agentManager.getAgents(),
             context.clusterManager.getCluster(clusterId)
         ]);
         const progress = await initializeClusterSwarmProgress(context, clusterId, 'collaborate', message, swarmRunId);
+        stopLiveAgentSwarmSync = startCollaborateAgentSwarmLiveSync(context, {
+            clusterId,
+            swarmRunId,
+            swarmRunToken,
+            agentIds: cluster?.agentIds || [],
+            agents
+        });
         const result = await context.clusterManager.collaborateOnCluster({
             clusterId,
             message: normalizeOutgoingMessageContent(message),
@@ -236,6 +246,7 @@ export async function handleCollaborate(context: ClusterActionContext, clusterId
             });
         }
     } finally {
+        await stopLiveAgentSwarmSync?.().catch(() => undefined);
         endClusterAgentRuns(context, runningAgentIds);
     }
 
@@ -291,13 +302,13 @@ export async function loadClusterSwarmMessages(
             swarmRunId
         });
 
-        const [messages, knownRunIds, agents] = await Promise.all([
+        const [messages, runSummaries, agents] = await Promise.all([
             outputMode === 'raw' && mode === 'collaborate'
                 ? buildClusterSwarmRawLogMessages(context, clusterId, mode, swarmRunId)
                 : mode === 'collaborate' && outputMode === 'frontend'
                     ? context.clusterManager.getClusterSwarmSessionMessages({ clusterId, mode, swarmRunId })
                     : context.clusterManager.getClusterSwarmMessages({ clusterId, mode, swarmRunId }),
-            context.clusterManager.listClusterSwarmRunIds({ clusterId, mode }),
+            context.clusterManager.listClusterSwarmRuns({ clusterId, mode }),
             outputMode === 'frontend'
                 ? context.agentManager.getAgents()
                 : Promise.resolve([])
@@ -311,7 +322,8 @@ export async function loadClusterSwarmMessages(
                 : messages,
             outputMode,
             swarmRunId,
-            knownRunIds
+            knownRunIds: runSummaries.map((summary: any) => summary.runId),
+            knownRuns: runSummaries
         });
     } catch (error) {
         context.postMessage({
@@ -547,6 +559,117 @@ export async function loadClusterAgentSwarmMessages(
             swarmRunId
         });
     }
+}
+
+function startCollaborateAgentSwarmLiveSync(
+    context: ClusterActionContext,
+    {
+        clusterId,
+        swarmRunId,
+        swarmRunToken,
+        agentIds,
+        agents
+    }: {
+        clusterId: string;
+        swarmRunId: string;
+        swarmRunToken: number;
+        agentIds: string[];
+        agents: Agent[];
+    }
+): () => Promise<void> {
+    let active = true;
+    const loop = (async () => {
+        while (active && context.getClusterSwarmRunToken() === swarmRunToken) {
+            await syncCollaborateAgentSwarmLiveState(context, {
+                clusterId,
+                swarmRunId,
+                agentIds,
+                agents,
+                keepPending: true
+            }).catch(() => undefined);
+
+            await delay(COLLABORATE_AGENT_SWARM_LIVE_SYNC_INTERVAL_MS);
+        }
+    })();
+
+    return async () => {
+        active = false;
+        await loop.catch(() => undefined);
+        await syncCollaborateAgentSwarmLiveState(context, {
+            clusterId,
+            swarmRunId,
+            agentIds,
+            agents,
+            keepPending: false
+        }).catch(() => undefined);
+    };
+}
+
+async function syncCollaborateAgentSwarmLiveState(
+    context: ClusterActionContext,
+    {
+        clusterId,
+        swarmRunId,
+        agentIds,
+        agents,
+        keepPending = true
+    }: {
+        clusterId: string;
+        swarmRunId: string;
+        agentIds: string[];
+        agents: Agent[];
+        keepPending?: boolean;
+    }
+): Promise<void> {
+    if (!clusterId || !swarmRunId || !Array.isArray(agentIds) || agentIds.length === 0) {
+        return;
+    }
+
+    await Promise.all(agentIds.map(async (agentId: any) => {
+        const messages = await context.clusterManager.getClusterAgentSwarmSessionMessages({
+            clusterId,
+            agentId,
+            mode: 'collaborate',
+            swarmRunId,
+            preferLiveState: true
+        });
+
+        context.postMessage({
+            type: 'replaceClusterAgentSwarmMessages',
+            clusterId,
+            agentId,
+            mode: 'collaborate',
+            messages: decorateClusterAgentLogMessages(messages, 'collaborate'),
+            swarmRunId
+        });
+    }));
+
+    const runSummaries = await buildKnownSwarmRunSummaries(context, {
+        clusterId,
+        mode: 'collaborate',
+        swarmRunId
+    });
+    const swarmMessages = await context.clusterManager.getClusterSwarmSessionMessages({
+        clusterId,
+        mode: 'collaborate',
+        swarmRunId,
+        preferLiveState: true
+    });
+    context.postMessage({
+        type: 'replaceSwarmMessages',
+        clusterId,
+        mode: 'collaborate',
+        outputMode: 'frontend',
+        messages: decorateLoadedSwarmConversationMessages(swarmMessages, agents, 'collaborate'),
+        swarmRunId,
+        knownRunIds: runSummaries.map((summary: any) => summary.runId),
+        knownRuns: runSummaries,
+        keepPending
+    });
+}
+
+function delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /**
@@ -1111,7 +1234,11 @@ async function initializeClusterSwarmProgress(
     seenKeys: Set<string>;
 }> {
     const batchId = buildSwarmBatchId(mode);
-    const knownRunIds = await context.clusterManager.listClusterSwarmRunIds({ clusterId, mode });
+    const runSummaries = await buildKnownSwarmRunSummaries(context, {
+        clusterId,
+        mode,
+        swarmRunId
+    });
     const messages = [
         buildSwarmUserMessage(userMessage, mode, batchId)
     ];
@@ -1127,7 +1254,8 @@ async function initializeClusterSwarmProgress(
         mode,
         messages,
         swarmRunId,
-        knownRunIds: Array.from(new Set([swarmRunId, ...knownRunIds])),
+        knownRunIds: runSummaries.map((summary: any) => summary.runId),
+        knownRuns: runSummaries,
         keepPending: true
     });
 
@@ -1244,9 +1372,10 @@ async function finalizeClusterSwarmProgress(
     assistantMessages: PresentedChatMessage[]
 ): Promise<PresentedChatMessage[]> {
     await appendClusterSwarmProgressMessages(context, progress, assistantMessages);
-    const knownRunIds = await context.clusterManager.listClusterSwarmRunIds({
+    const runSummaries = await buildKnownSwarmRunSummaries(context, {
         clusterId: progress.clusterId,
-        mode: progress.mode
+        mode: progress.mode,
+        swarmRunId: progress.swarmRunId
     });
     context.postMessage({
         type: 'replaceSwarmMessages',
@@ -1254,7 +1383,8 @@ async function finalizeClusterSwarmProgress(
         mode: progress.mode,
         messages: progress.messages,
         swarmRunId: progress.swarmRunId,
-        knownRunIds: Array.from(new Set([progress.swarmRunId, ...knownRunIds])),
+        knownRunIds: runSummaries.map((summary: any) => summary.runId),
+        knownRuns: runSummaries,
         keepPending: false
     });
     return progress.messages;
@@ -1844,9 +1974,10 @@ async function refreshClusterSwarmRawLog(
     swarmRunId?: string
 ): Promise<void> {
     const messages = await buildClusterSwarmRawLogMessages(context, clusterId, 'collaborate', swarmRunId);
-    const knownRunIds = await context.clusterManager.listClusterSwarmRunIds({
+    const runSummaries = await buildKnownSwarmRunSummaries(context, {
         clusterId,
-        mode: 'collaborate'
+        mode: 'collaborate',
+        swarmRunId
     });
     context.postMessage({
         type: 'replaceSwarmMessages',
@@ -1855,8 +1986,43 @@ async function refreshClusterSwarmRawLog(
         outputMode: 'raw',
         messages,
         swarmRunId,
-        knownRunIds: Array.from(new Set([String(swarmRunId || '').trim(), ...knownRunIds].filter(Boolean)))
+        knownRunIds: runSummaries.map((summary: any) => summary.runId),
+        knownRuns: runSummaries
     });
+}
+
+async function buildKnownSwarmRunSummaries(
+    context: ClusterActionContext,
+    {
+        clusterId,
+        mode,
+        swarmRunId
+    }: {
+        clusterId: string;
+        mode: SwarmMode;
+        swarmRunId?: string;
+    }
+): Promise<ClusterSwarmRunSummary[]> {
+    const summaries = await context.clusterManager.listClusterSwarmRuns({ clusterId, mode });
+    const normalizedRunId = String(swarmRunId || '').trim();
+    if (!normalizedRunId) {
+        return summaries;
+    }
+
+    if (summaries.some((summary: any) => summary.runId === normalizedRunId)) {
+        return summaries;
+    }
+
+    return [{
+        runId: normalizedRunId,
+        clusterId,
+        mode,
+        status: 'running',
+        phase: mode === 'broadcast' ? 'broadcast' : 'opening',
+        currentRound: 1,
+        startedAt: new Date().toISOString(),
+        isActive: true
+    }, ...summaries];
 }
 
 function decorateRawSwarmLogMessage(

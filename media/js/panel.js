@@ -520,7 +520,8 @@
                     swarmRunId: message.swarmRunId,
                     keepPending: Boolean(message.keepPending),
                     outputMode: message.outputMode,
-                    knownRunIds: message.knownRunIds || []
+                    knownRunIds: message.knownRunIds || [],
+                    knownRuns: message.knownRuns || []
                 });
                 break;
 
@@ -529,7 +530,8 @@
                     swarmRunId: message.swarmRunId,
                     keepPending: Boolean(message.keepPending),
                     outputMode: message.outputMode,
-                    knownRunIds: message.knownRunIds || []
+                    knownRunIds: message.knownRunIds || [],
+                    knownRuns: message.knownRuns || []
                 });
                 break;
 
@@ -538,7 +540,8 @@
                     swarmRunId: message.swarmRunId,
                     keepPending: Boolean(message.keepPending),
                     outputMode: message.outputMode,
-                    knownRunIds: message.knownRunIds || []
+                    knownRunIds: message.knownRunIds || [],
+                    knownRuns: message.knownRuns || []
                 });
                 break;
 

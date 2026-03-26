@@ -234,7 +234,6 @@
 
 .cluster-top-section-body {
     overflow: hidden;
-    transition: height 0.24s ease;
 }
 
 .cluster-top-section-body.is-collapsed {

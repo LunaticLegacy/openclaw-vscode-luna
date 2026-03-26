@@ -21,6 +21,7 @@ import type {
     ClusterSwarmRequest,
     ClusterCollaborationProgressEvent,
     ClusterCollaborationRoundDescriptor,
+    ClusterSwarmRunSummary,
     CollaborateClusterRequest,
     CreateClusterParams,
     UpdateClusterRequest
@@ -1114,6 +1115,13 @@ class FakeClusterManager {
         clusterId,
         mode
     }: ClusterSwarmRequest): Promise<string[]> {
+        return (await this.listClusterSwarmRuns({ clusterId, mode })).map((summary: any) => summary.runId);
+    }
+
+    public async listClusterSwarmRuns({
+        clusterId,
+        mode
+    }: ClusterSwarmRequest): Promise<ClusterSwarmRunSummary[]> {
         const registryKey = this.swarmRunRegistryKey(clusterId, mode);
         const known = new Set<string>();
         const latest = this.latestSwarmRunByKey.get(registryKey);
@@ -1129,7 +1137,16 @@ class FakeClusterManager {
             known.add(key.slice(prefix.length) || 'default');
         }
 
-        return Array.from(known.values());
+        return Array.from(known.values()).map((runId: any, index: number) => ({
+            runId,
+            clusterId,
+            mode,
+            status: index === 0 ? 'running' : 'completed',
+            phase: mode === 'broadcast' ? 'broadcast' : 'opening',
+            currentRound: 1,
+            startedAt: `2026-03-26T00:0${index}:00.000Z`,
+            isActive: index === 0
+        }));
     }
 
     public async getClusterAgentSwarmMessages(

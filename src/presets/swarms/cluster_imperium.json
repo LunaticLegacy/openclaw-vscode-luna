@@ -23,18 +23,6 @@
             "swarmModes": [
               "broadcast",
               "collaborate"
-            ],
-            "keywords": [
-              "dispatch",
-              "execute",
-              "assign",
-              "coordinate",
-              "integrate",
-              "synthesize",
-              "workflow",
-              "dependencies",
-              "implementation",
-              "final"
             ]
           }
         },
@@ -46,20 +34,6 @@
             "swarmModes": [
               "broadcast",
               "collaborate"
-            ],
-            "keywords": [
-              "review",
-              "veto",
-              "reject",
-              "revise",
-              "risk",
-              "unsafe",
-              "evidence",
-              "assumption",
-              "policy",
-              "compliance",
-              "tradeoff",
-              "uncertainty"
             ]
           }
         },
@@ -71,19 +45,6 @@
             "swarmModes": [
               "broadcast",
               "collaborate"
-            ],
-            "keywords": [
-              "budget",
-              "cost",
-              "token",
-              "usage",
-              "quota",
-              "capacity",
-              "efficiency",
-              "overhead",
-              "expensive",
-              "optimize",
-              "simplify"
             ]
           }
         },
@@ -95,20 +56,6 @@
             "swarmModes": [
               "broadcast",
               "collaborate"
-            ],
-            "keywords": [
-              "safety",
-              "policy",
-              "law",
-              "compliance",
-              "authorization",
-              "danger",
-              "destructive",
-              "payment",
-              "credential",
-              "exploit",
-              "bypass",
-              "risk"
             ]
           }
         },
@@ -120,19 +67,6 @@
             "swarmModes": [
               "broadcast",
               "collaborate"
-            ],
-            "keywords": [
-              "execute",
-              "tool",
-              "operation",
-              "deploy",
-              "run",
-              "command",
-              "tactic",
-              "pipeline",
-              "workflow",
-              "multi-step",
-              "implementation"
             ]
           }
         },
@@ -144,20 +78,6 @@
             "swarmModes": [
               "broadcast",
               "collaborate"
-            ],
-            "keywords": [
-              "code",
-              "build",
-              "implement",
-              "architecture",
-              "frontend",
-              "backend",
-              "bug",
-              "debug",
-              "test",
-              "refactor",
-              "infra",
-              "system"
             ]
           }
         },
@@ -169,18 +89,6 @@
             "swarmModes": [
               "broadcast",
               "collaborate"
-            ],
-            "keywords": [
-              "role",
-              "owner",
-              "responsibility",
-              "permission",
-              "access",
-              "assignment",
-              "delegate",
-              "accountability",
-              "staffing",
-              "authority"
             ]
           }
         },
@@ -192,19 +100,6 @@
             "swarmModes": [
               "broadcast",
               "collaborate"
-            ],
-            "keywords": [
-              "format",
-              "protocol",
-              "style",
-              "naming",
-              "structure",
-              "output",
-              "convention",
-              "presentation",
-              "greeting",
-              "salve",
-              "schema"
             ]
           }
         },
@@ -215,17 +110,6 @@
             "swarmModes": [
               "broadcast",
               "collaborate"
-            ],
-            "keywords": [
-              "plan",
-              "draft",
-              "proposal",
-              "design",
-              "strategy",
-              "architecture",
-              "break down",
-              "decompose",
-              "intent"
             ]
           }
         }

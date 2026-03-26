@@ -132,6 +132,7 @@ export interface ClusterAgentMessagesRequest extends ClusterAgentRequest {
 export interface ClusterAgentSwarmRequest extends ClusterAgentRequest {
     mode: 'broadcast' | 'collaborate';
     swarmRunId?: string;
+    preferLiveState?: boolean;
 }
 
 export interface ClusterAgentSwarmMessagesRequest extends ClusterAgentSwarmRequest {
@@ -142,10 +143,23 @@ export interface ClusterSwarmRequest {
     clusterId: string;
     mode: 'broadcast' | 'collaborate';
     swarmRunId?: string;
+    preferLiveState?: boolean;
 }
 
 export interface ClusterSwarmMessagesRequest extends ClusterSwarmRequest {
     messages: ChatMessage[];
+}
+
+export interface ClusterSwarmRunSummary {
+    runId: string;
+    clusterId: string;
+    mode: SwarmMode;
+    status: SwarmRunState['status'];
+    phase: SwarmRunState['phase'];
+    currentRound: number;
+    startedAt?: string;
+    stoppedAt?: string;
+    isActive: boolean;
 }
 
 interface SwarmSessionConversationRequest extends ClusterSwarmRequest {
@@ -1817,7 +1831,8 @@ export class ClusterManager extends EventEmitter {
         clusterId,
         agentId,
         mode,
-        swarmRunId
+        swarmRunId,
+        preferLiveState
     }: ClusterAgentSwarmRequest): Promise<ChatMessage[]> {
         await this.ensurePersistedStateLoaded();
         const resolvedRunId = swarmRunId || this.resolveLatestSwarmRunId({ clusterId, mode });
@@ -1830,7 +1845,8 @@ export class ClusterManager extends EventEmitter {
             agentId,
             mode,
             swarmRunId: resolvedRunId,
-            includeInputs: true
+            includeInputs: true,
+            preferLiveState
         });
         if (sessionMessages.length > 0) {
             return cloneChatMessages(sessionMessages);
@@ -1924,7 +1940,8 @@ export class ClusterManager extends EventEmitter {
     public async getClusterSwarmSessionMessages({
         clusterId,
         mode,
-        swarmRunId
+        swarmRunId,
+        preferLiveState
     }: ClusterSwarmRequest): Promise<ChatMessage[]> {
         await this.ensurePersistedStateLoaded();
         const resolvedRunId = swarmRunId || this.resolveLatestSwarmRunId({ clusterId, mode });
@@ -1944,7 +1961,8 @@ export class ClusterManager extends EventEmitter {
             clusterId,
             mode,
             swarmRunId: resolvedRunId,
-            includeInputs: false
+            includeInputs: false,
+            preferLiveState
         });
 
         const merged = [
@@ -2055,7 +2073,8 @@ export class ClusterManager extends EventEmitter {
         mode,
         swarmRunId,
         agentId,
-        includeInputs = false
+        includeInputs = false,
+        preferLiveState = false
     }: SwarmSessionConversationRequest): Promise<ChatMessage[]> {
         const resolvedRunId = typeof swarmRunId === 'string' && swarmRunId.trim()
             ? swarmRunId.trim()
@@ -2073,9 +2092,7 @@ export class ClusterManager extends EventEmitter {
         const reconstructed: ChatMessage[] = [];
 
         for (const entry of sessionEntries) {
-            const history = normalizePersistedChatMessages(
-                await this.service.getChatHistory(entry.sessionId).catch(() => [])
-            );
+            const history = await this.loadSwarmSessionHistory(entry.sessionId, preferLiveState);
             reconstructed.push(...reconstructSwarmSessionMessagesFromHistory({
                 history,
                 agentId: entry.agentId,
@@ -2086,6 +2103,13 @@ export class ClusterManager extends EventEmitter {
         }
 
         return reconstructed.sort(compareReconstructedSwarmMessages);
+    }
+
+    private async loadSwarmSessionHistory(sessionId: string, preferLiveState: boolean): Promise<ChatMessage[]> {
+        const history = preferLiveState && this.service.supportsLiveSessionSync()
+            ? await this.service.getLiveChatHistory(sessionId).catch(() => [])
+            : await this.service.getChatHistory(sessionId).catch(() => []);
+        return normalizePersistedChatMessages(history);
     }
 
     private listSwarmSessionEntries({
@@ -2131,6 +2155,14 @@ export class ClusterManager extends EventEmitter {
         clusterId,
         mode
     }: ClusterSwarmRequest): Promise<string[]> {
+        const summaries = await this.listClusterSwarmRuns({ clusterId, mode });
+        return summaries.map((summary: any) => summary.runId);
+    }
+
+    public async listClusterSwarmRuns({
+        clusterId,
+        mode
+    }: ClusterSwarmRequest): Promise<ClusterSwarmRunSummary[]> {
         await this.ensurePersistedStateLoaded();
 
         const clusterPrefix = `${clusterId.trim()}::swarm::${mode}::`;
@@ -2162,26 +2194,119 @@ export class ClusterManager extends EventEmitter {
         }
 
         return Array.from(candidates.values())
+            .map((runId: any) => this.buildClusterSwarmRunSummary({
+                clusterId,
+                mode,
+                runId,
+                activeRunId,
+                latestRunId
+            }))
             .sort((left: any, right: any) => {
-                if (left === activeRunId) {
+                if (left.runId === activeRunId) {
                     return -1;
                 }
-                if (right === activeRunId) {
+                if (right.runId === activeRunId) {
                     return 1;
                 }
-                if (left === latestRunId) {
+                if (left.runId === latestRunId) {
                     return -1;
                 }
-                if (right === latestRunId) {
+                if (right.runId === latestRunId) {
                     return 1;
                 }
 
-                const leftState = this.swarmRunStates.get(left);
-                const rightState = this.swarmRunStates.get(right);
-                const leftTime = Date.parse(leftState?.startedAt || leftState?.stoppedAt || '') || 0;
-                const rightTime = Date.parse(rightState?.startedAt || rightState?.stoppedAt || '') || 0;
+                const leftTime = Date.parse(left.startedAt || left.stoppedAt || '') || 0;
+                const rightTime = Date.parse(right.startedAt || right.stoppedAt || '') || 0;
                 return rightTime - leftTime;
             });
+    }
+
+    private buildClusterSwarmRunSummary({
+        clusterId,
+        mode,
+        runId,
+        activeRunId,
+        latestRunId
+    }: {
+        clusterId: string;
+        mode: SwarmMode;
+        runId: string;
+        activeRunId?: string;
+        latestRunId?: string;
+    }): ClusterSwarmRunSummary {
+        const state = this.swarmRunStates.get(runId);
+        const inferredStartedAt = state?.startedAt || this.findSwarmRunMessageTimestamp({
+            clusterId,
+            mode,
+            swarmRunId: runId,
+            pick: 'first'
+        });
+        const inferredStoppedAt = state?.stoppedAt || this.findSwarmRunMessageTimestamp({
+            clusterId,
+            mode,
+            swarmRunId: runId,
+            pick: 'last'
+        });
+
+        return {
+            runId,
+            clusterId,
+            mode,
+            status: state?.status || (runId === activeRunId ? 'running' : 'completed'),
+            phase: state?.phase || (mode === 'broadcast' ? 'broadcast' : 'synthesis'),
+            currentRound: Number.isFinite(state?.currentRound) ? Number(state?.currentRound) : 1,
+            startedAt: inferredStartedAt,
+            stoppedAt: inferredStoppedAt,
+            isActive: runId === activeRunId || (runId === latestRunId && state?.status === 'running')
+        };
+    }
+
+    private findSwarmRunMessageTimestamp({
+        clusterId,
+        mode,
+        swarmRunId,
+        pick
+    }: {
+        clusterId: string;
+        mode: SwarmMode;
+        swarmRunId: string;
+        pick: 'first' | 'last';
+    }): string | undefined {
+        const timestamps: string[] = [];
+        const aggregateKey = this.buildClusterSwarmStorageKey({
+            clusterId,
+            mode,
+            swarmRunId
+        });
+        const aggregateMessages = this.clusterSwarmMessages.get(aggregateKey) || [];
+        for (const message of aggregateMessages) {
+            if (typeof message?.timestamp === 'string' && message.timestamp.trim()) {
+                timestamps.push(message.timestamp.trim());
+            }
+        }
+
+        const agentPrefix = `${clusterId.trim()}::agent::`;
+        const agentSuffix = `::${mode}::${swarmRunId.trim()}`;
+        for (const [key, messages] of this.clusterAgentSwarmMessages.entries()) {
+            if (!key.startsWith(agentPrefix) || !key.endsWith(agentSuffix)) {
+                continue;
+            }
+
+            for (const message of messages || []) {
+                if (typeof message?.timestamp === 'string' && message.timestamp.trim()) {
+                    timestamps.push(message.timestamp.trim());
+                }
+            }
+        }
+
+        if (timestamps.length === 0) {
+            return undefined;
+        }
+
+        timestamps.sort((left: any, right: any) => (Date.parse(left) || 0) - (Date.parse(right) || 0));
+        return pick === 'first'
+            ? timestamps[0]
+            : timestamps[timestamps.length - 1];
     }
 
     /**

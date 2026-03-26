@@ -254,6 +254,28 @@
     }
 
     /**
+     * 获取已知的Swarm运行摘要
+     * @param {string} clusterId - 集群ID
+     * @param {string} mode - Swarm模式
+     * @param {string} runId - 运行ID
+     * @returns {Object|null} 运行摘要或null
+     */
+    function getKnownSwarmConversationRunMeta(clusterId, mode, runId) {
+        const normalizedRunId = String(runId || '').trim();
+        if (!normalizedRunId) {
+            return null;
+        }
+
+        const registryKey = getSwarmConversationRegistryKey(clusterId, mode);
+        const registry = state.clusterSwarmRunMeta?.[registryKey];
+        if (!registry || typeof registry !== 'object') {
+            return null;
+        }
+
+        return registry[normalizedRunId] || null;
+    }
+
+    /**
      * 记录已知的Swarm对话运行ID
      * @param {string} clusterId - 集群ID
      * @param {string} mode - Swarm模式
@@ -311,6 +333,47 @@
         if (options.select && normalized[0]) {
             setSelectedSwarmConversationRunId(clusterId, mode, normalized[0]);
         } else if (window.persistUiState) {
+            window.persistUiState();
+        }
+    }
+
+    function syncKnownSwarmConversationRunMeta(clusterId, mode, runs) {
+        if (!Array.isArray(runs) || runs.length === 0) {
+            return;
+        }
+
+        if (!state.clusterSwarmRunMeta) {
+            state.clusterSwarmRunMeta = {};
+        }
+
+        const registryKey = getSwarmConversationRegistryKey(clusterId, mode);
+        const existing = state.clusterSwarmRunMeta[registryKey] && typeof state.clusterSwarmRunMeta[registryKey] === 'object'
+            ? state.clusterSwarmRunMeta[registryKey]
+            : {};
+        const next = { ...existing };
+
+        runs.forEach(run => {
+            const runId = String(run?.runId || '').trim();
+            if (!runId) {
+                return;
+            }
+
+            next[runId] = {
+                ...(existing[runId] || {}),
+                runId,
+                status: String(run?.status || existing[runId]?.status || '').trim() || undefined,
+                phase: String(run?.phase || existing[runId]?.phase || '').trim() || undefined,
+                currentRound: Number.isFinite(run?.currentRound)
+                    ? Number(run.currentRound)
+                    : Number.isFinite(existing[runId]?.currentRound) ? Number(existing[runId].currentRound) : undefined,
+                startedAt: String(run?.startedAt || existing[runId]?.startedAt || '').trim() || undefined,
+                stoppedAt: String(run?.stoppedAt || existing[runId]?.stoppedAt || '').trim() || undefined,
+                isActive: Boolean(run?.isActive)
+            };
+        });
+
+        state.clusterSwarmRunMeta[registryKey] = next;
+        if (window.persistUiState) {
             window.persistUiState();
         }
     }
@@ -727,6 +790,10 @@
             return;
         }
 
+        if (Array.isArray(options.knownRuns) && options.knownRuns.length > 0) {
+            syncKnownSwarmConversationRunMeta(clusterId, mode, options.knownRuns);
+        }
+
         if (Array.isArray(options.knownRunIds) && options.knownRunIds.length > 0) {
             syncKnownSwarmConversationRuns(clusterId, mode, options.knownRunIds);
         }
@@ -771,6 +838,10 @@
     function patchSwarmConversationMessages(clusterId, mode, messages, options = {}) {
         if (!shouldAcceptSwarmConversationUpdate(clusterId, mode, messages, options)) {
             return;
+        }
+
+        if (Array.isArray(options.knownRuns) && options.knownRuns.length > 0) {
+            syncKnownSwarmConversationRunMeta(clusterId, mode, options.knownRuns);
         }
 
         if (Array.isArray(options.knownRunIds) && options.knownRunIds.length > 0) {
@@ -851,6 +922,10 @@
     function replaceSwarmConversationMessages(clusterId, mode, messages, options = {}) {
         if (!shouldAcceptSwarmConversationUpdate(clusterId, mode, messages, options)) {
             return;
+        }
+
+        if (Array.isArray(options.knownRuns) && options.knownRuns.length > 0) {
+            syncKnownSwarmConversationRunMeta(clusterId, mode, options.knownRuns);
         }
 
         if (Array.isArray(options.knownRunIds) && options.knownRunIds.length > 0) {

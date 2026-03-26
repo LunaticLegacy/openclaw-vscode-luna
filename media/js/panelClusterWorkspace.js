@@ -310,40 +310,9 @@
             return;
         }
 
-        // 使用动画过渡展开/折叠
-        animateClusterTopSectionBody(body, collapsed);
-    }
-
-    /**
-     * 动画过渡顶部区域主体的展开/折叠
-     * @param {HTMLElement} body - 主体元素
-     * @param {boolean} collapsed - 目标折叠状态
-     */
-    function animateClusterTopSectionBody(body, collapsed) {
-        const endHeight = collapsed ? 0 : body.scrollHeight;
-        const startHeight = collapsed ? body.scrollHeight : 0;
-
-        body.classList.remove('is-collapsed');
-        body.style.overflow = 'hidden';
-        body.style.height = `${startHeight}px`;
-        body.getBoundingClientRect(); // 强制重排以确保动画生效
-
-        requestAnimationFrame(() => {
-            body.style.height = `${endHeight}px`;
-        });
-
-        const handleTransitionEnd = (event) => {
-            if (event.target !== body || event.propertyName !== 'height') {
-                return;
-            }
-
-            body.removeEventListener('transitionend', handleTransitionEnd);
-            body.classList.toggle('is-collapsed', collapsed);
-            body.style.overflow = collapsed ? 'hidden' : '';
-            body.style.height = collapsed ? '0px' : '';
-        };
-
-        body.addEventListener('transitionend', handleTransitionEnd);
+        body.style.height = collapsed ? '0px' : '';
+        body.classList.toggle('is-collapsed', collapsed);
+        body.style.overflow = collapsed ? 'hidden' : '';
     }
 
     /**
@@ -579,10 +548,7 @@
                         <span class="cluster-run-select-label">${escapeHtml(t('clusters.runLabel') || 'Run')}</span>
                         <select class="cluster-run-select" data-cluster-swarm-run-select>
                             ${runOptions.map((runId, index) => {
-                                const isActive = runId === getActiveSwarmConversationRunId(cluster.id, target.mode);
-                                const label = isActive
-                                    ? `${t('clusters.currentRun') || 'Current'} · ${shortenSwarmRunId(runId)}`
-                                    : `${t('clusters.runLabel') || 'Run'} ${runOptions.length - index} · ${shortenSwarmRunId(runId)}`;
+                                const label = formatSwarmRunOptionLabel(cluster.id, target.mode, runId, index, runOptions.length);
                                 return `<option value="${escapeHtml(runId)}" ${runId === selectedRunId ? 'selected' : ''}>${escapeHtml(label)}</option>`;
                             }).join('')}
                         </select>
@@ -606,6 +572,102 @@
         return normalized.length <= 18
             ? normalized
             : `${normalized.slice(0, 8)}…${normalized.slice(-6)}`;
+    }
+
+    function formatSwarmRunOptionLabel(clusterId, mode, runId, index, total) {
+        const t = window.OpenClawI18n ? window.OpenClawI18n.t : (key) => key;
+        const meta = typeof getKnownSwarmConversationRunMeta === 'function'
+            ? getKnownSwarmConversationRunMeta(clusterId, mode, runId)
+            : null;
+        const isActive = runId === getActiveSwarmConversationRunId(clusterId, mode) || Boolean(meta?.isActive);
+        const parts = [];
+
+        if (isActive) {
+            parts.push(t('clusters.currentRun') || 'Current');
+        } else if (!meta?.startedAt && total > 1) {
+            parts.push(`${t('clusters.runLabel') || 'Run'} ${total - index}`);
+        }
+
+        const timeLabel = formatSwarmRunTimestamp(meta?.startedAt || meta?.stoppedAt);
+        if (timeLabel) {
+            parts.push(timeLabel);
+        }
+
+        const statusLabel = formatSwarmRunStatus(meta);
+        if (statusLabel) {
+            parts.push(statusLabel);
+        }
+
+        parts.push(shortenSwarmRunId(runId));
+        return parts.join(' · ');
+    }
+
+    function formatSwarmRunTimestamp(value) {
+        const normalized = String(value || '').trim();
+        if (!normalized) {
+            return '';
+        }
+
+        const date = new Date(normalized);
+        if (Number.isNaN(date.getTime())) {
+            return '';
+        }
+
+        return date.toLocaleString([], {
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
+
+    function formatSwarmRunStatus(meta) {
+        if (!meta) {
+            return '';
+        }
+
+        const phase = String(meta.phase || '').trim();
+        const status = String(meta.status || '').trim();
+        const round = Number(meta.currentRound);
+
+        if (status === 'running') {
+            if (phase === 'opening') {
+                return 'Opening';
+            }
+            if (phase === 'critique' && Number.isFinite(round) && round > 0) {
+                return `Critique R${round}`;
+            }
+            if (phase === 'revision' && Number.isFinite(round) && round > 0) {
+                return `Revision R${round}`;
+            }
+            if (phase === 'stop-condition' && Number.isFinite(round) && round > 0) {
+                return `Stop Check R${round}`;
+            }
+            if (phase === 'synthesis') {
+                return 'Synthesis';
+            }
+            if (phase === 'broadcast') {
+                return 'Broadcast';
+            }
+        }
+
+        if (status === 'stopping') {
+            return 'Stopping';
+        }
+
+        if (status === 'failed') {
+            return 'Failed';
+        }
+
+        if (status === 'stopped') {
+            return 'Stopped';
+        }
+
+        if (status === 'completed') {
+            return 'Completed';
+        }
+
+        return '';
     }
 
     /**

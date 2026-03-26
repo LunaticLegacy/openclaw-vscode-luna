@@ -64,7 +64,7 @@
         // 聊天子智能体列表
         chatSubagents: [],
         // 聊天命令栏是否折叠
-        chatCommandBarCollapsed: false,
+        chatCommandBarCollapsed: true,
         
         // 集群相关状态
         currentClusterId: null,                    // 当前选中的集群ID
@@ -73,6 +73,7 @@
         currentClusterSwarmMode: 'broadcast',      // 当前Swarm模式
         currentClusterSwarmOutputMode: 'frontend', // 当前Swarm输出模式
         currentClusterSwarmRunSelections: {},      // Swarm运行选择状态
+        clusterSwarmRunMeta: {},                   // Swarm运行摘要
         currentClusterAgentViewMode: 'chat',       // 集群智能体视图模式
         
         // 数据列表
@@ -357,9 +358,12 @@
         state.mainSidebarCollapsed = Boolean(savedState.mainSidebarCollapsed);
         state.clusterTopSectionCollapsed = Boolean(savedState.clusterTopSectionCollapsed);
         state.clusterTopologyCollapsed = Boolean(savedState.clusterTopologyCollapsed);
-        state.chatCommandBarCollapsed = Boolean(savedState.chatCommandBarCollapsed);
+        state.chatCommandBarCollapsed = typeof savedState.chatCommandBarCollapsed === 'boolean'
+            ? savedState.chatCommandBarCollapsed
+            : true;
         state.clusterSwarmRunHistory = savedState.clusterSwarmRunHistory || {};
         state.currentClusterSwarmRunSelections = savedState.currentClusterSwarmRunSelections || {};
+        state.clusterSwarmRunMeta = savedState.clusterSwarmRunMeta || {};
     }
 
     /**
@@ -377,7 +381,8 @@
             clusterTopologyCollapsed: state.clusterTopologyCollapsed,
             chatCommandBarCollapsed: state.chatCommandBarCollapsed,
             clusterSwarmRunHistory: state.clusterSwarmRunHistory,
-            currentClusterSwarmRunSelections: state.currentClusterSwarmRunSelections
+            currentClusterSwarmRunSelections: state.currentClusterSwarmRunSelections,
+            clusterSwarmRunMeta: state.clusterSwarmRunMeta
         });
     }
 
@@ -466,6 +471,12 @@
         Object.keys(state.clusterSwarmRunHistory || {}).forEach(key => {
             if (key.startsWith(`cluster:${clusterId}:swarm:`)) {
                 delete state.clusterSwarmRunHistory[key];
+            }
+        });
+
+        Object.keys(state.clusterSwarmRunMeta || {}).forEach(key => {
+            if (key.startsWith(`cluster:${clusterId}:swarm:`)) {
+                delete state.clusterSwarmRunMeta[key];
             }
         });
         
